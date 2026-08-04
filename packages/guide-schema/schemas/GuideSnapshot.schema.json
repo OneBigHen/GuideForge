@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://guideforge.dev/schemas/GuideSnapshot.schema.json",
+  "title": "GuideSnapshot",
+  "description": "Canonical deterministic snapshot of a GuideForge guide. Schema version 1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "guideId",
+    "title",
+    "description",
+    "lifecycleState",
+    "createdAtIso",
+    "updatedAtIso",
+    "tasks"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "guideId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "title": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "lifecycleState": {
+      "enum": ["draft", "in-review", "approved", "signing", "released"]
+    },
+    "createdAtIso": { "type": "string", "format": "date-time" },
+    "updatedAtIso": { "type": "string", "format": "date-time" },
+    "tasks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/GuideTask" }
+    }
+  },
+  "$defs": {
+    "GuideTask": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["taskId", "title", "stepIds"],
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "title": { "type": "string", "minLength": 1 },
+        "stepIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          }
+        }
+      }
+    }
+  }
+}

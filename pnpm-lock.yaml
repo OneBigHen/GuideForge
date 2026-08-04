@@ -39,6 +39,18 @@ catalogs:
     '@vitejs/plugin-react':
       specifier: 6.0.5
       version: 6.0.5
+    dexie:
+      specifier: 4.4.4
+      version: 4.4.4
+    fake-indexeddb:
+      specifier: 6.2.5
+      version: 6.2.5
+    fast-check:
+      specifier: 4.9.0
+      version: 4.9.0
+    fflate:
+      specifier: 0.8.3
+      version: 0.8.3
     jsdom:
       specifier: 27.2.0
       version: 27.2.0
@@ -57,6 +69,12 @@ catalogs:
     vitest:
       specifier: 4.1.10
       version: 4.1.10
+    y-indexeddb:
+      specifier: 9.0.12
+      version: 9.0.12
+    yjs:
+      specifier: 13.6.32
+      version: 13.6.32
     zustand:
       specifier: 5.0.14
       version: 5.0.14
@@ -120,12 +138,24 @@ importers:
 
   apps/web:
     dependencies:
+      '@guideforge/collaboration':
+        specifier: workspace:*
+        version: link:../../packages/collaboration
+      '@guideforge/commands':
+        specifier: workspace:*
+        version: link:../../packages/commands
       '@guideforge/domain':
         specifier: workspace:*
         version: link:../../packages/domain
       '@guideforge/guide-schema':
         specifier: workspace:*
         version: link:../../packages/guide-schema
+      '@guideforge/package-gforge':
+        specifier: workspace:*
+        version: link:../../packages/package-gforge
+      '@guideforge/storage-web':
+        specifier: workspace:*
+        version: link:../../packages/storage-web
       '@guideforge/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -135,6 +165,9 @@ importers:
       '@tanstack/react-router':
         specifier: 'catalog:'
         version: 1.170.18(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      fflate:
+        specifier: 'catalog:'
+        version: 0.8.3
       react:
         specifier: 'catalog:'
         version: 19.2.8
@@ -166,12 +199,59 @@ importers:
       '@vitejs/plugin-react':
         specifier: 'catalog:'
         version: 6.0.5(vite@8.2.0(@types/node@26.1.2)(jiti@2.7.0))
+      fake-indexeddb:
+        specifier: 'catalog:'
+        version: 6.2.5
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
       vite:
         specifier: 'catalog:'
         version: 8.2.0(@types/node@26.1.2)(jiti@2.7.0)
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@types/node@26.1.2)(jsdom@27.2.0)(vite@8.2.0(@types/node@26.1.2)(jiti@2.7.0))
+
+  packages/collaboration:
+    dependencies:
+      '@guideforge/commands':
+        specifier: workspace:*
+        version: link:../commands
+      '@guideforge/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@guideforge/guide-schema':
+        specifier: workspace:*
+        version: link:../guide-schema
+      yjs:
+        specifier: 'catalog:'
+        version: 13.6.32
+    devDependencies:
+      fast-check:
+        specifier: 'catalog:'
+        version: 4.9.0
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@types/node@26.1.2)(jsdom@27.2.0)(vite@8.2.0(@types/node@26.1.2)(jiti@2.7.0))
+
+  packages/commands:
+    dependencies:
+      '@guideforge/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@guideforge/guide-schema':
+        specifier: workspace:*
+        version: link:../guide-schema
+    devDependencies:
+      fast-check:
+        specifier: 'catalog:'
+        version: 4.9.0
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
       vitest:
         specifier: 'catalog:'
         version: 4.1.10(@types/node@26.1.2)(jsdom@27.2.0)(vite@8.2.0(@types/node@26.1.2)(jiti@2.7.0))
@@ -186,7 +266,70 @@ importers:
         version: 4.1.10(@types/node@26.1.2)(jsdom@27.2.0)(vite@8.2.0(@types/node@26.1.2)(jiti@2.7.0))
 
   packages/guide-schema:
+    dependencies:
+      '@guideforge/domain':
+        specifier: workspace:*
+        version: link:../domain
     devDependencies:
+      fast-check:
+        specifier: 'catalog:'
+        version: 4.9.0
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@types/node@26.1.2)(jsdom@27.2.0)(vite@8.2.0(@types/node@26.1.2)(jiti@2.7.0))
+
+  packages/package-gforge:
+    dependencies:
+      '@guideforge/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@guideforge/guide-schema':
+        specifier: workspace:*
+        version: link:../guide-schema
+      fflate:
+        specifier: 'catalog:'
+        version: 0.8.3
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.2
+      fast-check:
+        specifier: 'catalog:'
+        version: 4.9.0
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@types/node@26.1.2)(jsdom@27.2.0)(vite@8.2.0(@types/node@26.1.2)(jiti@2.7.0))
+
+  packages/storage-web:
+    dependencies:
+      '@guideforge/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@guideforge/guide-schema':
+        specifier: workspace:*
+        version: link:../guide-schema
+      dexie:
+        specifier: 'catalog:'
+        version: 4.4.4
+      y-indexeddb:
+        specifier: 'catalog:'
+        version: 9.0.12(yjs@13.6.32)
+      yjs:
+        specifier: 'catalog:'
+        version: 13.6.32
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.2
+      fake-indexeddb:
+        specifier: 'catalog:'
+        version: 6.2.5
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -1072,6 +1215,9 @@ packages:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
 
+  dexie@4.4.4:
+    resolution: {integrity: sha512-jIwsYI8Os2hgnqc6O49YwFDKGc5v5QjGx0wPVp543ip1F53VFAKMLthV2pQosQcVTv3eAskTWYspOx195PM0FQ==}
+
   diff@8.0.4:
     resolution: {integrity: sha512-DPi0FmjiSU5EvQV0++GFDOJ9ASQUVFh5kD+OzOnYdi7n3Wpm9hWWGfB/O2blfHcMVTL5WkQXSnRiK9makhrcnw==}
     engines: {node: '>=0.3.1'}
@@ -1173,6 +1319,14 @@ packages:
   extendable-error@0.1.7:
     resolution: {integrity: sha512-UOiS2in6/Q0FK0R0q6UY9vYpQ21mr/Qn1KOnte7vsACuNJf514WvCCUHSRCPcgjPT2bAhNIJdlE6bVap1GKmeg==}
 
+  fake-indexeddb@6.2.5:
+    resolution: {integrity: sha512-CGnyrvbhPlWYMngksqrSSUT1BAVP49dZocrHuK0SvtR0D5TMs5wP0o3j7jexDJW01KSadjBp1M/71o/KR3nD1w==}
+    engines: {node: '>=18'}
+
+  fast-check@4.9.0:
+    resolution: {integrity: sha512-7ms6T7SybUev/PQITciI0yLM2pOSFy5zpG8Ty7tQofcVaQUvrMXp6CBwqF6fThLCLOrfBtuHAtwq6Yu4XPCllg==}
+    engines: {node: '>=12.17.0'}
+
   fast-deep-equal@3.1.3:
     resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==}
 
@@ -1197,6 +1351,9 @@ packages:
     peerDependenciesMeta:
       picomatch:
         optional: true
+
+  fflate@0.8.3:
+    resolution: {integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==}
 
   file-entry-cache@8.0.0:
     resolution: {integrity: sha512-XXTUwCvisa5oacNGRP9SfNtYBNAMi+RPwBFmblZEF7N7swHYQS6/Zfk7SRwx4D5j3CH211YNRco1DEMNVfZCnQ==}
@@ -1330,6 +1487,9 @@ packages:
   isexe@2.0.0:
     resolution: {integrity: sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==}
 
+  isomorphic.js@0.2.5:
+    resolution: {integrity: sha512-PIeMbHqMt4DnUP3MA/Flc0HElYjMXArsw1qwJZcm9sqR8mq3l8NYizFMty0pWwE/tzIGH3EKK5+jes5mAr85yw==}
+
   jiti@2.7.0:
     resolution: {integrity: sha512-AC/7JofJvZGrrneWNaEnJeOLUx+JlGt7tNa0wZiRPT4MY1wmfKjt2+6O2p2uz2+skll8OZZmJMNqeke7kKbNgQ==}
     hasBin: true
@@ -1382,6 +1542,11 @@ packages:
   levn@0.4.1:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==}
     engines: {node: '>= 0.8.0'}
+
+  lib0@0.2.117:
+    resolution: {integrity: sha512-DeXj9X5xDCjgKLU/7RR+/HQEVzuuEUiwldwOGsHK/sfAfELGWEyTcf0x+uOvCvK3O2zPmZePXWL85vtia6GyZw==}
+    engines: {node: '>=16'}
+    hasBin: true
 
   lightningcss-android-arm64@1.33.0:
     resolution: {integrity: sha512-gEpRTalKdosp4Bb8qWtc2iOgE5SeIHlpS1up9bFq2wAyYhl1UdTObYiHe98zEM9SQvSoqQZ1IQD0JNpg3Ml5pg==}
@@ -1636,6 +1801,9 @@ packages:
   punycode@2.3.1:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
+
+  pure-rand@8.4.2:
+    resolution: {integrity: sha512-vvuOGgcuPJAirlHvuQw1TrOiw7ptaIXXmIbNuiNOY6lNGJJH49PQ1Kj4nd783nPdQhQdicgOjVI2yI/9BD6/Ng==}
 
   quansync@0.2.11:
     resolution: {integrity: sha512-AifT7QEbW9Nri4tAwR5M/uzpBuqfZf+zwaEM/QkzEjj7NBuFD2rBuy0K3dE+8wltbezDV7JMA0WfnCPYRSYbXA==}
@@ -2021,8 +2189,18 @@ packages:
   xmlchars@2.2.0:
     resolution: {integrity: sha512-JZnDKK8B0RCDw84FNdDAIpZK+JuJw+s7Lz8nksI7SIuU3UXJJslUthsi+uWBUYOwPFwW7W7PRLRfUKpxjtjFCw==}
 
+  y-indexeddb@9.0.12:
+    resolution: {integrity: sha512-9oCFRSPPzBK7/w5vOkJBaVCQZKHXB/v6SIT+WYhnJxlEC61juqG0hBrAf+y3gmSMLFLwICNH9nQ53uscuse6Hg==}
+    engines: {node: '>=16.0.0', npm: '>=8.0.0'}
+    peerDependencies:
+      yjs: ^13.0.0
+
   yallist@3.1.1:
     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
+
+  yjs@13.6.32:
+    resolution: {integrity: sha512-lfiJIIC4Xayt5ItynE407ehlE03pCjeOc4hkR4yxxvvNJ4kuiN25B0g+Qp8XagYz361LLL7DCzR5bvFJ81QKtQ==}
+    engines: {node: '>=16.0.0', npm: '>=8.0.0'}
 
   yocto-queue@0.1.0:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
@@ -2969,6 +3147,8 @@ snapshots:
 
   detect-libc@2.1.2: {}
 
+  dexie@4.4.4: {}
+
   diff@8.0.4: {}
 
   dir-glob@3.0.1:
@@ -3083,6 +3263,12 @@ snapshots:
 
   extendable-error@0.1.7: {}
 
+  fake-indexeddb@6.2.5: {}
+
+  fast-check@4.9.0:
+    dependencies:
+      pure-rand: 8.4.2
+
   fast-deep-equal@3.1.3: {}
 
   fast-glob@3.3.3:
@@ -3104,6 +3290,8 @@ snapshots:
   fdir@6.5.0(picomatch@4.0.5):
     optionalDependencies:
       picomatch: 4.0.5
+
+  fflate@0.8.3: {}
 
   file-entry-cache@8.0.0:
     dependencies:
@@ -3229,6 +3417,8 @@ snapshots:
 
   isexe@2.0.0: {}
 
+  isomorphic.js@0.2.5: {}
+
   jiti@2.7.0: {}
 
   js-tokens@4.0.0: {}
@@ -3291,6 +3481,10 @@ snapshots:
     dependencies:
       prelude-ls: 1.2.1
       type-check: 0.4.0
+
+  lib0@0.2.117:
+    dependencies:
+      isomorphic.js: 0.2.5
 
   lightningcss-android-arm64@1.33.0:
     optional: true
@@ -3479,6 +3673,8 @@ snapshots:
       react-is: 17.0.2
 
   punycode@2.3.1: {}
+
+  pure-rand@8.4.2: {}
 
   quansync@0.2.11: {}
 
@@ -3749,7 +3945,16 @@ snapshots:
 
   xmlchars@2.2.0: {}
 
+  y-indexeddb@9.0.12(yjs@13.6.32):
+    dependencies:
+      lib0: 0.2.117
+      yjs: 13.6.32
+
   yallist@3.1.1: {}
+
+  yjs@13.6.32:
+    dependencies:
+      lib0: 0.2.117
 
   yocto-queue@0.1.0: {}
 

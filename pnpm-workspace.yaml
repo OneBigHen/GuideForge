@@ -54,6 +54,11 @@ catalog:
   '@playwright/test': 1.62.1
   jsdom: 27.2.0
   '@testing-library/react': 16.3.0
+  fast-check: 4.9.0
+  fake-indexeddb: 6.2.5
+
+  # Packaging
+  fflate: 0.8.3
 
   # Lint / format
   eslint: 10.8.0

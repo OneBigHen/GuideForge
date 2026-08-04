@@ -1,5 +1,5 @@
 {
-  "name": "@guideforge/guide-schema",
+  "name": "@guideforge/commands",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -13,7 +13,8 @@
     "format:check": "prettier --check src"
   },
   "dependencies": {
-    "@guideforge/domain": "workspace:*"
+    "@guideforge/domain": "workspace:*",
+    "@guideforge/guide-schema": "workspace:*"
   },
   "devDependencies": {
     "fast-check": "catalog:",

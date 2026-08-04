@@ -1,5 +1,5 @@
 {
-  "name": "@guideforge/guide-schema",
+  "name": "@guideforge/package-gforge",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -13,9 +13,12 @@
     "format:check": "prettier --check src"
   },
   "dependencies": {
-    "@guideforge/domain": "workspace:*"
+    "@guideforge/domain": "workspace:*",
+    "@guideforge/guide-schema": "workspace:*",
+    "fflate": "catalog:"
   },
   "devDependencies": {
+    "@types/node": "catalog:",
     "fast-check": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

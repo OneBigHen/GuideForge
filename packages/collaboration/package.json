@@ -1,5 +1,5 @@
 {
-  "name": "@guideforge/guide-schema",
+  "name": "@guideforge/collaboration",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -13,7 +13,10 @@
     "format:check": "prettier --check src"
   },
   "dependencies": {
-    "@guideforge/domain": "workspace:*"
+    "@guideforge/commands": "workspace:*",
+    "@guideforge/domain": "workspace:*",
+    "@guideforge/guide-schema": "workspace:*",
+    "yjs": "catalog:"
   },
   "devDependencies": {
     "fast-check": "catalog:",

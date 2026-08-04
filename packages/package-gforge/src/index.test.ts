@@ -1,0 +1,146 @@
+import type { ContentHash } from '@guideforge/domain';
+import type { GuideSnapshot } from '@guideforge/guide-schema';
+import fc from 'fast-check';
+import { createHash } from 'node:crypto';
+import { describe, expect, it } from 'vitest';
+import {
+  buildDraftEntries,
+  createDraftPackage,
+  FIXED_TIMESTAMP,
+  PackageSafetyError,
+  validatePackagePath,
+  verifyPackageStructure,
+} from './index.js';
+
+const GUIDE_ID = '123e4567-e89b-42d3-a456-426614174000' as ContentHash & string;
+
+function snapshot(title: string): GuideSnapshot {
+  return {
+    schemaVersion: 1,
+    guideId: GUIDE_ID as unknown as GuideSnapshot['guideId'],
+    title,
+    description: '',
+    lifecycleState: 'draft',
+    createdAtIso: FIXED_TIMESTAMP,
+    updatedAtIso: FIXED_TIMESTAMP,
+    tasks: [],
+  };
+}
+
+function assetBytes(hash: ContentHash, ext: string, bytes: Uint8Array) {
+  return {
+    hash,
+    mimeType: 'application/octet-stream',
+    extension: ext,
+    sizeBytes: bytes.length,
+    bytes,
+  };
+}
+
+/** Compute the real SHA-256 of bytes and use it as the content hash. */
+function realHash(bytes: Uint8Array): ContentHash {
+  return createHash('sha256').update(bytes).digest('hex') as ContentHash;
+}
+
+describe('package-gforge path safety', () => {
+  it('rejects absolute paths, traversal, and backslashes', () => {
+    expect(() => validatePackagePath('/etc/passwd')).toThrow(PackageSafetyError);
+    expect(() => validatePackagePath('../escape')).toThrow(PackageSafetyError);
+    expect(() => validatePackagePath('a/../../b')).toThrow(PackageSafetyError);
+    expect(() => validatePackagePath('a\\b')).toThrow(PackageSafetyError);
+    expect(() => validatePackagePath('C:\\evil')).toThrow(PackageSafetyError);
+    expect(() => validatePackagePath('a//b')).toThrow(PackageSafetyError);
+    expect(() => validatePackagePath('')).toThrow(PackageSafetyError);
+  });
+
+  it('accepts safe normalized relative paths', () => {
+    expect(validatePackagePath('guide.json')).toBe('guide.json');
+    expect(validatePackagePath('assets/abc.glb')).toBe('assets/abc.glb');
+  });
+
+  it('property: rejects any path with traversal or absolute form', () => {
+    fc.assert(
+      fc.property(fc.string(), (s) => {
+        if (s.includes('..') || s.startsWith('/') || s.includes('\\')) {
+          expect(() => validatePackagePath(s)).toThrow(PackageSafetyError);
+        }
+      }),
+    );
+  });
+});
+
+describe('package-gforge determinism', () => {
+  it('repeated export of the same inputs is byte-identical', () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    const hash = realHash(bytes);
+    const input = {
+      snapshot: snapshot('Demo'),
+      assets: new Map([[hash, assetBytes(hash, 'glb', bytes)]]),
+    };
+    const first = createDraftPackage(input);
+    const second = createDraftPackage(input);
+    expect(first).toEqual(second);
+    expect(createHash('sha256').update(first).digest('hex')).toBe(
+      createHash('sha256').update(second).digest('hex'),
+    );
+  });
+
+  it('different content produces a different package hash', () => {
+    const inputA = { snapshot: snapshot('A'), assets: new Map() };
+    const inputB = { snapshot: snapshot('B'), assets: new Map() };
+    const a = createDraftPackage(inputA);
+    const b = createDraftPackage(inputB);
+    expect(a).not.toEqual(b);
+  });
+
+  it('manifest records sorted entries with correct hashes', () => {
+    const b1 = new Uint8Array([9, 9]);
+    const b2 = new Uint8Array([1]);
+    const h1 = realHash(b1);
+    const h2 = realHash(b2);
+    const entries = buildDraftEntries({
+      snapshot: snapshot('S'),
+      assets: new Map([
+        [h1, assetBytes(h1, 'png', new Uint8Array([9, 9]))],
+        [h2, assetBytes(h2, 'glb', new Uint8Array([1]))],
+      ]),
+    });
+    const paths = entries.map((e) => e.path);
+    expect(paths).toEqual([...paths].sort());
+    expect(paths).toContain('manifest.json');
+    expect(paths).toContain('guide.json');
+    expect(paths).toContain(`assets/${h1}.png`);
+    expect(paths).toContain(`assets/${h2}.glb`);
+  });
+});
+
+describe('package-gforge verification', () => {
+  it('verifies internal structure of a freshly built package', () => {
+    const bytes = new Uint8Array([5, 6, 7]);
+    const hash = realHash(bytes);
+    const entries = buildDraftEntries({
+      snapshot: snapshot('V'),
+      assets: new Map([[hash, assetBytes(hash, 'glb', bytes)]]),
+    });
+    const manifest = verifyPackageStructure(entries);
+    expect(manifest.format).toBe('gforge');
+    expect(manifest.packageType).toBe('draft');
+    // manifest.json is not listed inside itself.
+    expect(manifest.entries.length).toBe(entries.length - 1);
+  });
+
+  it('detects a one-byte tamper via hash mismatch', () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    const hash = realHash(bytes);
+    const entries = buildDraftEntries({
+      snapshot: snapshot('T'),
+      assets: new Map([[hash, assetBytes(hash, 'glb', bytes)]]),
+    });
+    const target = entries.find((e) => e.path === 'guide.json');
+    expect(target).toBeDefined();
+    const tampered = target!.data.slice();
+    tampered[0] = tampered[0]! ^ 0xff;
+    target!.data = tampered;
+    expect(() => verifyPackageStructure(entries)).toThrow(/hash mismatch for guide.json/);
+  });
+});

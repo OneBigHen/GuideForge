@@ -14,11 +14,16 @@
     "format:check": "prettier --check src"
   },
   "dependencies": {
+    "@guideforge/collaboration": "workspace:*",
+    "@guideforge/commands": "workspace:*",
     "@guideforge/domain": "workspace:*",
     "@guideforge/guide-schema": "workspace:*",
+    "@guideforge/package-gforge": "workspace:*",
+    "@guideforge/storage-web": "workspace:*",
     "@guideforge/ui": "workspace:*",
     "@tanstack/react-query": "catalog:",
     "@tanstack/react-router": "catalog:",
+    "fflate": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
     "zustand": "catalog:"
@@ -31,6 +36,7 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
+    "fake-indexeddb": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

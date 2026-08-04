@@ -19,8 +19,8 @@ ADR 0001 with Context7/registry evidence.
 
 1. Monorepo: `pnpm-workspace.yaml` (catalog), `turbo.json`, root scripts.
 2. `apps/web`: Vite 8 + React 19 + TanStack Router (file routes `/`, `/library`)
-   + TanStack Query, typed `routeTree.gen.ts` via `@tanstack/router-plugin`,
-   accessible AppShell with theme toggle, focus-visible, reduced-motion.
+   - TanStack Query, typed `routeTree.gen.ts` via `@tanstack/router-plugin`,
+     accessible AppShell with theme toggle, focus-visible, reduced-motion.
 3. `apps/desktop`: Tauri 2.11 shell (`tauri.conf.json`, `Cargo.toml`,
    capabilities) with `frontendDist: ../../web/dist` and `devUrl`
    `http://localhost:1420` — verified to load the same web build.
@@ -36,13 +36,13 @@ ADR 0001 with Context7/registry evidence.
 
 ## Acceptance evidence
 
-| Criterion | Evidence |
-|---|---|
-| No duplicate desktop frontend | `apps/desktop` has no React editor; only Rust shell + `verify-shell.mjs` proving `frontendDist` == `apps/web/dist` |
-| `pnpm check` passes | `Tasks: 25 successful, 25 total` (format, lint, typecheck, tests, build) |
-| Workspace cycles fail | pnpm install enforces acyclic workspace graph; install succeeds with no cycles |
-| Browser and Tauri load the same web build | `verify-shell.mjs` OK (frontendDist + devUrl + dist/index.html); Playwright renders same app in 3 form factors; production `vite preview` screenshot captured |
-| Exact versions and official documentation recorded | `docs/adr/0001-toolchain-and-monorepo.md` with Context7 library IDs + registry-verified versions |
+| Criterion                                          | Evidence                                                                                                                                                      |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No duplicate desktop frontend                      | `apps/desktop` has no React editor; only Rust shell + `verify-shell.mjs` proving `frontendDist` == `apps/web/dist`                                            |
+| `pnpm check` passes                                | `Tasks: 25 successful, 25 total` (format, lint, typecheck, tests, build)                                                                                      |
+| Workspace cycles fail                              | pnpm install enforces acyclic workspace graph; install succeeds with no cycles                                                                                |
+| Browser and Tauri load the same web build          | `verify-shell.mjs` OK (frontendDist + devUrl + dist/index.html); Playwright renders same app in 3 form factors; production `vite preview` screenshot captured |
+| Exact versions and official documentation recorded | `docs/adr/0001-toolchain-and-monorepo.md` with Context7 library IDs + registry-verified versions                                                              |
 
 ## Test results
 
