@@ -40,10 +40,40 @@ export interface AssetMetaRecord {
   location: 'opfs' | 'indexeddb';
 }
 
+/** Execution evidence captured on-device (photo/note/signature). */
+export interface EvidenceRecord {
+  evidenceId: string;
+  guideId: string;
+  stepId: string;
+  kind: 'photo' | 'note' | 'signature' | 'measurement';
+  capturedAtIso: string;
+  actorId: string;
+  /** Free-form note or measurement value. */
+  value?: string;
+  /** SHA-256 of an optional captured media asset. */
+  assetHash?: string;
+  mimeType?: string;
+}
+
+/** AI proposal awaiting human review. */
+export interface AiProposalRecord {
+  proposalId: string;
+  guideId: string;
+  commandType: string;
+  payload: Record<string, unknown>;
+  summary: string;
+  confidence: number;
+  sourceHash: string | null;
+  createdAtIso: string;
+  status: 'pending' | 'accepted' | 'rejected';
+}
+
 export class GuideForgeDb extends Dexie {
   guides!: Table<LibraryGuideMeta, string>;
   assets!: Table<AssetMetaRecord, string>;
   assetBlobs!: Table<{ hash: string; bytes: Blob }, string>;
+  evidence!: Table<EvidenceRecord, string>;
+  proposals!: Table<AiProposalRecord, string>;
 
   constructor() {
     super('guideforge');
@@ -51,6 +81,13 @@ export class GuideForgeDb extends Dexie {
       guides: 'guideId, title, updatedAtIso, lifecycleState',
       assets: 'hash, mimeType, sizeBytes',
       assetBlobs: 'hash',
+    });
+    this.version(2).stores({
+      guides: 'guideId, title, updatedAtIso, lifecycleState',
+      assets: 'hash, mimeType, sizeBytes',
+      assetBlobs: 'hash',
+      evidence: 'evidenceId, guideId, stepId, capturedAtIso',
+      proposals: 'proposalId, guideId, status, createdAtIso',
     });
   }
 }

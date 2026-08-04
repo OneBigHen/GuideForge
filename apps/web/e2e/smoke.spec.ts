@@ -1,9 +1,15 @@
 import { expect, test } from '@playwright/test';
 
-test('shared home route renders in browser', async ({ page }) => {
+test('shared home route renders in browser', async ({ page }, testInfo) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'GuideForge' })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
+  const project = testInfo.project.name;
+  if (project === 'iphone') {
+    // Phone width hides the desktop nav; the Menu control is the primary nav.
+    await expect(page.getByRole('button', { name: 'Menu' })).toBeVisible();
+  } else {
+    await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
+  }
 });
 
 test('navigation reaches the library route', async ({ page }) => {

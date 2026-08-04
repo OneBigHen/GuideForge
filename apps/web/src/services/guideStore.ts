@@ -29,6 +29,8 @@ import {
   OpfsAssetStore,
   openDb,
   persistWorkingDoc,
+  type AiProposalRecord,
+  type EvidenceRecord,
   type GuideForgeDb,
   type YjsPersistenceHandle,
 } from '@guideforge/storage-web';
@@ -164,6 +166,295 @@ export async function addTask(session: OpenGuideSession, title: string): Promise
     payload: { taskId, title },
   });
   return taskId;
+}
+
+export async function addStep(
+  session: OpenGuideSession,
+  taskId: string,
+  text: string,
+): Promise<string> {
+  const stepId = uuidv4();
+  await dispatchCommand(session, {
+    commandId: crypto.randomUUID(),
+    commandType: GUIDE_COMMAND_TYPES.addStep,
+    actorId: 'local-user',
+    guideId: session.guideId as EntityId,
+    origin: 'user',
+    occurredAt: new Date().toISOString(),
+    payload: { taskId, stepId, title: text },
+  });
+  return stepId;
+}
+
+export async function removeStep(
+  session: OpenGuideSession,
+  taskId: string,
+  stepId: string,
+): Promise<void> {
+  await dispatchCommand(session, {
+    commandId: crypto.randomUUID(),
+    commandType: GUIDE_COMMAND_TYPES.removeStep,
+    actorId: 'local-user',
+    guideId: session.guideId as EntityId,
+    origin: 'user',
+    occurredAt: new Date().toISOString(),
+    payload: { taskId, stepId },
+  });
+}
+
+export async function setStepText(
+  session: OpenGuideSession,
+  stepId: string,
+  text: string,
+): Promise<void> {
+  await dispatchCommand(session, {
+    commandId: crypto.randomUUID(),
+    commandType: GUIDE_COMMAND_TYPES.setStepText,
+    actorId: 'local-user',
+    guideId: session.guideId as EntityId,
+    origin: 'user',
+    occurredAt: new Date().toISOString(),
+    payload: { stepId, text },
+  });
+}
+
+export async function addWarning(
+  session: OpenGuideSession,
+  stepId: string,
+  severity: 'info' | 'warning' | 'critical',
+  message: string,
+): Promise<string> {
+  const warningId = uuidv4();
+  await dispatchCommand(session, {
+    commandId: crypto.randomUUID(),
+    commandType: GUIDE_COMMAND_TYPES.addWarning,
+    actorId: 'local-user',
+    guideId: session.guideId as EntityId,
+    origin: 'user',
+    occurredAt: new Date().toISOString(),
+    payload: { stepId, warningId, severity, message },
+  });
+  return warningId;
+}
+
+export async function removeWarning(
+  session: OpenGuideSession,
+  stepId: string,
+  warningId: string,
+): Promise<void> {
+  await dispatchCommand(session, {
+    commandId: crypto.randomUUID(),
+    commandType: GUIDE_COMMAND_TYPES.removeWarning,
+    actorId: 'local-user',
+    guideId: session.guideId as EntityId,
+    origin: 'user',
+    occurredAt: new Date().toISOString(),
+    payload: { stepId, warningId },
+  });
+}
+
+export async function addTool(
+  session: OpenGuideSession,
+  stepId: string,
+  name: string,
+): Promise<string> {
+  const toolId = uuidv4();
+  await dispatchCommand(session, {
+    commandId: crypto.randomUUID(),
+    commandType: GUIDE_COMMAND_TYPES.addTool,
+    actorId: 'local-user',
+    guideId: session.guideId as EntityId,
+    origin: 'user',
+    occurredAt: new Date().toISOString(),
+    payload: { stepId, toolId, name },
+  });
+  return toolId;
+}
+
+export async function removeTool(
+  session: OpenGuideSession,
+  stepId: string,
+  toolId: string,
+): Promise<void> {
+  await dispatchCommand(session, {
+    commandId: crypto.randomUUID(),
+    commandType: GUIDE_COMMAND_TYPES.removeTool,
+    actorId: 'local-user',
+    guideId: session.guideId as EntityId,
+    origin: 'user',
+    occurredAt: new Date().toISOString(),
+    payload: { stepId, toolId },
+  });
+}
+
+export async function addPart(
+  session: OpenGuideSession,
+  stepId: string,
+  name: string,
+  quantity: number,
+): Promise<string> {
+  const partId = uuidv4();
+  await dispatchCommand(session, {
+    commandId: crypto.randomUUID(),
+    commandType: GUIDE_COMMAND_TYPES.addPart,
+    actorId: 'local-user',
+    guideId: session.guideId as EntityId,
+    origin: 'user',
+    occurredAt: new Date().toISOString(),
+    payload: { stepId, partId, name, quantity },
+  });
+  return partId;
+}
+
+export async function removePart(
+  session: OpenGuideSession,
+  stepId: string,
+  partId: string,
+): Promise<void> {
+  await dispatchCommand(session, {
+    commandId: crypto.randomUUID(),
+    commandType: GUIDE_COMMAND_TYPES.removePart,
+    actorId: 'local-user',
+    guideId: session.guideId as EntityId,
+    origin: 'user',
+    occurredAt: new Date().toISOString(),
+    payload: { stepId, partId },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Execution evidence (stored in Dexie; offline-first)
+// ---------------------------------------------------------------------------
+
+export interface EvidenceInput {
+  guideId: string;
+  stepId: string;
+  kind: 'photo' | 'note' | 'signature' | 'measurement';
+  value?: string;
+  assetHash?: string;
+  mimeType?: string;
+}
+
+export async function addEvidence(input: EvidenceInput): Promise<string> {
+  const evidenceId = uuidv4();
+  const record: EvidenceRecord = {
+    evidenceId,
+    guideId: input.guideId,
+    stepId: input.stepId,
+    kind: input.kind,
+    capturedAtIso: new Date().toISOString(),
+    actorId: 'local-user',
+    ...(input.value !== undefined ? { value: input.value } : {}),
+    ...(input.assetHash !== undefined ? { assetHash: input.assetHash } : {}),
+    ...(input.mimeType !== undefined ? { mimeType: input.mimeType } : {}),
+  };
+  await db().evidence.put(record);
+  return evidenceId;
+}
+
+export async function listEvidence(guideId: string): Promise<EvidenceRecord[]> {
+  return db().evidence.where('guideId').equals(guideId).reverse().sortBy('capturedAtIso');
+}
+
+// ---------------------------------------------------------------------------
+// Fake AI proposals (Phase 03: human-reviewable, applied via commands)
+// ---------------------------------------------------------------------------
+
+export interface NewProposal {
+  guideId: string;
+  commandType: string;
+  payload: Record<string, unknown>;
+  summary: string;
+  confidence: number;
+  sourceHash: string | null;
+}
+
+export async function createProposal(input: NewProposal): Promise<string> {
+  const proposalId = uuidv4();
+  await db().proposals.put({
+    proposalId,
+    guideId: input.guideId,
+    commandType: input.commandType,
+    payload: input.payload,
+    summary: input.summary,
+    confidence: input.confidence,
+    sourceHash: input.sourceHash,
+    createdAtIso: new Date().toISOString(),
+    status: 'pending',
+  });
+  return proposalId;
+}
+
+export async function listProposals(guideId: string): Promise<AiProposalRecord[]> {
+  return db().proposals.where('guideId').equals(guideId).reverse().sortBy('createdAtIso');
+}
+
+/** Accept a proposal by executing its command through the normal command bus. */
+export async function acceptProposal(session: OpenGuideSession, proposalId: string): Promise<void> {
+  const proposal = await db().proposals.get(proposalId);
+  if (proposal?.status !== 'pending') return;
+  await dispatchCommand(session, {
+    commandId: crypto.randomUUID(),
+    commandType: proposal.commandType,
+    actorId: 'local-user',
+    guideId: session.guideId as EntityId,
+    origin: 'ai-proposal-accept',
+    occurredAt: new Date().toISOString(),
+    payload: proposal.payload,
+  });
+  await db().proposals.update(proposalId, { status: 'accepted' });
+}
+
+export async function rejectProposal(proposalId: string): Promise<void> {
+  await db().proposals.update(proposalId, { status: 'rejected' });
+}
+
+/** Generate fake AI proposals for a guide (reviewable, never auto-applied). */
+export async function generateFakeProposals(session: OpenGuideSession): Promise<number> {
+  const snap = materializeSnapshot(session.working);
+  let created = 0;
+
+  for (const step of snap.steps) {
+    if (!step.instructionText.trim()) continue;
+    const hasCritical = step.warnings.some((w) => w.severity === 'critical');
+    if (!hasCritical) {
+      await createProposal({
+        guideId: session.guideId,
+        commandType: GUIDE_COMMAND_TYPES.addWarning,
+        payload: {
+          stepId: step.stepId,
+          warningId: uuidv4(),
+          severity: 'warning',
+          message: 'Fake AI suggestion: verify machine is powered off before continuing.',
+        },
+        summary: `Add a safety warning to "${step.instructionText.slice(0, 40)}…"`,
+        confidence: 0.72,
+        sourceHash: null,
+      });
+      created += 1;
+    }
+  }
+
+  if (snap.tasks.length > 0) {
+    const firstStep = snap.steps.find((s) => s.taskId === snap.tasks[0]?.taskId);
+    if (firstStep) {
+      await createProposal({
+        guideId: session.guideId,
+        commandType: GUIDE_COMMAND_TYPES.addTool,
+        payload: {
+          stepId: firstStep.stepId,
+          toolId: uuidv4(),
+          name: 'Calibration tool (fake AI suggestion)',
+        },
+        summary: 'Add a tool requirement to the first step',
+        confidence: 0.61,
+        sourceHash: null,
+      });
+      created += 1;
+    }
+  }
+
+  return created;
 }
 
 export async function closeGuide(session: OpenGuideSession): Promise<void> {

@@ -24,6 +24,7 @@ function snapshot(title: string): GuideSnapshot {
     createdAtIso: FIXED_TIMESTAMP,
     updatedAtIso: FIXED_TIMESTAMP,
     tasks: [],
+    steps: [],
   };
 }
 

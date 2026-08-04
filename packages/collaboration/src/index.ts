@@ -21,7 +21,7 @@
 import type { GuideCommand } from '@guideforge/commands';
 import { applyGuideCommand } from '@guideforge/commands';
 import type { EntityId, GuideLifecycleState } from '@guideforge/domain';
-import type { GuideSnapshot, GuideTask } from '@guideforge/guide-schema';
+import type { GuideSnapshot, GuideStep, GuideTask } from '@guideforge/guide-schema';
 import * as Y from 'yjs';
 
 /** Origin tag used for all local user commands. */
@@ -32,6 +32,7 @@ export interface WorkingGuide {
   guide: Y.Map<unknown>;
   tasks: Y.Map<Y.Map<unknown>>;
   taskOrder: Y.Array<string>;
+  steps: Y.Map<Y.Map<unknown>>;
 }
 
 export function createWorkingGuide(guideId: EntityId, title: string): WorkingGuide {
@@ -51,6 +52,7 @@ function seedWorkingGuide(doc: Y.Doc, guideId: EntityId, title: string): void {
   guide.set('updatedAtIso', new Date(0).toISOString());
   doc.getArray<string>('taskOrder');
   doc.getMap<Y.Map<unknown>>('tasks');
+  doc.getMap<Y.Map<unknown>>('steps');
 }
 
 function workingGuideFromDoc(doc: Y.Doc): WorkingGuide {
@@ -59,6 +61,7 @@ function workingGuideFromDoc(doc: Y.Doc): WorkingGuide {
     guide: doc.getMap<unknown>('guide'),
     tasks: doc.getMap<Y.Map<unknown>>('tasks'),
     taskOrder: doc.getArray<string>('taskOrder'),
+    steps: doc.getMap<Y.Map<unknown>>('steps'),
   };
 }
 
@@ -99,6 +102,20 @@ export function materializeSnapshot(working: WorkingGuide): GuideSnapshot {
     });
   }
 
+  const steps: GuideStep[] = [];
+  for (const [stepId, yStep] of working.steps) {
+    steps.push({
+      stepId: stepId as EntityId,
+      taskId: (yStep.get('taskId') as EntityId) ?? ('' as EntityId),
+      instructionText: (yStep.get('instructionText') as string) ?? '',
+      warnings: ((yStep.get('warnings') as Y.Array<unknown>)?.toArray() ??
+        []) as GuideStep['warnings'],
+      tools: ((yStep.get('tools') as Y.Array<unknown>)?.toArray() ?? []) as GuideStep['tools'],
+      parts: ((yStep.get('parts') as Y.Array<unknown>)?.toArray() ?? []) as GuideStep['parts'],
+      media: ((yStep.get('media') as Y.Array<unknown>)?.toArray() ?? []) as GuideStep['media'],
+    });
+  }
+
   return {
     schemaVersion: 1,
     guideId: guideId as EntityId,
@@ -108,6 +125,7 @@ export function materializeSnapshot(working: WorkingGuide): GuideSnapshot {
     createdAtIso,
     updatedAtIso,
     tasks,
+    steps,
   };
 }
 
@@ -122,6 +140,7 @@ export function hydrateWorkingGuide(working: WorkingGuide, snapshot: GuideSnapsh
     working.guide.set('updatedAtIso', snapshot.updatedAtIso);
     working.taskOrder.delete(0, working.taskOrder.length);
     working.tasks.clear();
+    working.steps.clear();
     for (const task of snapshot.tasks) {
       working.taskOrder.push([task.taskId]);
       const yTask = new Y.Map<unknown>();
@@ -130,6 +149,24 @@ export function hydrateWorkingGuide(working: WorkingGuide, snapshot: GuideSnapsh
       ySteps.insert(0, task.stepIds);
       yTask.set('stepIds', ySteps);
       working.tasks.set(task.taskId, yTask);
+    }
+    for (const step of snapshot.steps) {
+      const yStep = new Y.Map<unknown>();
+      yStep.set('taskId', step.taskId);
+      yStep.set('instructionText', step.instructionText);
+      const yWarnings = new Y.Array<unknown>();
+      yWarnings.insert(0, step.warnings);
+      yStep.set('warnings', yWarnings);
+      const yTools = new Y.Array<unknown>();
+      yTools.insert(0, step.tools);
+      yStep.set('tools', yTools);
+      const yParts = new Y.Array<unknown>();
+      yParts.insert(0, step.parts);
+      yStep.set('parts', yParts);
+      const yMedia = new Y.Array<unknown>();
+      yMedia.insert(0, step.media);
+      yStep.set('media', yMedia);
+      working.steps.set(step.stepId, yStep);
     }
   }, 'guideforge:hydrate');
 }
@@ -180,7 +217,40 @@ export function applyCommandToWorkingGuide(working: WorkingGuide, command: Guide
     for (const [taskId] of existing) {
       working.tasks.delete(taskId);
     }
+
+    // Sync the steps map to the derived snapshot.
+    const existingSteps = new Map<string, Y.Map<unknown>>();
+    for (const [key, value] of working.steps) existingSteps.set(key, value);
+    for (const step of after.steps) {
+      let yStep = existingSteps.get(step.stepId);
+      if (!yStep) {
+        yStep = new Y.Map<unknown>();
+        working.steps.set(step.stepId, yStep);
+      }
+      yStep.set('taskId', step.taskId);
+      yStep.set('instructionText', step.instructionText);
+      setYArray(yStep, 'warnings', step.warnings);
+      setYArray(yStep, 'tools', step.tools);
+      setYArray(yStep, 'parts', step.parts);
+      setYArray(yStep, 'media', step.media);
+      existingSteps.delete(step.stepId);
+    }
+    for (const [stepId] of existingSteps) {
+      working.steps.delete(stepId);
+    }
   }, txOrigin);
+}
+
+function setYArray(map: Y.Map<unknown>, key: string, values: unknown[]): void {
+  const yArray = map.get(key) as Y.Array<unknown> | undefined;
+  if (yArray) {
+    yArray.delete(0, yArray.length);
+    yArray.insert(0, values);
+  } else {
+    const fresh = new Y.Array<unknown>();
+    fresh.insert(0, values);
+    map.set(key, fresh);
+  }
 }
 
 /** Create a local-user-only undo manager scoped to the working guide. */
@@ -189,7 +259,9 @@ export function createLocalUndoManager(working: WorkingGuide): Y.UndoManager {
     working.guide,
     working.tasks,
     working.taskOrder,
+    working.steps,
     ...Array.from(working.tasks.values()),
+    ...Array.from(working.steps.values()),
   ];
   return new Y.UndoManager(scopes, {
     trackedOrigins: new Set([LOCAL_USER_ORIGIN]),

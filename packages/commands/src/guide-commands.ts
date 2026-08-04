@@ -53,6 +53,13 @@ export const GUIDE_COMMAND_TYPES = {
   addStep: 'guide/add-step',
   removeStep: 'guide/remove-step',
   setTitle: 'guide/set-title',
+  setStepText: 'guide/set-step-text',
+  addWarning: 'guide/add-warning',
+  removeWarning: 'guide/remove-warning',
+  addTool: 'guide/add-tool',
+  removeTool: 'guide/remove-tool',
+  addPart: 'guide/add-part',
+  removePart: 'guide/remove-part',
 } as const;
 
 export function findTask(state: GuideState, taskId: EntityId): GuideTask | undefined {

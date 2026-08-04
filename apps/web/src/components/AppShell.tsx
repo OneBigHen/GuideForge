@@ -1,9 +1,19 @@
 import { Link } from '@tanstack/react-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { detectCapabilities, type DeviceCapabilityProfile } from '../services/capabilities';
+import { activateUpdate } from '../services/sw';
 import { ThemeToggle } from './ThemeToggle';
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [caps] = useState<DeviceCapabilityProfile>(() => detectCapabilities());
+  const [updateReady, setUpdateReady] = useState(false);
+
+  useEffect(() => {
+    const onUpdate = () => setUpdateReady(true);
+    window.addEventListener('guideforge:update-ready', onUpdate);
+    return () => window.removeEventListener('guideforge:update-ready', onUpdate);
+  }, []);
 
   return (
     <div className="app-shell">
@@ -51,12 +61,33 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Link>
         </nav>
       )}
+      {updateReady && (
+        <div className="update-banner" role="status">
+          <span>A new version of GuideForge is ready.</span>
+          <button
+            type="button"
+            className="button button--small"
+            onClick={() => void activateUpdate()}
+          >
+            Reload now
+          </button>
+        </div>
+      )}
       <main className="app-main">{children}</main>
       <footer className="app-footer">
-        <p>
-          Local save status:{' '}
-          <span className="status-dot status-dot--local" aria-label="local only" /> not yet
-          connected
+        <p className="status-row">
+          <span className="status-pill" title="Local save state">
+            <span className="status-dot status-dot--local" aria-hidden="true" />
+            Saved locally
+          </span>
+          <span className="status-pill" title="Network sync state">
+            <span className="status-dot status-dot--offline" aria-hidden="true" />
+            Local only — no server connected
+          </span>
+          <span className="status-pill status-pill--caps">
+            {caps.pointer.coarse ? 'touch' : 'pointer'} ·{' '}
+            {caps.platform.standalonePwa ? 'PWA' : 'web'}
+          </span>
         </p>
       </footer>
     </div>

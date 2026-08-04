@@ -108,9 +108,16 @@ function LibraryPage() {
                 </span>
               </div>
               <Link
+                to="/run/$guideId"
+                params={{ guideId: g.guideId }}
+                className="button button--small"
+              >
+                Run
+              </Link>
+              <Link
                 to="/edit/$guideId"
                 params={{ guideId: g.guideId }}
-                className="button button--ghost"
+                className="button button--ghost button--small"
               >
                 Open
               </Link>

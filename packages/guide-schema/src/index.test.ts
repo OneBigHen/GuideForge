@@ -17,6 +17,7 @@ describe('guide-schema', () => {
       createdAtIso: '2026-01-01T00:00:00Z',
       updatedAtIso: '2026-01-01T00:00:00Z',
       tasks: [],
+      steps: [],
     };
     expect(isGuideSnapshot(snapshot)).toBe(true);
   });
@@ -36,6 +37,7 @@ describe('guide-schema', () => {
       createdAtIso: '2026-01-01T00:00:00Z',
       updatedAtIso: '2026-01-01T00:00:00Z',
       tasks: [],
+      steps: [],
     };
     const out = migrateToCurrent(v1);
     expect(out.schemaVersion).toBe(1);

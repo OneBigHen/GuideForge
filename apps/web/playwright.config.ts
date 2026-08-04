@@ -25,9 +25,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'pnpm --filter @guideforge/web dev',
+    command: 'pnpm --filter @guideforge/web build && pnpm --filter @guideforge/web preview',
     url: 'http://localhost:1420',
     reuseExistingServer: !process.env.CI,
-    timeout: 60_000,
+    timeout: 120_000,
   },
 });

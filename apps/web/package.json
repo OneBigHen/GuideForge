@@ -39,6 +39,7 @@
     "fake-indexeddb": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "workbox-build": "catalog:"
   }
 }

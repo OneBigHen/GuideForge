@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as EditGuideIdRouteImport } from './routes/edit.$guideId'
+import { Route as RunGuideIdRouteImport } from './routes/run.$guideId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -28,35 +29,44 @@ const EditGuideIdRoute = EditGuideIdRouteImport.update({
   path: '/edit/$guideId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RunGuideIdRoute = RunGuideIdRouteImport.update({
+  id: '/run/$guideId',
+  path: '/run/$guideId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/library': typeof LibraryRoute
   '/edit/$guideId': typeof EditGuideIdRoute
+  '/run/$guideId': typeof RunGuideIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/library': typeof LibraryRoute
   '/edit/$guideId': typeof EditGuideIdRoute
+  '/run/$guideId': typeof RunGuideIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/library': typeof LibraryRoute
   '/edit/$guideId': typeof EditGuideIdRoute
+  '/run/$guideId': typeof RunGuideIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/library' | '/edit/$guideId'
+  fullPaths: '/' | '/library' | '/edit/$guideId' | '/run/$guideId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/library' | '/edit/$guideId'
-  id: '__root__' | '/' | '/library' | '/edit/$guideId'
+  to: '/' | '/library' | '/edit/$guideId' | '/run/$guideId'
+  id: '__root__' | '/' | '/library' | '/edit/$guideId' | '/run/$guideId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LibraryRoute: typeof LibraryRoute
   EditGuideIdRoute: typeof EditGuideIdRoute
+  RunGuideIdRoute: typeof RunGuideIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -82,6 +92,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EditGuideIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/run/$guideId': {
+      id: '/run/$guideId'
+      path: '/run/$guideId'
+      fullPath: '/run/$guideId'
+      preLoaderRoute: typeof RunGuideIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -89,6 +106,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LibraryRoute: LibraryRoute,
   EditGuideIdRoute: EditGuideIdRoute,
+  RunGuideIdRoute: RunGuideIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

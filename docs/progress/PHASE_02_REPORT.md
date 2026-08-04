@@ -48,15 +48,15 @@ Playwright on desktop, iPad, and iPhone projects.
 
 ## Acceptance evidence
 
-| Gate | Evidence |
-|---|---|
-| Two independently updated local Yjs docs converge | `collaboration/src/index.test.ts` — snapshot equality after cross-sync |
-| Local user undo does not undo remote-origin changes | `collaboration` test — local task undone, remote task survives |
-| Draft survives browser restart offline | `guideStore.test.ts` — close → open reloads title/tasks from y-indexeddb |
-| Assets survive and deduplicate | `storage-web` test — same bytes → same hash, count stays 1 |
-| Repeated package export has identical hash | `package-gforge` + `determinism.test.ts` — byte-identical bytes |
-| Package traversal/bomb fixtures fail safely | `package-gforge` path-safety tests + fast-check property |
-| Minimal local library works | Playwright e2e `library.spec.ts` (create → navigate → edit) across 3 projects |
+| Gate                                                | Evidence                                                                      |
+| --------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Two independently updated local Yjs docs converge   | `collaboration/src/index.test.ts` — snapshot equality after cross-sync        |
+| Local user undo does not undo remote-origin changes | `collaboration` test — local task undone, remote task survives                |
+| Draft survives browser restart offline              | `guideStore.test.ts` — close → open reloads title/tasks from y-indexeddb      |
+| Assets survive and deduplicate                      | `storage-web` test — same bytes → same hash, count stays 1                    |
+| Repeated package export has identical hash          | `package-gforge` + `determinism.test.ts` — byte-identical bytes               |
+| Package traversal/bomb fixtures fail safely         | `package-gforge` path-safety tests + fast-check property                      |
+| Minimal local library works                         | Playwright e2e `library.spec.ts` (create → navigate → edit) across 3 projects |
 
 ## Test results
 

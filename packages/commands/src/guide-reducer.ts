@@ -27,6 +27,13 @@ function cloneSnapshot(s: GuideSnapshot): GuideSnapshot {
   return {
     ...s,
     tasks: s.tasks.map((t) => ({ ...t, stepIds: [...t.stepIds] })),
+    steps: s.steps.map((st) => ({
+      ...st,
+      warnings: st.warnings.map((w) => ({ ...w })),
+      tools: st.tools.map((t) => ({ ...t })),
+      parts: st.parts.map((p) => ({ ...p })),
+      media: st.media.map((m) => ({ ...m })),
+    })),
   };
 }
 
@@ -82,6 +89,15 @@ export function applyGuideCommand(state: GuideSnapshot, command: GuideCommand): 
       if (!task) return state;
       if (task.stepIds.includes(p.stepId)) return state;
       task.stepIds.push(p.stepId);
+      next.steps.push({
+        stepId: p.stepId,
+        taskId: p.taskId,
+        instructionText: p.title,
+        warnings: [],
+        tools: [],
+        parts: [],
+        media: [],
+      });
       return next;
     }
     case GUIDE_COMMAND_TYPES.removeStep: {
@@ -90,6 +106,76 @@ export function applyGuideCommand(state: GuideSnapshot, command: GuideCommand): 
       const task = next.tasks.find((t) => t.taskId === p.taskId);
       if (!task) return state;
       task.stepIds = task.stepIds.filter((id) => id !== p.stepId);
+      next.steps = next.steps.filter((s) => s.stepId !== p.stepId);
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.setStepText: {
+      const p = command.payload as { stepId: EntityId; text: string };
+      const next = cloneSnapshot(state);
+      const step = next.steps.find((s) => s.stepId === p.stepId);
+      if (!step) return state;
+      step.instructionText = p.text;
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.addWarning: {
+      const p = command.payload as {
+        stepId: EntityId;
+        warningId: EntityId;
+        severity: 'info' | 'warning' | 'critical';
+        message: string;
+      };
+      const next = cloneSnapshot(state);
+      const step = next.steps.find((s) => s.stepId === p.stepId);
+      if (!step) return state;
+      if (step.warnings.some((w) => w.warningId === p.warningId)) return state;
+      step.warnings.push({ warningId: p.warningId, severity: p.severity, message: p.message });
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.removeWarning: {
+      const p = command.payload as { stepId: EntityId; warningId: EntityId };
+      const next = cloneSnapshot(state);
+      const step = next.steps.find((s) => s.stepId === p.stepId);
+      if (!step) return state;
+      step.warnings = step.warnings.filter((w) => w.warningId !== p.warningId);
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.addTool: {
+      const p = command.payload as { stepId: EntityId; toolId: EntityId; name: string };
+      const next = cloneSnapshot(state);
+      const step = next.steps.find((s) => s.stepId === p.stepId);
+      if (!step) return state;
+      if (step.tools.some((t) => t.toolId === p.toolId)) return state;
+      step.tools.push({ toolId: p.toolId, name: p.name });
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.removeTool: {
+      const p = command.payload as { stepId: EntityId; toolId: EntityId };
+      const next = cloneSnapshot(state);
+      const step = next.steps.find((s) => s.stepId === p.stepId);
+      if (!step) return state;
+      step.tools = step.tools.filter((t) => t.toolId !== p.toolId);
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.addPart: {
+      const p = command.payload as {
+        stepId: EntityId;
+        partId: EntityId;
+        name: string;
+        quantity: number;
+      };
+      const next = cloneSnapshot(state);
+      const step = next.steps.find((s) => s.stepId === p.stepId);
+      if (!step) return state;
+      if (step.parts.some((pt) => pt.partId === p.partId)) return state;
+      step.parts.push({ partId: p.partId, name: p.name, quantity: p.quantity });
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.removePart: {
+      const p = command.payload as { stepId: EntityId; partId: EntityId };
+      const next = cloneSnapshot(state);
+      const step = next.steps.find((s) => s.stepId === p.stepId);
+      if (!step) return state;
+      step.parts = step.parts.filter((pt) => pt.partId !== p.partId);
       return next;
     }
     default:
@@ -119,5 +205,6 @@ export function freshGuideState(guideId: EntityId, title: string): GuideSnapshot
     createdAtIso: now,
     updatedAtIso: now,
     tasks: [],
+    steps: [],
   };
 }

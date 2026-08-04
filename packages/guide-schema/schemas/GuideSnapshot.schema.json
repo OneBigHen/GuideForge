@@ -13,7 +13,8 @@
     "lifecycleState",
     "createdAtIso",
     "updatedAtIso",
-    "tasks"
+    "tasks",
+    "steps"
   ],
   "properties": {
     "schemaVersion": { "const": 1 },
@@ -23,15 +24,11 @@
     },
     "title": { "type": "string", "minLength": 1 },
     "description": { "type": "string" },
-    "lifecycleState": {
-      "enum": ["draft", "in-review", "approved", "signing", "released"]
-    },
+    "lifecycleState": { "enum": ["draft", "in-review", "approved", "signing", "released"] },
     "createdAtIso": { "type": "string", "format": "date-time" },
     "updatedAtIso": { "type": "string", "format": "date-time" },
-    "tasks": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/GuideTask" }
-    }
+    "tasks": { "type": "array", "items": { "$ref": "#/$defs/GuideTask" } },
+    "steps": { "type": "array", "items": { "$ref": "#/$defs/GuideStep" } }
   },
   "$defs": {
     "GuideTask": {
@@ -51,6 +48,67 @@
             "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
           }
         }
+      }
+    },
+    "GuideStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stepId", "taskId", "instructionText", "warnings", "tools", "parts", "media"],
+      "properties": {
+        "stepId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "instructionText": { "type": "string" },
+        "warnings": { "type": "array", "items": { "$ref": "#/$defs/GuideWarning" } },
+        "tools": { "type": "array", "items": { "$ref": "#/$defs/GuideTool" } },
+        "parts": { "type": "array", "items": { "$ref": "#/$defs/GuidePart" } },
+        "media": { "type": "array", "items": { "$ref": "#/$defs/MediaReference" } }
+      }
+    },
+    "GuideWarning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["warningId", "severity", "message"],
+      "properties": {
+        "warningId": { "type": "string" },
+        "severity": { "enum": ["info", "warning", "critical"] },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    },
+    "GuideTool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["toolId", "name"],
+      "properties": {
+        "toolId": { "type": "string" },
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "GuidePart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["partId", "name", "quantity"],
+      "properties": {
+        "partId": { "type": "string" },
+        "name": { "type": "string", "minLength": 1 },
+        "quantity": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "MediaReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["referenceId", "assetHash", "mimeType", "kind"],
+      "properties": {
+        "referenceId": { "type": "string" },
+        "assetHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "mimeType": { "type": "string" },
+        "kind": { "enum": ["image", "video", "model", "audio"] },
+        "caption": { "type": "string" }
       }
     }
   }
