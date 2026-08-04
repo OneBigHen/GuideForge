@@ -1,0 +1,4 @@
+{
+  "$schema": "https://tauri.app/schema/2.0/tauri.schema.json",
+  "identifier": "com.guideforge.desktop"
+}

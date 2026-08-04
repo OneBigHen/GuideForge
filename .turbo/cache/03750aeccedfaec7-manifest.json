@@ -1,0 +1,11 @@
+{
+  "files": {
+    "apps/desktop/.turbo/turbo-build.log": {
+      "size": 559,
+      "mtime_nanos": 1785872957477305736,
+      "mode": 420,
+      "is_dir": false
+    }
+  },
+  "order": ["apps/desktop/.turbo/turbo-build.log"]
+}

@@ -1,0 +1,45 @@
+[
+  {
+    "from": "packages/domain/**",
+    "to": [
+      "react",
+      "@react-three/*",
+      "three",
+      "yjs",
+      "dexie",
+      "y-indexeddb",
+      "node:",
+      "@tauri-apps/*",
+      "drizzle-orm",
+      "postgres",
+      "fastify"
+    ]
+  },
+  {
+    "from": "packages/guide-schema/**",
+    "to": [
+      "react",
+      "@react-three/*",
+      "three",
+      "yjs",
+      "dexie",
+      "node:",
+      "@tauri-apps/*",
+      "drizzle-orm",
+      "postgres",
+      "fastify"
+    ]
+  },
+  {
+    "from": "packages/scene-core/**",
+    "to": ["react", "@react-three/*", "three"]
+  },
+  {
+    "from": "apps/web/**",
+    "to": ["@tauri-apps/plugin-fs", "@tauri-apps/plugin-store"]
+  },
+  {
+    "from": "apps/desktop/**",
+    "to": []
+  }
+]

@@ -39,13 +39,13 @@ discrepancy is fully documented in `LEGACY_ORIGIN.md`.
 
 ## Acceptance evidence
 
-| Criterion | Evidence |
-|---|---|
-| Original repo unchanged, no new commits/pushes | `git log -1` still `ef07a270`; `git status` clean; push URLs `DISABLED` |
-| New repo exists and is private | `gh repo view OneBigHen/GuideForge` → `PRIVATE` |
-| Exact source reference preserved | branch + annotated tag + read-only worktree at `ef07a270` |
+| Criterion                                                                                  | Evidence                                                                                                                |
+| ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| Original repo unchanged, no new commits/pushes                                             | `git log -1` still `ef07a270`; `git status` clean; push URLs `DISABLED`                                                 |
+| New repo exists and is private                                                             | `gh repo view OneBigHen/GuideForge` → `PRIVATE`                                                                         |
+| Exact source reference preserved                                                           | branch + annotated tag + read-only worktree at `ef07a270`                                                               |
 | No secrets/customer data/GSK branding/databases/uploads/runtime/node_modules in new `main` | audit in `SECURITY_AND_CONTAMINATION_AUDIT.md`; new `main` contains only scaffold + AGENTS.md + LEGACY_ORIGIN.md + docs |
-| Reports identify reuse/rewrite/fixture/discard per subsystem | `REUSE_DECISIONS.md` |
+| Reports identify reuse/rewrite/fixture/discard per subsystem                               | `REUSE_DECISIONS.md`                                                                                                    |
 
 ## Test results
 

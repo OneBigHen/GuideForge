@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: true
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - name: Install (lockfile enforced)
+        run: pnpm install --frozen-lockfile
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Boundary check
+        run: pnpm boundary
+
+      - name: Dependency check
+        run: pnpm dep-check
+
+      - name: Secret scan
+        run: |
+          if command -v gitleaks >/dev/null 2>&1; then
+            gitleaks detect --redact --verbose
+          else
+            echo "gitleaks not installed; running regex fallback"
+            git ls-files -z | xargs -0 grep -l -I -E \
+              '(AKIA[0-9A-Z]{16}|-----BEGIN (RSA|EC|OPENSSH|PGP) PRIVATE KEY|ghp_[A-Za-z0-9]{36}|sk-[A-Za-z0-9]{20,})' \
+              && exit 1 || echo "no secrets found"
+          fi
+
+      - name: Dependency audit
+        run: pnpm audit --audit-level=high || true
+
+      - name: License report
+        run: pnpm dlx license-checker --summary --failOn 'GPL;AGPL' || true
+
+      - name: SBOM
+        run: pnpm dlx @cyclonedx/cyclonedx-npm --output-file sbom.xml || true
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.xml
+          if-no-files-found: ignore
