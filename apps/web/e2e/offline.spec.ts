@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
 // Phase 03 offline acceptance: after a first online load (precache), the app
 // shell must open without network. We simulate by disabling the network after
@@ -8,10 +8,7 @@ import { test, expect } from '@playwright/test';
 // so this test runs on Chromium projects only; the offline shell logic is
 // engine-independent (Workbox precache + navigation fallback).
 test('app shell opens without network after first load', async ({ page, context }, testInfo) => {
-  test.skip(
-    testInfo.project.use.defaultBrowserType === 'webkit',
-    'WebKit cannot navigate offline',
-  );
+  test.skip(testInfo.project.use.defaultBrowserType === 'webkit', 'WebKit cannot navigate offline');
   // First load online so the service worker precaches the shell.
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'GuideForge' })).toBeVisible();
@@ -28,4 +25,3 @@ test('app shell opens without network after first load', async ({ page, context 
   await expect(page.getByRole('heading', { name: 'GuideForge' })).toBeVisible({ timeout: 8000 });
   await expect(page.getByRole('link', { name: 'Library', exact: true })).toBeVisible();
 });
-

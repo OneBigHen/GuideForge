@@ -44,14 +44,14 @@ production-build offline-shell test.
 
 ## Acceptance evidence
 
-| Criterion | Evidence |
-|---|---|
-| Create/edit/reopen guide offline | unit + e2e; y-indexeddb survives restart |
-| iPad authoring without hover | iPad Playwright project; touch-target CSS; outline rail in portrait |
-| iPhone release execution + evidence offline | iPhone Playwright project; run route captures evidence |
-| Fake proposals accept/edit/reject via commands | e2e vertical slice (2→1 card count); unit tests accept via command bus |
-| Update flow does not lose an open draft | no skipWaiting without prompt; activateUpdate only from UI |
-| Responsive + accessibility evidence | desktop/ipad/iphone e2e; ARIA labels, regions, roles |
+| Criterion                                        | Evidence                                                                        |
+| ------------------------------------------------ | ------------------------------------------------------------------------------- |
+| Create/edit/reopen guide offline                 | unit + e2e; y-indexeddb survives restart                                        |
+| iPad authoring without hover                     | iPad Playwright project; touch-target CSS; outline rail in portrait             |
+| iPhone release execution + evidence offline      | iPhone Playwright project; run route captures evidence                          |
+| Fake proposals accept/edit/reject via commands   | e2e vertical slice (2→1 card count); unit tests accept via command bus          |
+| Update flow does not lose an open draft          | no skipWaiting without prompt; activateUpdate only from UI                      |
+| Responsive + accessibility evidence              | desktop/ipad/iphone e2e; ARIA labels, regions, roles                            |
 | App shell opens without network after first load | offline e2e (Chromium; WebKit driver cannot navigate offline — documented skip) |
 
 ## Test results
