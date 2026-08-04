@@ -25,3 +25,4 @@ test-results/
 
 # Tauri
 apps/desktop/src-tauri/plugins/
+.turbo/
