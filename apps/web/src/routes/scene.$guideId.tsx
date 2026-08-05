@@ -1,7 +1,6 @@
 import type { GuideCommand } from '@guideforge/commands';
 import type { EntityId } from '@guideforge/domain';
 import {
-  applySceneCommand,
   createSceneState,
   evaluateSceneHealth,
   IDENTITY_TRANSFORM,
@@ -14,6 +13,7 @@ import {
 import { SceneViewport } from '@guideforge/scene-react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useEffect, useMemo, useState } from 'react';
+import { closeGuide, openGuide, type OpenGuideSession } from '../services/guideStore';
 import { dispatchSceneCommand, loadScene, makeAssetUrlResolver } from '../services/sceneStore';
 
 export const Route = createFileRoute('/scene/$guideId')({
@@ -44,6 +44,7 @@ const T = (
 
 function SceneEditorPage() {
   const { guideId } = Route.useParams();
+  const [session, setSession] = useState<OpenGuideSession | null>(null);
   const [scene, setScene] = useState<SceneState>(() => createSceneState());
   const [loaded, setLoaded] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
@@ -56,20 +57,24 @@ function SceneEditorPage() {
 
   useEffect(() => {
     let cancelled = false;
-    void loadScene(guideId).then((s) => {
+    void openGuide(guideId).then((s) => {
       if (cancelled) return;
-      setScene(s);
+      setSession(s);
+      // Canonical scene comes from the working Yjs document.
+      setScene(loadScene(s));
       setLoaded(true);
     });
     return () => {
       cancelled = true;
+      if (session) void closeGuide(session);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [guideId]);
 
-  async function run(command: GuideCommand) {
-    const next = applySceneCommand(scene, command);
+  function run(command: GuideCommand) {
+    if (!session) return;
+    const next = dispatchSceneCommand(session, command);
     setScene(next);
-    await dispatchSceneCommand(guideId, command);
   }
 
   function handleAddNode() {

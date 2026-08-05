@@ -35,6 +35,29 @@ export interface RemoveStepPayload {
   stepId: EntityId;
 }
 
+export interface AddObjectivePayload {
+  objectiveId: EntityId;
+  verb: string;
+  target: string;
+  conditions: string;
+  criterion: string;
+  stepIds: EntityId[];
+  citations: { sourceHash: string; regionId: string }[];
+  criticality: 'core' | 'important' | 'supporting';
+}
+
+export interface AddAssessmentItemPayload {
+  itemId: EntityId;
+  objectiveId: EntityId;
+  prompt: string;
+  interaction: 'single-choice' | 'multiple-response' | 'ordering' | 'numeric' | 'short-answer';
+  options: { optionId: string; text: string }[];
+  scoringRule: Record<string, unknown>;
+  rationale: string;
+  citations: { sourceHash: string; regionId: string }[];
+  criticality: 'core' | 'important' | 'supporting';
+}
+
 export type GuideCommandPayloads =
   | AddTaskPayload
   | RenameTaskPayload
@@ -60,6 +83,8 @@ export const GUIDE_COMMAND_TYPES = {
   removeTool: 'guide/remove-tool',
   addPart: 'guide/add-part',
   removePart: 'guide/remove-part',
+  addObjective: 'training/add-objective',
+  addAssessmentItem: 'training/add-assessment-item',
 } as const;
 
 export function findTask(state: GuideState, taskId: EntityId): GuideTask | undefined {

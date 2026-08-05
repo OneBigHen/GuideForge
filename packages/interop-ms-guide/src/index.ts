@@ -12,7 +12,11 @@
  *  - never hard-codes tenant/environment URIs.
  */
 import { sha256Hex, type ContentHash, type EntityId } from '@guideforge/domain';
-import type { GuideSnapshot } from '@guideforge/guide-schema';
+import {
+  createEmptyScene,
+  createEmptyTraining,
+  type GuideSnapshot,
+} from '@guideforge/guide-schema';
 import { strFromU8, strToU8 } from 'fflate';
 
 export const MAX_GUIDE_BYTES = 512 * 1024 * 1024;
@@ -181,7 +185,7 @@ export function importMsGuide(bytes: Uint8Array, source: string): ImportedGuide 
   const guideId = crypto.randomUUID() as EntityId;
   const now = new Date().toISOString();
   const snapshot: GuideSnapshot = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     guideId,
     title: source.replace(/\.guide$/i, ''),
     description: '',
@@ -190,6 +194,9 @@ export function importMsGuide(bytes: Uint8Array, source: string): ImportedGuide 
     updatedAtIso: now,
     tasks,
     steps,
+    scene: createEmptyScene(),
+    training: createEmptyTraining(),
+    sources: [],
   };
 
   // Assets: only Model/Image/Video bodies are extracted; all others dropped.

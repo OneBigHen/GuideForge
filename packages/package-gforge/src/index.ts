@@ -254,7 +254,7 @@ function sortKeys(value: unknown): unknown {
 
 /** Build the draft package entry list (sorted, validated). */
 export function buildDraftEntries(input: DraftPackageInput): PackageEntry[] {
-  if (input.snapshot.schemaVersion !== 1) {
+  if (input.snapshot.schemaVersion !== 2) {
     const version = String(input.snapshot.schemaVersion);
     throw new PackageSafetyError(`unsupported schema version ${version}`);
   }
@@ -401,7 +401,7 @@ export async function buildDraftEntriesWithHash(
   input: DraftPackageInput,
   hash: (bytes: Uint8Array) => Promise<string>,
 ): Promise<PackageEntry[]> {
-  if (input.snapshot.schemaVersion !== 1) {
+  if (input.snapshot.schemaVersion !== 2) {
     const version = String(input.snapshot.schemaVersion);
     throw new PackageSafetyError(`unsupported schema version ${version}`);
   }

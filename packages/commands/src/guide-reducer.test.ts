@@ -105,3 +105,67 @@ describe('command sequence properties', () => {
     expect(bad.tasks.map((t) => t.taskId)).toEqual([t1]);
   });
 });
+
+describe('training commands (Phase 02 canonical training)', () => {
+  it('adds objectives and assessment items without aliasing previous state', () => {
+    const OID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const IID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const base = freshGuideState(GUIDE_ID, 'g');
+
+    const withObjective = applyGuideCommand(
+      base,
+      cmd(GUIDE_COMMAND_TYPES.addObjective, {
+        objectiveId: OID,
+        verb: 'select',
+        target: 'the correct test volume',
+        conditions: 'given a 100-1000 uL micropipette',
+        criterion: 'within tolerance',
+        stepIds: [],
+        citations: [{ sourceHash: 'a'.repeat(64), regionId: 'reg-1' }],
+        criticality: 'core',
+      }),
+    );
+    expect(withObjective.training.objectives).toHaveLength(1);
+    expect(withObjective.training.objectives[0]!.objectiveId).toBe(OID);
+    // Previous state must be unchanged (no aliasing).
+    expect(base.training.objectives).toHaveLength(0);
+
+    const withItem = applyGuideCommand(
+      withObjective,
+      cmd(GUIDE_COMMAND_TYPES.addAssessmentItem, {
+        itemId: IID,
+        objectiveId: OID,
+        prompt: 'Which volume is correct?',
+        interaction: 'single-choice',
+        options: [
+          { optionId: 'o1', text: '100 uL' },
+          { optionId: 'o2', text: '500 uL' },
+        ],
+        scoringRule: { correct: ['o2'] },
+        rationale: 'The source specifies 500 uL.',
+        citations: [{ sourceHash: 'a'.repeat(64), regionId: 'reg-1' }],
+        criticality: 'core',
+      }),
+    );
+    expect(withItem.training.assessmentItems).toHaveLength(1);
+    expect(withItem.training.objectives).toHaveLength(1);
+    expect(withObjective.training.assessmentItems).toHaveLength(0);
+  });
+
+  it('idempotently refuses duplicate objectives', () => {
+    const base = freshGuideState(GUIDE_ID, 'g');
+    const addObjectiveCmd = cmd(GUIDE_COMMAND_TYPES.addObjective, {
+      objectiveId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      verb: 'select',
+      target: 'x',
+      conditions: '',
+      criterion: '',
+      stepIds: [],
+      citations: [],
+      criticality: 'core' as const,
+    });
+    const once = applyGuideCommand(base, addObjectiveCmd);
+    const twice = applyGuideCommand(once, addObjectiveCmd);
+    expect(twice).toBe(once); // no-op returns same reference
+  });
+});

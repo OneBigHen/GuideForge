@@ -16,7 +16,8 @@
     "@guideforge/commands": "workspace:*",
     "@guideforge/domain": "workspace:*",
     "@guideforge/guide-schema": "workspace:*",
-    "yjs": "catalog:"
+    "yjs": "catalog:",
+    "@guideforge/scene-core": "workspace:*"
   },
   "devDependencies": {
     "fast-check": "catalog:",

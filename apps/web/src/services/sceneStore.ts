@@ -1,100 +1,45 @@
 /**
- * Scene store for apps/web: persists a serializable SceneState per guide in
- * Dexie, applies scene commands through the pure reducer, and exposes an
- * asset URL resolver for GLB loading by content hash.
+ * Scene store for apps/web.
  *
- * A dedicated Dexie database ('guideforge-scenes') keeps storage-web
- * framework-independent.
+ * The canonical scene lives INSIDE the working Yjs document
+ * (`working.scene`), so it is collaborative, packaged, imported, and always
+ * consistent with the guide snapshot. Dexie is NOT authoritative for scenes
+ * anymore (Phase 02); this module only adapts the Yjs document.
  */
-import type { GuideCommand } from '@guideforge/commands';
 import {
-  applySceneCommand,
-  createSceneState,
-  evaluateSceneHealth,
-  type SceneState,
-} from '@guideforge/scene-core';
-import Dexie from 'dexie';
+  guideSceneToSceneState,
+  materializeScene,
+  sceneStateToGuideScene,
+  setWorkingScene,
+} from '@guideforge/collaboration';
+import type { GuideCommand } from '@guideforge/commands';
+import { applySceneCommand, type SceneState } from '@guideforge/scene-core';
+import type { OpenGuideSession } from './guideStore';
 
-export interface SerializedScene {
-  nodes: Record<string, SceneState['nodes'] extends Map<string, infer N> ? N : never>;
-  rootOrder: string[];
-  layers: Record<string, { name: string; visible: boolean; locked: boolean; color: string }>;
-  cameras: SceneState['cameras'];
-  measurements: SceneState['measurements'];
+/** Load the canonical scene from the working document (never a separate DB). */
+export function loadScene(session: OpenGuideSession): SceneState {
+  return guideSceneToSceneState(materializeScene(session.working));
 }
 
-const sceneDb = new Dexie('guideforge-scenes');
-sceneDb.version(1).stores({
-  scenes: 'guideId, updatedAtIso',
-});
-
-interface SceneRow {
-  guideId: string;
-  scene: SerializedScene;
-  updatedAtIso: string;
-}
-
-export async function loadScene(guideId: string): Promise<SceneState> {
-  const row = await sceneDb.table<SceneRow, string>('scenes').get(guideId);
-  if (!row) return createSceneState();
-  return deserializeScene(row.scene);
-}
-
-export async function saveScene(guideId: string, scene: SceneState): Promise<void> {
-  const row: SceneRow = {
-    guideId,
-    scene: serializeScene(scene),
-    updatedAtIso: new Date().toISOString(),
-  };
-  await sceneDb.table<SceneRow, string>('scenes').put(row);
-}
-
-export async function dispatchSceneCommand(
-  guideId: string,
-  command: GuideCommand,
-): Promise<SceneState> {
-  const current = await loadScene(guideId);
+/** Apply a scene command inside the working document (one semantic commit). */
+export function dispatchSceneCommand(session: OpenGuideSession, command: GuideCommand): SceneState {
+  const current = loadScene(session);
   const next = applySceneCommand(current, command);
-  await saveScene(guideId, next);
+  if (next === current) return current;
+  session.working.doc.transact(() => {
+    setWorkingScene(session.working, sceneStateToGuideScene(next));
+  }, 'guideforge:scene-command');
   return next;
 }
 
-export function sceneHealth(scene: SceneState) {
-  return evaluateSceneHealth(scene);
+/** Set the whole scene (used by import/hydrate paths). */
+export function saveSceneToWorkingDoc(session: OpenGuideSession, scene: SceneState): void {
+  session.working.doc.transact(() => {
+    setWorkingScene(session.working, sceneStateToGuideScene(scene));
+  }, 'guideforge:scene-set');
 }
 
-function serializeScene(scene: SceneState): SerializedScene {
-  return {
-    nodes: Object.fromEntries(scene.nodes),
-    rootOrder: [...scene.rootOrder],
-    layers: Object.fromEntries(scene.layers),
-    cameras: scene.cameras.map((c) => ({
-      ...c,
-      position: { ...c.position },
-      target: { ...c.target },
-    })),
-    measurements: scene.measurements.map((m) => ({ ...m })),
-  };
-}
-
-function deserializeScene(serialized: SerializedScene): SceneState {
-  return {
-    nodes: new Map(
-      Object.entries(serialized.nodes ?? {}).map(([id, n]) => [
-        id as SceneState['nodes'] extends Map<infer K, unknown> ? K : never,
-        n,
-      ]),
-    ),
-    rootOrder: [...(serialized.rootOrder ?? [])] as SceneState['rootOrder'],
-    layers: new Map(Object.entries(serialized.layers ?? {})),
-    cameras: (serialized.cameras ?? []).map((c) => ({
-      ...c,
-      position: { ...c.position },
-      target: { ...c.target },
-    })),
-    measurements: (serialized.measurements ?? []).map((m) => ({ ...m })),
-  };
-}
+export { createSceneState } from '@guideforge/scene-core';
 
 /** Resolve a GLB asset hash to a usable URL (stored object URLs). */
 export function makeAssetUrlResolver(

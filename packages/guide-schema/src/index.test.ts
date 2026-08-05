@@ -4,12 +4,12 @@ import { migrateToCurrent, migrationChainComplete } from './migrations.js';
 
 describe('guide-schema', () => {
   it('exposes the schema version', () => {
-    expect(GUIDE_SCHEMA_VERSION).toBe(1);
+    expect(GUIDE_SCHEMA_VERSION).toBe(2);
   });
 
-  it('validates a minimal snapshot', () => {
+  it('validates a minimal v2 snapshot', () => {
     const snapshot = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       guideId: '123e4567-e89b-42d3-a456-426614174000',
       title: 'Test',
       description: '',
@@ -18,16 +18,49 @@ describe('guide-schema', () => {
       updatedAtIso: '2026-01-01T00:00:00Z',
       tasks: [],
       steps: [],
+      scene: {
+        nodes: [],
+        rootOrder: [],
+        layers: [
+          { layerId: 'default', name: 'Default', visible: true, locked: false, color: '#2dd4bf' },
+        ],
+        cameras: [],
+        measurements: [],
+        annotations: [],
+        stepStates: {},
+      },
+      training: {
+        objectives: [],
+        assessmentItems: [],
+        modules: [],
+        mastery: { requiredCriticalItems: 0, passThreshold: 0.8, maxAttempts: 3 },
+      },
+      sources: [],
     };
     expect(isGuideSnapshot(snapshot)).toBe(true);
   });
 
-  it('rejects non-snapshots', () => {
+  it('rejects non-snapshots and v1-shaped objects', () => {
     expect(isGuideSnapshot(null)).toBe(false);
     expect(isGuideSnapshot({ schemaVersion: 99 })).toBe(false);
+    // A v1 snapshot (no scene/training/sources) is no longer valid directly;
+    // it must be migrated.
+    expect(
+      isGuideSnapshot({
+        schemaVersion: 1,
+        guideId: '123e4567-e89b-42d3-a456-426614174000',
+        title: 'T',
+        description: '',
+        lifecycleState: 'draft',
+        createdAtIso: '2026-01-01T00:00:00Z',
+        updatedAtIso: '2026-01-01T00:00:00Z',
+        tasks: [],
+        steps: [],
+      }),
+    ).toBe(false);
   });
 
-  it('migrates v1 input unchanged', () => {
+  it('migrates v1 input to v2 with empty scene/training/sources', () => {
     const v1 = {
       schemaVersion: 1,
       guideId: '123e4567-e89b-42d3-a456-426614174000',
@@ -40,8 +73,14 @@ describe('guide-schema', () => {
       steps: [],
     };
     const out = migrateToCurrent(v1);
-    expect(out.schemaVersion).toBe(1);
+    expect(out.schemaVersion).toBe(2);
     expect(out.title).toBe('T');
+    expect(out.scene.nodes).toEqual([]);
+    expect(out.scene.layers).toHaveLength(1);
+    expect(out.training.objectives).toEqual([]);
+    expect(out.sources).toEqual([]);
+    // Migrated output must itself validate as a v2 snapshot.
+    expect(isGuideSnapshot(out)).toBe(true);
   });
 
   it('rejects unknown schema versions', () => {

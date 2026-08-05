@@ -114,10 +114,10 @@ function EditPage() {
     setShowProposals(true);
   }
 
-  function handleExportRelease() {
+  async function handleExportRelease() {
     if (!session) return;
     try {
-      const { bytes, filename, unsigned } = exportPersonalRelease(session, '1.0.0');
+      const { bytes, filename, unsigned } = await exportPersonalRelease(session, '1.0.0');
       const blob = new Blob([bytes as BlobPart], { type: 'application/zip' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -185,7 +185,7 @@ function EditPage() {
           <button
             type="button"
             className="button button--ghost"
-            onClick={() => handleExportRelease()}
+            onClick={() => void handleExportRelease()}
             title="Export an Ed25519-signed release package"
           >
             Export personal release

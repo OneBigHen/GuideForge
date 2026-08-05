@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://guideforge.dev/schemas/GuideSnapshot.schema.json",
   "title": "GuideSnapshot",
-  "description": "Canonical deterministic snapshot of a GuideForge guide. Schema version 1.",
+  "description": "Canonical deterministic snapshot of a GuideForge guide. Schema version 2: procedure + spatial scene + training + sources.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -14,10 +14,13 @@
     "createdAtIso",
     "updatedAtIso",
     "tasks",
-    "steps"
+    "steps",
+    "scene",
+    "training",
+    "sources"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "guideId": {
       "type": "string",
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
@@ -28,7 +31,10 @@
     "createdAtIso": { "type": "string", "format": "date-time" },
     "updatedAtIso": { "type": "string", "format": "date-time" },
     "tasks": { "type": "array", "items": { "$ref": "#/$defs/GuideTask" } },
-    "steps": { "type": "array", "items": { "$ref": "#/$defs/GuideStep" } }
+    "steps": { "type": "array", "items": { "$ref": "#/$defs/GuideStep" } },
+    "scene": { "$ref": "#/$defs/GuideScene" },
+    "training": { "$ref": "#/$defs/TrainingState" },
+    "sources": { "type": "array", "items": { "$ref": "#/$defs/GuideSource" } }
   },
   "$defs": {
     "GuideTask": {
@@ -109,6 +115,364 @@
         "mimeType": { "type": "string" },
         "kind": { "enum": ["image", "video", "model", "audio"] },
         "caption": { "type": "string" }
+      }
+    },
+    "SceneTransform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["position", "rotation", "scale"],
+      "properties": {
+        "position": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y", "z"],
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "z": { "type": "number" }
+          }
+        },
+        "rotation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y", "z", "w"],
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "z": { "type": "number" },
+            "w": { "type": "number" }
+          }
+        },
+        "scale": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y", "z"],
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "z": { "type": "number" }
+          }
+        }
+      }
+    },
+    "SceneNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nodeId",
+        "name",
+        "parentId",
+        "assetHash",
+        "transform",
+        "layerId",
+        "visible",
+        "locked",
+        "metadata"
+      ],
+      "properties": {
+        "nodeId": { "type": "string" },
+        "name": { "type": "string" },
+        "parentId": { "type": ["string", "null"] },
+        "assetHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "transform": { "$ref": "#/$defs/SceneTransform" },
+        "layerId": { "type": "string" },
+        "visible": { "type": "boolean" },
+        "locked": { "type": "boolean" },
+        "metadata": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "SceneLayer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["layerId", "name", "visible", "locked", "color"],
+      "properties": {
+        "layerId": { "type": "string" },
+        "name": { "type": "string" },
+        "visible": { "type": "boolean" },
+        "locked": { "type": "boolean" },
+        "color": { "type": "string" }
+      }
+    },
+    "SceneCamera": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cameraId", "name", "position", "target", "orthographic", "zoom"],
+      "properties": {
+        "cameraId": { "type": "string" },
+        "name": { "type": "string" },
+        "position": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y", "z"],
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "z": { "type": "number" }
+          }
+        },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y", "z"],
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "z": { "type": "number" }
+          }
+        },
+        "orthographic": { "type": "boolean" },
+        "zoom": { "type": "number" }
+      }
+    },
+    "SceneMeasurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["measurementId", "name", "fromNodeId", "toNodeId", "value"],
+      "properties": {
+        "measurementId": { "type": "string" },
+        "name": { "type": "string" },
+        "fromNodeId": { "type": "string" },
+        "toNodeId": { "type": "string" },
+        "value": { "type": ["number", "null"] }
+      }
+    },
+    "SceneAnnotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "annotationId",
+        "kind",
+        "text",
+        "targetNodeId",
+        "targetPoint",
+        "offset",
+        "color"
+      ],
+      "properties": {
+        "annotationId": { "type": "string" },
+        "kind": { "enum": ["arrow", "label", "callout", "highlight"] },
+        "text": { "type": "string" },
+        "targetNodeId": { "type": "string" },
+        "targetPoint": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["x", "y", "z"],
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "z": { "type": "number" }
+          }
+        },
+        "offset": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["x", "y"],
+          "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+        },
+        "color": { "type": "string" }
+      }
+    },
+    "GuideScene": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nodes",
+        "rootOrder",
+        "layers",
+        "cameras",
+        "measurements",
+        "annotations",
+        "stepStates"
+      ],
+      "properties": {
+        "nodes": { "type": "array", "items": { "$ref": "#/$defs/SceneNode" } },
+        "rootOrder": { "type": "array", "items": { "type": "string" } },
+        "layers": { "type": "array", "items": { "$ref": "#/$defs/SceneLayer" } },
+        "cameras": { "type": "array", "items": { "$ref": "#/$defs/SceneCamera" } },
+        "measurements": { "type": "array", "items": { "$ref": "#/$defs/SceneMeasurement" } },
+        "annotations": { "type": "array", "items": { "$ref": "#/$defs/SceneAnnotation" } },
+        "stepStates": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["visibleNodeIds", "cameraId"],
+            "properties": {
+              "visibleNodeIds": { "type": "array", "items": { "type": "string" } },
+              "cameraId": { "type": ["string", "null"] }
+            }
+          }
+        }
+      }
+    },
+    "LearningObjective": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "objectiveId",
+        "verb",
+        "target",
+        "conditions",
+        "criterion",
+        "stepIds",
+        "citations",
+        "criticality"
+      ],
+      "properties": {
+        "objectiveId": { "type": "string" },
+        "verb": { "type": "string" },
+        "target": { "type": "string" },
+        "conditions": { "type": "string" },
+        "criterion": { "type": "string" },
+        "stepIds": { "type": "array", "items": { "type": "string" } },
+        "citations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sourceHash", "regionId"],
+            "properties": {
+              "sourceHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              "regionId": { "type": "string" }
+            }
+          }
+        },
+        "criticality": { "enum": ["core", "important", "supporting"] }
+      }
+    },
+    "AssessmentItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "itemId",
+        "objectiveId",
+        "prompt",
+        "interaction",
+        "options",
+        "scoringRule",
+        "rationale",
+        "citations",
+        "criticality",
+        "reviewState"
+      ],
+      "properties": {
+        "itemId": { "type": "string" },
+        "objectiveId": { "type": "string" },
+        "prompt": { "type": "string" },
+        "interaction": {
+          "enum": ["single-choice", "multiple-response", "ordering", "numeric", "short-answer"]
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["optionId", "text"],
+            "properties": { "optionId": { "type": "string" }, "text": { "type": "string" } }
+          }
+        },
+        "scoringRule": { "type": "object" },
+        "rationale": { "type": "string" },
+        "citations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sourceHash", "regionId"],
+            "properties": {
+              "sourceHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              "regionId": { "type": "string" }
+            }
+          }
+        },
+        "criticality": { "enum": ["core", "important", "supporting"] },
+        "reviewState": { "enum": ["draft", "reviewed"] }
+      }
+    },
+    "TrainingModule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["moduleId", "title", "objectiveIds", "lessonIds"],
+      "properties": {
+        "moduleId": { "type": "string" },
+        "title": { "type": "string" },
+        "objectiveIds": { "type": "array", "items": { "type": "string" } },
+        "lessonIds": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "TrainingState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["objectives", "assessmentItems", "modules", "mastery"],
+      "properties": {
+        "objectives": { "type": "array", "items": { "$ref": "#/$defs/LearningObjective" } },
+        "assessmentItems": { "type": "array", "items": { "$ref": "#/$defs/AssessmentItem" } },
+        "modules": { "type": "array", "items": { "$ref": "#/$defs/TrainingModule" } },
+        "mastery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["requiredCriticalItems", "passThreshold", "maxAttempts"],
+          "properties": {
+            "requiredCriticalItems": { "type": "integer", "minimum": 0 },
+            "passThreshold": { "type": "number", "minimum": 0, "maximum": 1 },
+            "maxAttempts": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+    "SourceRegion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "regionId",
+        "sourceHash",
+        "locator",
+        "structuralPath",
+        "type",
+        "contentHash",
+        "confidence"
+      ],
+      "properties": {
+        "regionId": { "type": "string" },
+        "sourceHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "locator": { "type": "object" },
+        "structuralPath": { "type": "string" },
+        "type": { "type": "string" },
+        "text": { "type": "string" },
+        "contentHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "GuideSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceId",
+        "sha256",
+        "originalName",
+        "mediaType",
+        "sizeBytes",
+        "pageCount",
+        "durationMs",
+        "pipeline",
+        "pipelineVersion",
+        "status",
+        "regions",
+        "provenanceReceipt"
+      ],
+      "properties": {
+        "sourceId": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "originalName": { "type": "string" },
+        "mediaType": { "type": "string" },
+        "sizeBytes": { "type": "integer", "minimum": 0 },
+        "pageCount": { "type": ["integer", "null"] },
+        "durationMs": { "type": ["integer", "null"] },
+        "pipeline": { "type": "string" },
+        "pipelineVersion": { "type": "string" },
+        "status": { "enum": ["pending", "processing", "ready", "failed"] },
+        "regions": { "type": "array", "items": { "$ref": "#/$defs/SourceRegion" } },
+        "provenanceReceipt": { "type": "object" }
       }
     }
   }

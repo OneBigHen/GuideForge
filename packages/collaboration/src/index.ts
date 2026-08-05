@@ -21,7 +21,13 @@
 import type { GuideCommand } from '@guideforge/commands';
 import { applyGuideCommand } from '@guideforge/commands';
 import type { EntityId, GuideLifecycleState } from '@guideforge/domain';
-import type { GuideSnapshot, GuideStep, GuideTask } from '@guideforge/guide-schema';
+import type {
+  GuideScene,
+  GuideSnapshot,
+  GuideStep,
+  GuideTask,
+  TrainingState,
+} from '@guideforge/guide-schema';
 import * as Y from 'yjs';
 
 /** Origin tag used for all local user commands. */
@@ -33,6 +39,10 @@ export interface WorkingGuide {
   tasks: Y.Map<Y.Map<unknown>>;
   taskOrder: Y.Array<string>;
   steps: Y.Map<Y.Map<unknown>>;
+  /** Canonical scene graph (JSON-safe structure, collaborative via Yjs). */
+  scene: Y.Map<unknown>;
+  /** Canonical training state (objectives/assessments/modules). */
+  training: Y.Map<unknown>;
 }
 
 export function createWorkingGuide(guideId: EntityId, title: string): WorkingGuide {
@@ -53,6 +63,8 @@ function seedWorkingGuide(doc: Y.Doc, guideId: EntityId, title: string): void {
   doc.getArray<string>('taskOrder');
   doc.getMap<Y.Map<unknown>>('tasks');
   doc.getMap<Y.Map<unknown>>('steps');
+  doc.getMap<unknown>('scene');
+  doc.getMap<unknown>('training');
 }
 
 function workingGuideFromDoc(doc: Y.Doc): WorkingGuide {
@@ -62,6 +74,8 @@ function workingGuideFromDoc(doc: Y.Doc): WorkingGuide {
     tasks: doc.getMap<Y.Map<unknown>>('tasks'),
     taskOrder: doc.getArray<string>('taskOrder'),
     steps: doc.getMap<Y.Map<unknown>>('steps'),
+    scene: doc.getMap<unknown>('scene'),
+    training: doc.getMap<unknown>('training'),
   };
 }
 
@@ -117,7 +131,7 @@ export function materializeSnapshot(working: WorkingGuide): GuideSnapshot {
   }
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     guideId: guideId as EntityId,
     title,
     description,
@@ -126,7 +140,77 @@ export function materializeSnapshot(working: WorkingGuide): GuideSnapshot {
     updatedAtIso,
     tasks,
     steps,
+    scene: materializeScene(working),
+    training: materializeTraining(working),
+    sources: [],
   };
+}
+
+/** Canonical scene from the working document (JSON-safe). */
+export function materializeScene(working: WorkingGuide): GuideScene {
+  const scene = working.scene;
+  const sceneJson = (scene.get('sceneJson') as string) ?? '';
+  if (!sceneJson) {
+    return {
+      nodes: [],
+      rootOrder: [],
+      layers: [
+        { layerId: 'default', name: 'Default', visible: true, locked: false, color: '#2dd4bf' },
+      ],
+      cameras: [],
+      measurements: [],
+      annotations: [],
+      stepStates: {},
+    };
+  }
+  try {
+    return JSON.parse(sceneJson) as GuideScene;
+  } catch {
+    return {
+      nodes: [],
+      rootOrder: [],
+      layers: [
+        { layerId: 'default', name: 'Default', visible: true, locked: false, color: '#2dd4bf' },
+      ],
+      cameras: [],
+      measurements: [],
+      annotations: [],
+      stepStates: {},
+    };
+  }
+}
+
+/** Set the canonical scene on the working document (inside a transaction). */
+export function setWorkingScene(working: WorkingGuide, scene: GuideScene): void {
+  working.scene.set('sceneJson', JSON.stringify(scene));
+}
+
+/** Canonical training from the working document. */
+export function materializeTraining(working: WorkingGuide): TrainingState {
+  const raw = working.training.get('trainingJson') as string | undefined;
+  if (!raw) {
+    return {
+      objectives: [],
+      assessmentItems: [],
+      modules: [],
+      mastery: { requiredCriticalItems: 0, passThreshold: 0.8, maxAttempts: 3 },
+    };
+  }
+  try {
+    return JSON.parse(raw) as TrainingState;
+  } catch {
+    return {
+      objectives: [],
+      assessmentItems: [],
+      modules: [],
+      mastery: { requiredCriticalItems: 0, passThreshold: 0.8, maxAttempts: 3 },
+    };
+  }
+}
+
+/** Set the canonical training state on the working document. */
+export function setWorkingTraining(working: WorkingGuide, training: TrainingState): void {
+  working.training.set('trainingJson', JSON.stringify(training));
 }
 
 /** Hydrate a working document from a canonical snapshot (used on open/import). */
@@ -168,6 +252,9 @@ export function hydrateWorkingGuide(working: WorkingGuide, snapshot: GuideSnapsh
       yStep.set('media', yMedia);
       working.steps.set(step.stepId, yStep);
     }
+    // Restore canonical scene + training into the working document.
+    working.scene.set('sceneJson', JSON.stringify(snapshot.scene));
+    working.training.set('trainingJson', JSON.stringify(snapshot.training));
   }, 'guideforge:hydrate');
 }
 
@@ -238,6 +325,11 @@ export function applyCommandToWorkingGuide(working: WorkingGuide, command: Guide
     for (const [stepId] of existingSteps) {
       working.steps.delete(stepId);
     }
+
+    // Sync the canonical scene + training back to the working doc so every
+    // mutation (procedure, scene, or training command) is collaborative.
+    working.scene.set('sceneJson', JSON.stringify(after.scene));
+    working.training.set('trainingJson', JSON.stringify(after.training));
   }, txOrigin);
 }
 
@@ -268,3 +360,5 @@ export function createLocalUndoManager(working: WorkingGuide): Y.UndoManager {
     captureTimeout: 0,
   });
 }
+
+export { guideSceneToSceneState, sceneStateToGuideScene } from './scene-converters.js';

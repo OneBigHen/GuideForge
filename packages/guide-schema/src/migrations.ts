@@ -6,7 +6,12 @@
  * migration in sequence until reaching the target version. It never mutates
  * its input.
  */
-import { GUIDE_SCHEMA_VERSION, type GuideSnapshot } from './index.js';
+import {
+  createEmptyScene,
+  createEmptyTraining,
+  GUIDE_SCHEMA_VERSION,
+  type GuideSnapshot,
+} from './index.js';
 
 export interface SchemaMigration {
   fromVersion: number;
@@ -16,6 +21,22 @@ export interface SchemaMigration {
 }
 
 const MIGRATIONS: SchemaMigration[] = [];
+
+/**
+ * v1 -> v2: the guide gains canonical scene, training, and source structures.
+ * v1 snapshots carry only procedure content; the new structures start empty.
+ */
+registerMigration({
+  fromVersion: 1,
+  toVersion: 2,
+  migrate: (input) => {
+    const next = { ...input, schemaVersion: 2 } as Record<string, unknown>;
+    if (!('scene' in next)) next.scene = createEmptyScene();
+    if (!('training' in next)) next.training = createEmptyTraining();
+    if (!('sources' in next)) next.sources = [];
+    return next;
+  },
+});
 
 /**
  * Register a migration. The canonical list is derived from this module; tests
@@ -67,9 +88,11 @@ import { isGuideSnapshot } from './index.js';
 
 export function migrationChainComplete(): boolean {
   const versions = MIGRATIONS.map((m) => m.fromVersion).sort((a, b) => a - b);
-  if (versions.length === 0 && GUIDE_SCHEMA_VERSION === 1) return true;
+  // The chain must be contiguous from 1 up to (current - 1): every older
+  // version must have exactly one forward migration.
+  if (versions.length === 0) return (GUIDE_SCHEMA_VERSION as number) === 1;
   for (let i = 0; i < versions.length; i++) {
     if (versions[i] !== i + 1) return false;
   }
-  return true;
+  return versions.length === GUIDE_SCHEMA_VERSION - 1;
 }

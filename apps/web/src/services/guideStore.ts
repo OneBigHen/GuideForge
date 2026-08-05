@@ -18,7 +18,7 @@ import {
 } from '@guideforge/collaboration';
 import type { GuideCommand } from '@guideforge/commands';
 import { GUIDE_COMMAND_TYPES } from '@guideforge/commands';
-import type { EntityId } from '@guideforge/domain';
+import type { AssetReference, ContentHash, EntityId } from '@guideforge/domain';
 import type { GuideSnapshot } from '@guideforge/guide-schema';
 import { importMsGuide as msImport } from '@guideforge/interop-ms-guide';
 import {
@@ -187,6 +187,59 @@ export async function addStep(
     payload: { taskId, stepId, title: text },
   });
   return stepId;
+}
+
+/** Add a measurable learning objective through the command bus (canonical). */
+export async function addObjective(
+  session: OpenGuideSession,
+  input: {
+    verb: string;
+    target: string;
+    conditions: string;
+    criterion: string;
+    stepIds: string[];
+    citations: { sourceHash: string; regionId: string }[];
+    criticality: 'core' | 'important' | 'supporting';
+  },
+): Promise<string> {
+  const objectiveId = uuidv4();
+  await dispatchCommand(session, {
+    commandId: crypto.randomUUID(),
+    commandType: GUIDE_COMMAND_TYPES.addObjective,
+    actorId: 'local-user',
+    guideId: session.guideId as EntityId,
+    origin: 'user',
+    occurredAt: new Date().toISOString(),
+    payload: { objectiveId, ...input },
+  });
+  return objectiveId;
+}
+
+/** Add a source-grounded assessment item through the command bus. */
+export async function addAssessmentItem(
+  session: OpenGuideSession,
+  input: {
+    objectiveId: string;
+    prompt: string;
+    interaction: 'single-choice' | 'multiple-response' | 'ordering' | 'numeric' | 'short-answer';
+    options: { optionId: string; text: string }[];
+    scoringRule: Record<string, unknown>;
+    rationale: string;
+    citations: { sourceHash: string; regionId: string }[];
+    criticality: 'core' | 'important' | 'supporting';
+  },
+): Promise<string> {
+  const itemId = uuidv4();
+  await dispatchCommand(session, {
+    commandId: crypto.randomUUID(),
+    commandType: GUIDE_COMMAND_TYPES.addAssessmentItem,
+    actorId: 'local-user',
+    guideId: session.guideId as EntityId,
+    origin: 'user',
+    occurredAt: new Date().toISOString(),
+    payload: { itemId, ...input },
+  });
+  return itemId;
 }
 
 export async function removeStep(
@@ -457,10 +510,69 @@ export async function exportDraft(
   session: OpenGuideSession,
 ): Promise<{ bytes: Uint8Array; filename: string }> {
   const snapshot = materializeSnapshot(session.working);
-  // Draft package: assets not yet materialized into the doc, so pass an empty
-  // asset map unless assets were registered this session.
-  const { bytes } = await createDraftPackageAsync({ snapshot, assets: new Map() });
+  const assets = await collectReferencedAssets(session, snapshot);
+  const { bytes } = await createDraftPackageAsync({ snapshot, assets });
   return { bytes, filename: `${snapshot.title.replace(/[^a-z0-9-_]+/gi, '-')}.gforge` };
+}
+
+/**
+ * Collect every asset referenced by the snapshot (step media + scene node
+ * asset hashes) from the content-addressed store, keyed by SHA-256. Packages
+ * must never be exported with an empty asset map (Phase 02 gate).
+ */
+async function collectReferencedAssets(
+  session: OpenGuideSession,
+  snapshot: GuideSnapshot,
+): Promise<Map<ContentHash, AssetReference & { bytes: Uint8Array }>> {
+  const assets = new Map<ContentHash, AssetReference & { bytes: Uint8Array }>();
+  const hashes = new Set<string>();
+
+  for (const step of snapshot.steps) {
+    for (const media of step.media) hashes.add(media.assetHash);
+  }
+  for (const node of snapshot.scene.nodes) {
+    if (node.assetHash) hashes.add(node.assetHash);
+  }
+
+  for (const hash of hashes) {
+    const bytes = await session.assets.get(hash as ContentHash);
+    if (!bytes) continue; // missing assets are reported by validateReferencedAssets
+    const meta = await session.db.assets.get(hash);
+    const extension =
+      meta?.mimeType === 'model/gltf-binary'
+        ? 'glb'
+        : meta?.mimeType?.startsWith('image/')
+          ? (meta.mimeType.split('/')[1] ?? 'bin')
+          : meta?.mimeType?.startsWith('video/')
+            ? (meta.mimeType.split('/')[1] ?? 'bin')
+            : 'bin';
+    assets.set(hash as ContentHash, {
+      bytes,
+      hash: hash as ContentHash,
+      mimeType: meta?.mimeType ?? 'application/octet-stream',
+      extension,
+      sizeBytes: bytes.length,
+    });
+  }
+  return assets;
+}
+
+/**
+ * Validate that every asset referenced by the snapshot exists in the store.
+ * Returns missing hashes (export must not silently drop referenced assets).
+ */
+export async function validateReferencedAssets(
+  session: OpenGuideSession,
+): Promise<{ missing: string[] }> {
+  const snapshot = materializeSnapshot(session.working);
+  const missing: string[] = [];
+  const hashes = new Set<string>();
+  for (const step of snapshot.steps) for (const media of step.media) hashes.add(media.assetHash);
+  for (const node of snapshot.scene.nodes) if (node.assetHash) hashes.add(node.assetHash);
+  for (const hash of hashes) {
+    if (!(await session.assets.has(hash as ContentHash))) missing.push(hash);
+  }
+  return { missing };
 }
 
 /** Import a draft `.gforge` package into the library. */
@@ -476,6 +588,24 @@ export async function importDraft(bytes: Uint8Array): Promise<{ guideId: string;
   hydrateWorkingGuide(working, snapshot);
   const persistence = persistWorkingDoc(working.doc, guideId);
   await persistence.synced;
+
+  // Restore packaged asset bytes into the content-addressed store so scene
+  // models/media referenced by the snapshot resolve after import.
+  const store = new OpfsAssetStore(db());
+  for (const entry of entries) {
+    const m = /^assets\/([0-9a-f]{64})\.([a-z0-9]+)$/.exec(entry.path);
+    if (!m) continue;
+    const hash = m[1] as ContentHash;
+    if (!(await store.has(hash))) {
+      const mimeType =
+        m[2] === 'glb'
+          ? 'model/gltf-binary'
+          : m[2] === 'png' || m[2] === 'jpg' || m[2] === 'webp'
+            ? `image/${m[2]}`
+            : 'application/octet-stream';
+      await store.put(entry.data, mimeType, m[2]!);
+    }
+  }
 
   await db().guides.put({
     guideId,
@@ -519,14 +649,15 @@ function extractZipEntries(bytes: Uint8Array): PackageEntry[] {
  * unsigned and clearly marked. Signed releases belong to the companion key
  * store / OS secure store (Phase 07+).
  */
-export function exportPersonalRelease(
+export async function exportPersonalRelease(
   session: OpenGuideSession,
   releaseVersion: string,
-): { bytes: Uint8Array; filename: string; unsigned: true } {
+): Promise<{ bytes: Uint8Array; filename: string; unsigned: true }> {
   const snapshot = materializeSnapshot(session.working);
+  const assets = await collectReferencedAssets(session, snapshot);
   const bytes = createReleasePackage({
     snapshot,
-    assets: new Map(),
+    assets,
     release: {
       releaseId: crypto.randomUUID(),
       releaseVersion,

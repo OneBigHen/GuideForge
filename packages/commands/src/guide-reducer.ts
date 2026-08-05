@@ -10,10 +10,17 @@
  * All reducers are deterministic: same (state, command) => same output.
  */
 import type { EntityId } from '@guideforge/domain';
-import type { GuideSnapshot, GuideTask } from '@guideforge/guide-schema';
+import {
+  createEmptyScene,
+  createEmptyTraining,
+  type GuideSnapshot,
+  type GuideTask,
+} from '@guideforge/guide-schema';
 import {
   GUIDE_COMMAND_TYPES,
   findTask,
+  type AddAssessmentItemPayload,
+  type AddObjectivePayload,
   type AddStepPayload,
   type AddTaskPayload,
   type RemoveStepPayload,
@@ -34,6 +41,10 @@ function cloneSnapshot(s: GuideSnapshot): GuideSnapshot {
       parts: st.parts.map((p) => ({ ...p })),
       media: st.media.map((m) => ({ ...m })),
     })),
+    // Deep-clone the canonical scene + training so reducer mutations never
+    // alias the previous state (Phase 02 canonical structures).
+    scene: JSON.parse(JSON.stringify(s.scene)) as GuideSnapshot['scene'],
+    training: JSON.parse(JSON.stringify(s.training)) as GuideSnapshot['training'],
   };
 }
 
@@ -178,6 +189,40 @@ export function applyGuideCommand(state: GuideSnapshot, command: GuideCommand): 
       step.parts = step.parts.filter((pt) => pt.partId !== p.partId);
       return next;
     }
+    case GUIDE_COMMAND_TYPES.addObjective: {
+      const p = command.payload as AddObjectivePayload;
+      if (state.training.objectives.some((o) => o.objectiveId === p.objectiveId)) return state;
+      const next = cloneSnapshot(state);
+      next.training.objectives.push({
+        objectiveId: p.objectiveId,
+        verb: p.verb,
+        target: p.target,
+        conditions: p.conditions,
+        criterion: p.criterion,
+        stepIds: [...p.stepIds],
+        citations: [...p.citations],
+        criticality: p.criticality,
+      });
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.addAssessmentItem: {
+      const p = command.payload as AddAssessmentItemPayload;
+      if (state.training.assessmentItems.some((i) => i.itemId === p.itemId)) return state;
+      const next = cloneSnapshot(state);
+      next.training.assessmentItems.push({
+        itemId: p.itemId,
+        objectiveId: p.objectiveId,
+        prompt: p.prompt,
+        interaction: p.interaction,
+        options: p.options.map((o) => ({ ...o })),
+        scoringRule: { ...p.scoringRule },
+        rationale: p.rationale,
+        citations: [...p.citations],
+        criticality: p.criticality,
+        reviewState: 'draft',
+      });
+      return next;
+    }
     default:
       return state;
   }
@@ -197,7 +242,7 @@ export function applyCommands(
 export function freshGuideState(guideId: EntityId, title: string): GuideSnapshot {
   const now = new Date(0).toISOString(); // deterministic epoch for tests
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     guideId,
     title,
     description: '',
@@ -206,5 +251,8 @@ export function freshGuideState(guideId: EntityId, title: string): GuideSnapshot
     updatedAtIso: now,
     tasks: [],
     steps: [],
+    scene: createEmptyScene(),
+    training: createEmptyTraining(),
+    sources: [],
   };
 }

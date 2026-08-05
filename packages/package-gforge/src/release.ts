@@ -59,7 +59,7 @@ export interface ReleaseSignatureManifest {
 }
 
 export function buildReleaseEntries(input: ReleaseInput): PackageEntry[] {
-  if (input.snapshot.schemaVersion !== 1) {
+  if (input.snapshot.schemaVersion !== 2) {
     const version = String(input.snapshot.schemaVersion);
     throw new PackageSafetyError(`unsupported schema version ${version}`);
   }
