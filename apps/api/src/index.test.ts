@@ -41,6 +41,8 @@ beforeAll(async () => {
       sessionSecret: 'api-test-session-secret',
       roomTicketSecret: 'api-test-secret',
       logLevel: 'silent',
+      ...(process.env.DEEPSEEK_API_KEY ? { deepSeekApiKey: process.env.DEEPSEEK_API_KEY } : {}),
+      ...(process.env.DEEPSEEK_MODEL ? { deepSeekModel: process.env.DEEPSEEK_MODEL } : {}),
     },
     { db, roomTickets: tickets },
   );
@@ -241,4 +243,44 @@ describe('control plane API', () => {
     });
     expect(approvals).toHaveLength(1);
   });
+
+  it(
+    'AI proposals endpoint returns real DeepSeek proposals when the key is set',
+    { timeout: 90_000 },
+    async () => {
+      if (!process.env.DEEPSEEK_API_KEY) {
+        return; // skipped in CI without a key
+      }
+      const db = drizzle(pool, { schema });
+      const org = await db.insert(schema.organizations).values({ name: 'OrgAi' }).returning();
+      const ws = await db
+        .insert(schema.workspaces)
+        .values({ organizationId: org[0]!.id, name: 'WSAi' })
+        .returning();
+      const guide = await db
+        .insert(schema.guides)
+        .values({ workspaceId: ws[0]!.id, title: 'GAi', docName: 'g-doc-ai' })
+        .returning();
+
+      const author = await login('99999999-9999-4999-8999-999999999999', ['author']);
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/guides/${guide[0]!.id}/ai-proposals`,
+        headers: { cookie: `gf_session=${author}` },
+        payload: {
+          steps: [
+            { stepId: 'step-1', instructionText: 'Disconnect power before opening the housing.' },
+            {
+              stepId: 'step-2',
+              instructionText: 'Loosen the retaining screw with a 5 mm hex key.',
+            },
+          ],
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = bodyOf<{ proposals: unknown[]; receipt: { provider: string } }>(res);
+      expect(body.receipt.provider).toBe('deepseek');
+      expect(Array.isArray(body.proposals)).toBe(true);
+    },
+  );
 });

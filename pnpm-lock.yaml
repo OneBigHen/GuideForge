@@ -191,6 +191,9 @@ importers:
       '@fastify/swagger':
         specifier: 'catalog:'
         version: 9.5.1
+      '@guideforge/ai-contracts':
+        specifier: workspace:*
+        version: link:../../packages/ai-contracts
       '@guideforge/commands':
         specifier: workspace:*
         version: link:../../packages/commands
@@ -200,6 +203,9 @@ importers:
       '@guideforge/guide-schema':
         specifier: workspace:*
         version: link:../../packages/guide-schema
+      '@guideforge/model-gateway':
+        specifier: workspace:*
+        version: link:../../packages/model-gateway
       drizzle-orm:
         specifier: 'catalog:'
         version: 0.45.2(@types/pg@8.20.4)(pg@8.22.0)(postgres@3.4.9)

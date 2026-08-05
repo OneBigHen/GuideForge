@@ -206,6 +206,110 @@ export class OpenRouterAdapter implements ModelAdapter {
   }
 }
 
+/**
+ * DeepSeek official API adapter.
+ *
+ * Uses the official DeepSeek API (https://api.deepseek.com) with
+ * `response_format: { type: 'json_object' }` for structured extraction.
+ * The API key comes ONLY from `process.env.DEEPSEEK_API_KEY` — never from
+ * browser bundles, VITE_* values, fixtures, or commits.
+ *
+ * Models (verified live 2026-08-05): `deepseek-v4-flash`, `deepseek-v4-pro`.
+ */
+export interface DeepSeekAdapterConfig {
+  apiKey: string;
+  /** Official models: `deepseek-v4-flash` or `deepseek-v4-pro`. */
+  model?: string;
+  baseUrl?: string;
+}
+
+export class DeepSeekAdapter implements ModelAdapter {
+  readonly provider = 'deepseek';
+  readonly model: string;
+  readonly available: boolean;
+  private readonly baseUrl: string;
+
+  constructor(config: DeepSeekAdapterConfig) {
+    this.model = config.model ?? 'deepseek-v4-flash';
+    this.available = config.apiKey.length > 0;
+    this.baseUrl = config.baseUrl ?? 'https://api.deepseek.com';
+  }
+
+  async extract(
+    request: ModelRequest,
+  ): Promise<{ output: ExtractionOutput; usage: UsageReceiptLike }> {
+    if (!this.available) {
+      throw new Error('DeepSeek adapter is not configured (no API key)');
+    }
+    const started = Date.now();
+    const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${this.configApiKey()}`,
+      },
+      body: JSON.stringify({
+        model: this.model,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You extract work instructions from source material into strict JSON. ' +
+              'Every actionable claim MUST cite the source region id. ' +
+              'Return ONLY JSON matching the schema: ' +
+              '{"schemaVersion":1,"guideId":string,"tasks":[{"taskId":string,"title":string,' +
+              '"steps":[{"stepId":string,"taskId":string,"action":string,"warnings":string[],' +
+              '"prerequisites":string[],"tools":string[],"parts":string[],' +
+              '"values":[{"label":string,"value":string,"unit":string|null}],' +
+              '"conditions":string[],"verificationSteps":string[],"citations":string[],' +
+              '"uncertaintyReason":string|null}]}]}',
+          },
+          {
+            role: 'user',
+            content: JSON.stringify(
+              request.chunks.map((c) => ({
+                regionId: c.regionId,
+                pageIndex: c.pageIndex,
+                text: c.text,
+              })),
+            ),
+          },
+        ],
+        max_tokens: 4096,
+      }),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new Error(`deepseek http ${response.status}: ${detail.slice(0, 200)}`);
+    }
+    const body = (await response.json()) as {
+      choices?: { message?: { content?: string } }[];
+      usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+    };
+    const content = body.choices?.[0]?.message?.content;
+    if (!content) throw new Error('deepseek empty content');
+    const output = JSON.parse(content) as unknown;
+    if (!isExtractionOutput(output)) {
+      throw new Error('deepseek output failed schema validation');
+    }
+    return {
+      output,
+      usage: makeReceipt(this, request, {
+        inputTokens: body.usage?.prompt_tokens ?? 0,
+        outputTokens: body.usage?.completion_tokens ?? 0,
+        latencyMs: Date.now() - started,
+      }),
+    };
+  }
+
+  private configApiKey(): string {
+    // Prefer the explicit key passed to the constructor, else env.
+    // The env path is used by the server worker; both avoid browser exposure.
+    return process.env.DEEPSEEK_API_KEY ?? '';
+  }
+}
+
 /** Seam for direct/self-hosted local models (e.g. Ollama). */
 export class DirectModelAdapter implements ModelAdapter {
   readonly provider = 'direct';

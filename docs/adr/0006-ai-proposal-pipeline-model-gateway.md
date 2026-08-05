@@ -1,6 +1,6 @@
 # ADR 0006 — AI Proposal Pipeline and Model Gateway
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-08-05: DeepSeek is the primary provider; Docling is a local Python venv)
 **Date:** 2026-08-04
 **Owners:** GuideForge build agent
 **Related phase/issue:** Phase 06
@@ -9,21 +9,43 @@
 
 GuideForge must turn documents into cited, human-reviewable guide proposals.
 Source documents are untrusted; model output must never silently edit or
-publish. A provider-independent gateway must isolate OpenRouter and other
-providers behind one contract with strict schema validation, citation gating,
-privacy routing, and usage accounting.
+publish. A provider-independent gateway must isolate providers behind one
+contract with strict schema validation, citation gating, privacy routing, and
+usage accounting.
+
+## Amendment (2026-08-05)
+
+- **Provider switch**: the primary LLM provider is now the **DeepSeek official
+  API** (`api.deepseek.com`, models `deepseek-v4-flash` / `deepseek-v4-pro`),
+  replacing OpenRouter. The `DeepSeekAdapter` uses
+  `response_format: { type: 'json_object' }` and enforces the strict
+  `ExtractionOutput` schema + citation gate. The API key is server-side only
+  (`DEEPSEEK_API_KEY` env; never in browser bundles, VITE_* values, fixtures,
+  or commits). Verified live: real extraction round-trips through the gateway
+  and the control-plane `/api/guides/:guideId/ai-proposals` endpoint.
+- **Docling**: the recommended deployment is now a **pinned local Python venv
+  with `docling` 2.118.0** (`DOCLING_PYTHON` selects the interpreter), not the
+  `ds4sd/docling` container (that image does not exist on Docker Hub; the
+  maintained serving image is `ai/granite-docling`). `DoclingConverter` runs
+  Docling's `DocumentConverter` with OCR and table-structure disabled for
+  deterministic text-layer extraction, and maps its output to
+  `NormalizedBlock[]`. Verified live: text-layer PDF extraction round-trips
+  into structural chunks. `FakeDoclingConverter` remains only as an offline
+  dev/test fallback.
+- **Web app**: proposal generation prefers the server endpoint (real DeepSeek)
+  and falls back to the deterministic local gateway only when the API is
+  unreachable (offline authoring).
 
 ## Current official documentation
 
-Verified via registry metadata 2026-08-04:
+Verified via registry metadata and live calls 2026-08-04/05:
 
-| Technology                | Exact version / ref                       |
-| ------------------------- | ----------------------------------------- |
-| ds4sd/docling (container) | 2.37.0 (tesseract OCR, standard pipeline) |
-| fast-check                | 4.9.0 (property tests)                    |
-
-OpenRouter structured outputs: `response_format: { type: 'json_schema' }`
-strict mode; routing + ZDR per OpenRouter docs (adapter implemented to spec).
+| Technology                 | Exact version / ref                          |
+| -------------------------- | -------------------------------------------- |
+| DeepSeek official API      | api.deepseek.com (v4-flash, v4-pro live)     |
+| docling (PyPI, venv)       | 2.118.0 (no-OCR, no-table deterministic)     |
+| fast-check                 | 4.9.0 (property tests)                       |
+| ai/granite-docling (image) | latest (IBM-maintained serving image)        |
 
 ## Decision
 
@@ -36,11 +58,11 @@ strict mode; routing + ZDR per OpenRouter docs (adapter implemented to spec).
    never arbitrary token windows.
 4. **Extraction contract**: strict `ExtractionOutput` JSON Schema; model
    output must validate before any proposal is created.
-5. **ModelGateway**: ordered provider fallback; ZDR policy routes to
-   privacy-safe providers (fake adapter) and never relaxes automatically;
-   `FakeModelAdapter` is deterministic and used for demos/tests/offline;
-   `OpenRouterAdapter` is server-side only (no browser keys);
-   `DirectModelAdapter` is a seam for local models.
+5. **ModelGateway**: ordered provider fallback; `DeepSeekAdapter` is the
+   primary real provider (server-side key); `OpenRouterAdapter` remains
+   available for self-hosted deployments that prefer it;
+   `DirectModelAdapter` is a seam for local models; ZDR policy routes to
+   privacy-safe providers and never relaxes automatically.
 6. **Citation gate**: an actionable claim is invalid unless it cites ≥1 valid
    existing source region with matching page + excerpt hash. Uncited output
    is rejected.
@@ -52,7 +74,7 @@ strict mode; routing + ZDR per OpenRouter docs (adapter implemented to spec).
 
 ## Alternatives considered
 
-### Alternative A — hard-code the OpenRouter call in the web app
+### Alternative A — hard-code the model call in the web app
 
 Rejected: browser-bundle API key, no provider abstraction, no citation gate.
 
@@ -64,20 +86,26 @@ Rejected: provider lock-in, no ZDR routing, no deterministic offline path.
 
 Rejected: loses structure, harms citation quality and determinism.
 
+### Alternative D — OpenRouter as the only provider
+
+Superseded: DeepSeek is now primary (verified live); OpenRouter kept as an
+optional server-side adapter for deployments that require it.
+
 ## Consequences
 
 ### Positive
 
-- Deterministic pipeline fully unit/property tested without any live model.
+- Deterministic pipeline fully unit/property tested; live verified with real
+  DeepSeek and real Docling.
 - Uncited output rejected; injection shapes fail safely.
 - Privacy routing is explicit and never loosens automatically.
-- Usage receipts are recorded per call.
+- Usage receipts recorded per call; the control plane records AI usage in the
+  append-only audit log.
 
 ### Negative
 
-- Real Docling + live OpenRouter require environment access not available in
-  this sandbox (documented blocker; contract fully covered by the fake
-  converter and adapter mocks).
+- Real providers require environment access (API key; Docling Python venv);
+  offline paths fall back to deterministic fakes with the same contracts.
 
 ### Security/privacy
 
@@ -85,20 +113,21 @@ Rejected: loses structure, harms citation quality and determinism.
 
 ### Data migration
 
-- No new persisted schema; proposals gain `sourceHash`.
+- No new persisted schema; proposals gain `sourceHash`; audit gains AI usage.
 
 ### Operations
 
-- `pnpm check` covers all pipeline packages.
+- `pnpm check` covers all pipeline packages; live tests are env-gated and skip
+  when the key/venv is absent.
 
 ## Acceptance evidence
 
+- Live DeepSeek extraction through the gateway and API endpoint.
+- Live Docling PDF text-layer extraction into structural chunks.
 - Region ID determinism property test; citation gate tests; injection
   fixtures; gateway ZDR test; receipt shape test; worker pipeline tests.
 
 ## Revisit trigger
 
-- Run the real Docling worker on a registry-enabled host and diff normalized
-  blocks against the fake converter.
-- Validate OpenRouter structured outputs against a live endpoint with a
-  fixture corpus.
+- Add a managed GPU/OCR Docling service for scanned documents.
+- Switch to DeepSeek reasoning-optimized models as they become available.

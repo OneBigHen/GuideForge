@@ -1,10 +1,10 @@
 /**
- * ModelGateway-backed proposal generation for apps/web.
+ * AI proposal generation for apps/web.
  *
- * Uses the deterministic FakeModelAdapter (privacy-safe, no network) to
- * produce cited, human-reviewable proposals from the guide's step text.
- * The OpenRouter adapter is wired only when the app is configured with a
- * server-side key (never in browser bundles).
+ * Prefers the server-side control plane (`/api/guides/:id/ai-proposals`),
+ * which runs the real DeepSeek adapter with the API key server-side (never in
+ * the browser). Falls back to the deterministic local gateway only when the
+ * API is unreachable, so authoring remains useful offline.
  */
 import { structuralChunking, type SourceRegion } from '@guideforge/ai-contracts';
 import { GUIDE_COMMAND_TYPES } from '@guideforge/commands';
@@ -21,7 +21,86 @@ export interface AiProposalResult {
   receiptProvider: string;
 }
 
+interface ServerProposal {
+  kind: 'warning' | 'tool' | 'verification';
+  stepId: string;
+  message?: string;
+  name?: string;
+}
+
+interface ServerAiResponse {
+  proposals: ServerProposal[];
+  citations: number;
+  receipt: { provider: string; model: string };
+}
+
 export async function generateGatewayProposals(snapshot: GuideSnapshot): Promise<AiProposalResult> {
+  // Try the real server (DeepSeek) first.
+  const server = await tryServerProposals(snapshot);
+  if (server) return server;
+
+  // Offline fallback: deterministic local gateway.
+  return generateLocalProposals(snapshot);
+}
+
+async function tryServerProposals(snapshot: GuideSnapshot): Promise<AiProposalResult | null> {
+  try {
+    const res = await fetch(`/api/guides/${snapshot.guideId}/ai-proposals`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        steps: snapshot.steps.map((s) => ({
+          stepId: s.stepId,
+          instructionText: s.instructionText,
+        })),
+      }),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as ServerAiResponse;
+
+    let created = 0;
+    for (const p of body.proposals) {
+      const step = snapshot.steps.find((s) => s.stepId === p.stepId);
+      if (!step) continue;
+      const base = {
+        guideId: snapshot.guideId,
+        confidence: 0.7,
+        sourceHash: sha256Hex(snapshot.title) as ContentHash,
+      };
+      if (p.kind === 'tool' && p.name) {
+        await createProposal({
+          ...base,
+          commandType: GUIDE_COMMAND_TYPES.addTool,
+          payload: { stepId: step.stepId, toolId: crypto.randomUUID(), name: p.name },
+          summary: `Add tool: ${p.name}`,
+        });
+        created += 1;
+      } else if (p.message) {
+        await createProposal({
+          ...base,
+          commandType: GUIDE_COMMAND_TYPES.addWarning,
+          payload: {
+            stepId: step.stepId,
+            warningId: crypto.randomUUID(),
+            severity: p.kind === 'verification' ? 'info' : 'warning',
+            message: p.kind === 'verification' ? `Verification: ${p.message}` : p.message,
+          },
+          summary:
+            p.kind === 'verification'
+              ? `Add verification note: ${p.message}`
+              : `Add safety warning: ${p.message}`,
+        });
+        created += 1;
+      }
+    }
+    return { created, citations: body.citations, receiptProvider: body.receipt.provider };
+  } catch {
+    return null;
+  }
+}
+
+async function generateLocalProposals(snapshot: GuideSnapshot): Promise<AiProposalResult> {
   const sourceHash = sha256Hex(
     JSON.stringify({ title: snapshot.title, tasks: snapshot.tasks }),
   ) as ContentHash;

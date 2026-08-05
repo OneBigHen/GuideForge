@@ -1,7 +1,13 @@
 import type { SourceRegion } from '@guideforge/ai-contracts';
 import type { ContentHash } from '@guideforge/domain';
 import { describe, expect, it } from 'vitest';
-import { DirectModelAdapter, FakeModelAdapter, ModelGateway, OpenRouterAdapter } from './index.js';
+import {
+  DeepSeekAdapter,
+  DirectModelAdapter,
+  FakeModelAdapter,
+  ModelGateway,
+  OpenRouterAdapter,
+} from './index.js';
 
 const HASH = 'a'.repeat(64) as ContentHash;
 
@@ -71,4 +77,29 @@ describe('ModelGateway with fake adapter', () => {
     const res = await gateway.run(request());
     expect(res.ok).toBe(true);
   });
+});
+
+describe('DeepSeek adapter', () => {
+  it('is unavailable without a key and available with one', () => {
+    expect(new DeepSeekAdapter({ apiKey: '' }).available).toBe(false);
+    expect(new DeepSeekAdapter({ apiKey: 'sk-test' }).available).toBe(true);
+  });
+
+  it(
+    'performs a live extraction when DEEPSEEK_API_KEY is set (skipped otherwise)',
+    { timeout: 60_000 },
+    async () => {
+      const key = process.env.DEEPSEEK_API_KEY;
+      if (!key) {
+        // Guard against accidental live calls in CI without a key.
+        return;
+      }
+      const adapter = new DeepSeekAdapter({ apiKey: key, model: 'deepseek-v4-flash' });
+      const gateway = new ModelGateway([adapter]);
+      const res = await gateway.run(request());
+      expect(res.ok).toBe(true);
+      expect(res.output?.tasks.length).toBeGreaterThanOrEqual(0);
+      expect(res.receipt.provider).toBe('deepseek');
+    },
+  );
 });

@@ -17,11 +17,11 @@ verification; these are documented as blockers with runbooks.
 
 Verified via registry metadata 2026-08-04:
 
-| Technology | Exact version |
-|---|---|
-| @react-three/xr | 6.6.30 (`createXRStore` + `<XR store>` + `VRButton`/`ARButton`) |
-| @axe-core/playwright | 4.12.1 |
-| three (GLTFLoader) | 0.185.1 |
+| Technology           | Exact version                                                   |
+| -------------------- | --------------------------------------------------------------- |
+| @react-three/xr      | 6.6.30 (`createXRStore` + `<XR store>` + `VRButton`/`ARButton`) |
+| @axe-core/playwright | 4.12.1                                                          |
+| three (GLTFLoader)   | 0.185.1                                                         |
 
 ## Decision
 

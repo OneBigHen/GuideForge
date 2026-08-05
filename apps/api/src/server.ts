@@ -13,6 +13,8 @@ async function main() {
     roomTicketSecret: process.env.ROOM_TICKET_SECRET ?? 'dev-change-me-tickets',
     corsOrigin: (process.env.CORS_ORIGIN ?? 'http://localhost:1420').split(','),
     logLevel: process.env.LOG_LEVEL ?? 'info',
+    ...(process.env.DEEPSEEK_API_KEY ? { deepSeekApiKey: process.env.DEEPSEEK_API_KEY } : {}),
+    ...(process.env.DEEPSEEK_MODEL ? { deepSeekModel: process.env.DEEPSEEK_MODEL } : {}),
   });
   await app.listen({ port, host: '0.0.0.0' });
   // eslint-disable-next-line no-console

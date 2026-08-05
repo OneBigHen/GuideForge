@@ -39,16 +39,16 @@ strengthened so the manifest's full content is cryptographically bound.
 
 ## Acceptance evidence
 
-| Gate | Evidence |
-|---|---|
-| XR and Quick Look release flows work | xr-web builds; release-gate tests; USDZ container tests |
-| WCAG acceptance complete | axe scans on /, /library, editor — no critical/serious |
-| Performance budgets pass | demand rendering, DPR cap, e2e on SwiftShader; budgets enforced by check |
-| Backup/restore, key rotation, revocation, rollback proven | drills.test.ts (4 drills) |
-| Upload/archive/package fuzzing | fuzz.test.ts (3 fuzzers + tamper loop) |
-| Prompt-injection and model-routing | injection.test.ts (Phase 06) + ZDR routing tests |
-| No unresolved critical/high security findings | `pnpm check` + security review; no new critical/high deps |
-| Named device matrix passes | Playwright desktop/iPad/iPhone (37 e2e); real hardware documented as blocked |
+| Gate                                                      | Evidence                                                                     |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| XR and Quick Look release flows work                      | xr-web builds; release-gate tests; USDZ container tests                      |
+| WCAG acceptance complete                                  | axe scans on /, /library, editor — no critical/serious                       |
+| Performance budgets pass                                  | demand rendering, DPR cap, e2e on SwiftShader; budgets enforced by check     |
+| Backup/restore, key rotation, revocation, rollback proven | drills.test.ts (4 drills)                                                    |
+| Upload/archive/package fuzzing                            | fuzz.test.ts (3 fuzzers + tamper loop)                                       |
+| Prompt-injection and model-routing                        | injection.test.ts (Phase 06) + ZDR routing tests                             |
+| No unresolved critical/high security findings             | `pnpm check` + security review; no new critical/high deps                    |
+| Named device matrix passes                                | Playwright desktop/iPad/iPhone (37 e2e); real hardware documented as blocked |
 
 ## Test results
 
@@ -103,3 +103,28 @@ strengthened so the manifest's full content is cryptographically bound.
   matrix, live Docling/OpenRouter, Tauri native compile).
 
 **Gate:** PASS
+
+## Post-phase amendment (2026-08-05) — real providers wired
+
+The AI pipeline now uses real providers end-to-end (no placeholders in the
+primary paths):
+
+- **DeepSeek official API** replaces OpenRouter as the primary LLM provider.
+  `DeepSeekAdapter` (server-side `DEEPSEEK_API_KEY`, `deepseek-v4-flash`)
+  produces strict-schema, cited extractions. Verified live through the
+  control-plane endpoint `POST /api/guides/:guideId/ai-proposals` (11–15s
+  real calls), with usage receipts written to the append-only audit log.
+- **Docling** runs as a pinned local Python venv (`docling` 2.118.0,
+  `DOCLING_PYTHON`), no longer the nonexistent `ds4sd/docling` container.
+  `DoclingConverter` performs deterministic no-OCR text-layer extraction;
+  verified live on a real PDF (29s). `FakeDoclingConverter` is retained only
+  as an offline dev/test fallback.
+- The web app prefers the server (real DeepSeek) for proposal generation and
+  falls back to the local deterministic gateway only when the API is
+  unreachable (offline authoring).
+- `infra/docker/.env.example` documents the key wiring; no real key is
+  committed.
+
+Security note: the operator-supplied DeepSeek key was shared in plaintext and
+should be rotated after use; the repo contains only `DEEPSEEK_API_KEY=sk-...`
+placeholder in `.env.example`.

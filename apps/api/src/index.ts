@@ -9,6 +9,9 @@ import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import swagger from '@fastify/swagger';
+import { structuralChunking, type SourceRegion } from '@guideforge/ai-contracts';
+import type { ContentHash } from '@guideforge/domain';
+import { DeepSeekAdapter, ModelGateway } from '@guideforge/model-gateway';
 import { eq } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -24,6 +27,9 @@ export interface ApiConfig {
   roomTicketTtlSeconds?: number;
   corsOrigin?: string[];
   logLevel?: string;
+  /** Server-side DeepSeek API key (never exposed to the browser). */
+  deepSeekApiKey?: string;
+  deepSeekModel?: string;
 }
 
 export interface ServerDeps {
@@ -237,5 +243,117 @@ export async function buildServer(
     return rows;
   });
 
+  // AI proposal generation (server-side; the API key never reaches the
+  // browser). The client sends step text; the server builds source regions,
+  // runs the ModelGateway (DeepSeek official API when configured, else the
+  // deterministic fake), and returns cited, schema-validated proposals.
+  app.post('/api/guides/:guideId/ai-proposals', async (req, reply) => {
+    const session = req.user as { sub?: string; roles?: string[] } | undefined;
+    if (!session?.sub) return reply.code(401).send({ error: 'unauthenticated' });
+    requirePermission((session.roles ?? []) as Role[], 'read', 'guide');
+    const { guideId } = req.params as { guideId: string };
+    const body = req.body as { steps: { stepId: string; instructionText: string }[] };
+
+    if (!Array.isArray(body?.steps) || body.steps.length === 0) {
+      return reply.code(400).send({ error: 'steps required' });
+    }
+
+    // Deterministic source hash from the step text (immutable reference).
+    const sourceHash = fnvHex(JSON.stringify(body.steps)) as ContentHash;
+    const regions = new Map<string, SourceRegion>();
+    const chunks = structuralChunking(
+      sourceHash,
+      0,
+      body.steps.map((s, i) => ({
+        kind: 'paragraph' as const,
+        text: s.instructionText || 'Untitled step',
+        structuralPath: `step:${s.stepId}/i:${i}`,
+      })),
+    );
+    for (const c of chunks) regions.set(c.region.regionId, c.region);
+
+    // Gateway: real DeepSeek when configured; deterministic fake otherwise.
+    const adapters =
+      config.deepSeekApiKey && config.deepSeekApiKey.length > 0
+        ? [
+            new DeepSeekAdapter({
+              apiKey: config.deepSeekApiKey,
+              ...(config.deepSeekModel ? { model: config.deepSeekModel } : {}),
+            }),
+          ]
+        : [];
+    const gateway = new ModelGateway(adapters);
+    const response = await gateway.run({
+      sourceHash,
+      chunks: chunks.map((c) => ({
+        regionId: c.region.regionId,
+        text: c.region.excerpt,
+        pageIndex: 0,
+      })),
+      regions,
+      promptVersion: 'api-v1',
+      policy: 'default',
+    });
+
+    if (!response.ok || !response.output) {
+      return reply.code(502).send({ error: response.error ?? 'model failed' });
+    }
+
+    const proposals = [];
+    for (const task of response.output.tasks) {
+      for (const step of task.steps) {
+        for (const warning of step.warnings) {
+          proposals.push({ kind: 'warning', stepId: step.stepId, message: warning });
+        }
+        for (const tool of step.tools) {
+          proposals.push({ kind: 'tool', stepId: step.stepId, name: tool });
+        }
+        for (const verification of step.verificationSteps) {
+          proposals.push({ kind: 'verification', stepId: step.stepId, message: verification });
+        }
+      }
+    }
+
+    await db.insert(schema.auditEvents).values({
+      organizationId: crypto.randomUUID(),
+      actorId: session.sub,
+      action: 'ai.propose',
+      resourceType: 'guide',
+      resourceId: guideId,
+      metadata: {
+        provider: response.receipt.provider,
+        model: response.receipt.model,
+        proposalCount: proposals.length,
+        citations: response.citations?.length ?? 0,
+        inputTokens: response.receipt.inputTokens,
+        outputTokens: response.receipt.outputTokens,
+      },
+    });
+
+    return {
+      proposals,
+      citations: response.citations?.length ?? 0,
+      receipt: {
+        provider: response.receipt.provider,
+        model: response.receipt.model,
+        inputTokens: response.receipt.inputTokens,
+        outputTokens: response.receipt.outputTokens,
+        latencyMs: response.receipt.latencyMs,
+      },
+    };
+  });
+
   return app;
+}
+
+function fnvHex(text: string): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  for (let i = 0; i < text.length; i++) {
+    h1 ^= text.charCodeAt(i);
+    h1 = Math.imul(h1, 0x01000193);
+    h2 = Math.imul(h2 ^ text.charCodeAt(i), 0x01000193);
+  }
+  const hex = (n: number) => (n >>> 0).toString(16).padStart(8, '0');
+  return `${hex(h1)}${hex(h2)}`.padEnd(64, '0');
 }
