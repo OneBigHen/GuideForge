@@ -16,14 +16,14 @@ frontend API key and unsynchronized dual stores.
 
 Verified via registry metadata 2026-08-04:
 
-| Technology | Exact version |
-|---|---|
-| fastify | 5.11.2 |
+| Technology                             | Exact version                    |
+| -------------------------------------- | -------------------------------- |
+| fastify                                | 5.11.2                           |
 | @fastify/cors / cookie / jwt / swagger | 11.3.0 / 11.1.2 / 10.2.1 / 9.5.1 |
-| drizzle-orm / drizzle-kit | 0.45.2 / 0.31.10 |
-| pg | 8.22.0 |
-| @hocuspocus/server | 4.5.0 |
-| postgres (docker) | 17-alpine |
+| drizzle-orm / drizzle-kit              | 0.45.2 / 0.31.10                 |
+| pg                                     | 8.22.0                           |
+| @hocuspocus/server                     | 4.5.0                            |
+| postgres (docker)                      | 17-alpine                        |
 
 ## Decision
 

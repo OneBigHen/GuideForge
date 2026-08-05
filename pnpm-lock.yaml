@@ -290,6 +290,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@guideforge/ai-contracts':
+        specifier: workspace:*
+        version: link:../../packages/ai-contracts
       '@guideforge/collaboration':
         specifier: workspace:*
         version: link:../../packages/collaboration
@@ -302,6 +305,9 @@ importers:
       '@guideforge/guide-schema':
         specifier: workspace:*
         version: link:../../packages/guide-schema
+      '@guideforge/model-gateway':
+        specifier: workspace:*
+        version: link:../../packages/model-gateway
       '@guideforge/package-gforge':
         specifier: workspace:*
         version: link:../../packages/package-gforge
@@ -376,6 +382,47 @@ importers:
         specifier: 'catalog:'
         version: 7.4.1
 
+  apps/worker-documents:
+    dependencies:
+      '@guideforge/ai-contracts':
+        specifier: workspace:*
+        version: link:../../packages/ai-contracts
+      '@guideforge/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      '@guideforge/model-gateway':
+        specifier: workspace:*
+        version: link:../../packages/model-gateway
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.2
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@types/node@26.1.2)(jsdom@27.2.0)(vite@8.2.0(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.1)(tsx@4.23.5)(yaml@2.9.0))
+
+  packages/ai-contracts:
+    dependencies:
+      '@guideforge/domain':
+        specifier: workspace:*
+        version: link:../domain
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.2
+      fast-check:
+        specifier: 'catalog:'
+        version: 4.9.0
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@types/node@26.1.2)(jsdom@27.2.0)(vite@8.2.0(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.1)(tsx@4.23.5)(yaml@2.9.0))
+
   packages/collaboration:
     dependencies:
       '@guideforge/commands':
@@ -438,6 +485,25 @@ importers:
       fast-check:
         specifier: 'catalog:'
         version: 4.9.0
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@types/node@26.1.2)(jsdom@27.2.0)(vite@8.2.0(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.1)(tsx@4.23.5)(yaml@2.9.0))
+
+  packages/model-gateway:
+    dependencies:
+      '@guideforge/ai-contracts':
+        specifier: workspace:*
+        version: link:../ai-contracts
+      '@guideforge/domain':
+        specifier: workspace:*
+        version: link:../domain
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.2
       typescript:
         specifier: 'catalog:'
         version: 6.0.3

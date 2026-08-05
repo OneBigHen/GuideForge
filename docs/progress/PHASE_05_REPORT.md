@@ -30,8 +30,8 @@ edits reconnect without loss.
    nonce tickets; timing-safe compare; unit tested (valid, expired, tampered,
    wrong-secret, malformed).
 4. **apps/collab (Hocuspocus)**: `buildCollabServer` verifies ticket signature
-   + expiry + room match (`onAuthenticate`), fails closed; optional Yjs
-   persistence to Postgres (`yjs_documents` table) via `server.ts` entry.
+   - expiry + room match (`onAuthenticate`), fails closed; optional Yjs
+     persistence to Postgres (`yjs_documents` table) via `server.ts` entry.
 5. **Governance**: review → approve sets lifecycle `approved`; content change
    returns guide to `draft` (old approval recorded, new review required);
    audit events append-only for submit/approve.
@@ -42,14 +42,14 @@ edits reconnect without loss.
 
 ## Acceptance evidence
 
-| Gate | Evidence |
-|---|---|
-| Two authorized devices converge | collab test: provider A + B, title propagates |
-| Unauthorized room access fails closed | collab tests: wrong-room ticket + missing ticket both rejected |
-| Offline edits reconnect without replacement/loss | collab test: A writes offline → B connects and receives update |
-| Review and approval audit is append-only | API test: submit + approve both in audit events list |
-| Content change invalidates approval | API test: lifecycle back to draft, prior approval retained |
-| Fresh Compose deployment starts | `docker compose config --quiet` valid; api container boots, `/health` + `/openapi.json` OK against Postgres |
+| Gate                                             | Evidence                                                                                                    |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| Two authorized devices converge                  | collab test: provider A + B, title propagates                                                               |
+| Unauthorized room access fails closed            | collab tests: wrong-room ticket + missing ticket both rejected                                              |
+| Offline edits reconnect without replacement/loss | collab test: A writes offline → B connects and receives update                                              |
+| Review and approval audit is append-only         | API test: submit + approve both in audit events list                                                        |
+| Content change invalidates approval              | API test: lifecycle back to draft, prior approval retained                                                  |
+| Fresh Compose deployment starts                  | `docker compose config --quiet` valid; api container boots, `/health` + `/openapi.json` OK against Postgres |
 
 ## Test results
 

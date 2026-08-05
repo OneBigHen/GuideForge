@@ -31,17 +31,24 @@ test('author, propose, accept, and execute a guide', async ({ page }) => {
   await page.getByRole('button', { name: 'Generate AI proposals' }).click();
   await expect(page.getByRole('heading', { name: 'AI proposals' })).toBeVisible();
 
-  // Accept one proposal deterministically: its card disappears (2 → 1).
+  // Accept one proposal deterministically: its count decreases by one.
+  await expect(page.getByRole('button', { name: 'Accept' }).first()).toBeVisible({
+    timeout: 8000,
+  });
+  const before = await page.getByRole('button', { name: 'Accept' }).count();
+  expect(before).toBeGreaterThan(0);
   await page.getByRole('button', { name: 'Accept' }).first().click();
   await expect
     .poll(async () => page.getByRole('button', { name: 'Accept' }).count(), { timeout: 8000 })
-    .toBe(1);
+    .toBe(before - 1);
 
   // Run the guide
   await page.getByRole('link', { name: '← Library' }).click();
   await page.getByRole('link', { name: 'Run' }).first().click();
-  await expect(page.getByText(/Loosen the retaining screw/)).toBeVisible({ timeout: 5000 });
-  await expect(page.getByText('Disconnect power first')).toBeVisible();
+  await expect(
+    page.getByText('Loosen the retaining screw with a 5 mm hex key.', { exact: true }),
+  ).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText('Disconnect power first', { exact: true })).toBeVisible();
 
   // Capture evidence
   await page.getByRole('button', { name: /Capture photo evidence/ }).click();

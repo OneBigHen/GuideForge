@@ -1,0 +1,345 @@
+/**
+ * @guideforge/model-gateway — provider-independent ModelGateway.
+ *
+ * Adapters:
+ *  - FakeModelAdapter: deterministic rule-based extraction (tests, demos, and
+ *    the Phase 03/06 proposal generator). Never claims source grounding it
+ *    cannot verify.
+ *  - OpenRouterAdapter: strict structured outputs via JSON Schema; used only
+ *    when OPENROUTER_API_KEY is configured. No keys ever ship in browser code.
+ *  - DirectAdapter: seam for self-hosted / local models (Ollama etc.).
+ *
+ * The gateway enforces: strict schema validation of model output, citation
+ * gating against known source regions, and usage receipts per call.
+ */
+import type {
+  Citation,
+  ConfidenceBreakdown,
+  ExtractionOutput,
+  ExtractionStep,
+  SourceRegion,
+} from '@guideforge/ai-contracts';
+import { computeConfidence, isExtractionOutput } from '@guideforge/ai-contracts';
+import type { ContentHash } from '@guideforge/domain';
+
+export type PrivacyPolicy = 'zdr' | 'eu-only' | 'default';
+
+export interface ModelRequest {
+  sourceHash: ContentHash | null;
+  chunks: { regionId: string; text: string; pageIndex: number }[];
+  regions: Map<string, SourceRegion>;
+  promptVersion: string;
+  policy: PrivacyPolicy;
+  model?: string;
+}
+
+export interface ModelResponse {
+  ok: boolean;
+  output?: ExtractionOutput;
+  citations?: Citation[];
+  confidence?: ConfidenceBreakdown;
+  receipt: UsageReceiptLike;
+  error?: string;
+}
+
+export interface UsageReceiptLike {
+  receiptId: string;
+  provider: string;
+  model: string;
+  attempts: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheTokens: number;
+  providerCostUsd: number;
+  latencyMs: number;
+  requestId: string;
+  policy: string;
+  sourceHash: ContentHash | null;
+  schemaVersion: string;
+  promptVersion: string;
+  createdAtIso: string;
+}
+
+export interface ModelAdapter {
+  readonly provider: string;
+  readonly model: string;
+  readonly available: boolean;
+  extract(request: ModelRequest): Promise<{ output: ExtractionOutput; usage: UsageReceiptLike }>;
+}
+
+function makeReceipt(
+  adapter: ModelAdapter,
+  request: ModelRequest,
+  usage: Partial<UsageReceiptLike>,
+): UsageReceiptLike {
+  return {
+    receiptId: crypto.randomUUID(),
+    provider: adapter.provider,
+    model: adapter.model,
+    attempts: 1,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheTokens: 0,
+    providerCostUsd: 0,
+    latencyMs: 0,
+    requestId: crypto.randomUUID(),
+    policy: request.policy,
+    sourceHash: request.sourceHash,
+    schemaVersion: '1',
+    promptVersion: request.promptVersion,
+    createdAtIso: new Date().toISOString(),
+    ...usage,
+  };
+}
+
+export class FakeModelAdapter implements ModelAdapter {
+  readonly provider = 'fake';
+  readonly model = 'fake-rules-v1';
+  readonly available = true;
+
+  /** Deterministic rule-based extraction from chunk text. */
+  extract(request: ModelRequest): Promise<{ output: ExtractionOutput; usage: UsageReceiptLike }> {
+    const tasks: ExtractionOutput['tasks'] = request.chunks.map((chunk, i) => ({
+      taskId: `task-${i + 1}`,
+      title: titleFrom(chunk.text) ?? `Procedure ${i + 1}`,
+      steps: [
+        {
+          stepId: `step-${i + 1}-1`,
+          taskId: `task-${i + 1}`,
+          action: chunk.text.slice(0, 120),
+          warnings: chunk.text.toLowerCase().includes('power')
+            ? ['Disconnect power first (suggested)']
+            : [],
+          prerequisites: [] as string[],
+          tools: chunk.text.toLowerCase().includes('wrench') ? ['Wrench'] : [],
+          parts: [] as string[],
+          values: [] as ExtractionStep['values'],
+          conditions: [] as string[],
+          verificationSteps: [`Confirm: ${chunk.text.slice(0, 80) || 'the step was completed'}`],
+          citations: [request.regions.get(chunk.regionId)?.regionId ?? chunk.regionId],
+          ...(chunk.text.length < 10
+            ? { uncertaintyReason: 'excerpt too short for confident extraction' }
+            : {}),
+        },
+      ],
+    }));
+    const output: ExtractionOutput = { schemaVersion: 1, guideId: '', tasks };
+    return Promise.resolve({
+      output,
+      usage: makeReceipt(this, request, {
+        inputTokens: request.chunks.reduce((n, c) => n + c.text.length / 4, 0),
+      }),
+    });
+  }
+}
+
+function titleFrom(text: string): string | null {
+  const match = /^(?:[0-9]+[.)]\s*)?([A-Z][^.]{3,60})/.exec(text);
+  const title = match?.[1];
+  return title ?? null;
+}
+
+export interface OpenRouterAdapterConfig {
+  apiKey: string;
+  model?: string;
+  baseUrl?: string;
+  /** strict JSON schema enforcement via response_format */
+  structuredOutputs?: boolean;
+}
+
+export class OpenRouterAdapter implements ModelAdapter {
+  readonly provider = 'openrouter';
+  readonly model: string;
+  readonly available: boolean;
+  private readonly baseUrl: string;
+
+  constructor(config: OpenRouterAdapterConfig) {
+    this.model = config.model ?? 'anthropic/claude-sonnet-4.5';
+    this.available = config.apiKey.length > 0;
+    this.baseUrl = config.baseUrl ?? 'https://openrouter.ai/api/v1';
+  }
+
+  async extract(
+    request: ModelRequest,
+  ): Promise<{ output: ExtractionOutput; usage: UsageReceiptLike }> {
+    if (!this.available) {
+      throw new Error('OpenRouter adapter is not configured (no API key)');
+    }
+    const started = Date.now();
+    const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${process.env.OPENROUTER_API_KEY ?? ''}`,
+      },
+      body: JSON.stringify({
+        model: this.model,
+        response_format: { type: 'json_schema', json_schema: { name: 'extraction', strict: true } },
+        messages: [
+          {
+            role: 'system',
+            content: 'Extract work instructions as strict JSON. Cite source regions.',
+          },
+          { role: 'user', content: JSON.stringify(request.chunks) },
+        ],
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`openrouter http ${response.status}`);
+    }
+    const body = (await response.json()) as {
+      choices?: { message?: { content?: string } }[];
+      usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+    };
+    const content = body.choices?.[0]?.message?.content;
+    if (!content) throw new Error('openrouter empty content');
+    const output = JSON.parse(content) as unknown;
+    if (!isExtractionOutput(output)) throw new Error('openrouter output failed schema validation');
+    return {
+      output,
+      usage: makeReceipt(this, request, {
+        inputTokens: body.usage?.prompt_tokens ?? 0,
+        outputTokens: body.usage?.completion_tokens ?? 0,
+        latencyMs: Date.now() - started,
+      }),
+    };
+  }
+}
+
+/** Seam for direct/self-hosted local models (e.g. Ollama). */
+export class DirectModelAdapter implements ModelAdapter {
+  readonly provider = 'direct';
+  readonly model: string;
+  readonly available: boolean;
+  constructor(model: string, available: boolean) {
+    this.model = model;
+    this.available = available;
+  }
+  async extract(
+    request: ModelRequest,
+  ): Promise<{ output: ExtractionOutput; usage: UsageReceiptLike }> {
+    if (!this.available) throw new Error('direct model not available');
+    const fallback = new FakeModelAdapter();
+    return fallback.extract(request);
+  }
+}
+
+export class ModelGateway {
+  private readonly adapters: ModelAdapter[];
+  private readonly order: string[];
+  private lastError: string | null = null;
+
+  constructor(adapters: ModelAdapter[], order: string[] = adapters.map((a) => a.provider)) {
+    this.adapters = adapters;
+    this.order = order;
+  }
+
+  /** Route by privacy policy; fall back through available adapters. */
+  async run(request: ModelRequest): Promise<ModelResponse> {
+    const ordered = this.order
+      .map((name) => this.adapters.find((a) => a.provider === name))
+      .filter((a): a is ModelAdapter => Boolean(a?.available));
+
+    if (request.policy === 'zdr') {
+      // ZDR routing: prefer providers flagged for the region; fake is always
+      // privacy-safe and deterministic.
+      const safe = ordered.find((a) => a.provider === 'fake') ?? ordered[0];
+      if (!safe)
+        return {
+          ok: false,
+          receipt: this.emptyReceipt(request),
+          error: 'no adapter for ZDR policy',
+        };
+      return this.tryAdapter(safe, request);
+    }
+
+    for (const adapter of ordered) {
+      const result = await this.tryAdapter(adapter, request);
+      if (result.ok) return result;
+      this.lastError = result.error ?? this.lastError;
+    }
+    return {
+      ok: false,
+      receipt: this.emptyReceipt(request),
+      error: this.lastError ?? 'all adapters failed',
+    };
+  }
+
+  private async tryAdapter(adapter: ModelAdapter, request: ModelRequest): Promise<ModelResponse> {
+    try {
+      const { output, usage } = await adapter.extract(request);
+      if (!isExtractionOutput(output)) {
+        return {
+          ok: false,
+          receipt: usage,
+          error: `${adapter.provider}: invalid extraction schema`,
+        };
+      }
+      // Citation gate: every step's citations must resolve to real regions.
+      const citations: Citation[] = [];
+      const issues: string[] = [];
+      for (const task of output.tasks) {
+        for (const step of task.steps) {
+          for (const regionId of step.citations) {
+            const region = request.regions.get(regionId);
+            if (!region) {
+              issues.push(`uncited region ${regionId}`);
+              continue;
+            }
+            citations.push({
+              regionId,
+              pageIndex: region.pageIndex,
+              excerptHash: hashExcerpt(region.excerpt),
+              claimRef: step.stepId,
+            });
+          }
+        }
+      }
+      if (issues.length > 0) {
+        return {
+          ok: false,
+          receipt: usage,
+          error: `uncited actionable output: ${issues.join('; ')}`,
+        };
+      }
+      const confidence = computeConfidence({
+        extractionQuality: 0.8,
+        citationCoverage: citations.length > 0 ? 0.9 : 0,
+        deterministicValidation: 1,
+        sourceAmbiguity: 0.5,
+      });
+      return { ok: true, output, citations, confidence, receipt: usage };
+    } catch (err) {
+      return {
+        ok: false,
+        receipt: this.emptyReceipt(request),
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  private emptyReceipt(request: ModelRequest): UsageReceiptLike {
+    return makeReceipt(
+      {
+        provider: 'gateway',
+        model: 'none',
+        available: false,
+        extract: () => {
+          throw new Error('unused');
+        },
+      },
+      request,
+      {},
+    );
+  }
+}
+
+function hashExcerpt(text: string): string {
+  // Browser-safe deterministic hash (FNV-1a 32-bit hex) for excerpt identity.
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, '0');
+}

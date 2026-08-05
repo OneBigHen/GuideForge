@@ -14,10 +14,12 @@
     "format:check": "prettier --check src"
   },
   "dependencies": {
+    "@guideforge/ai-contracts": "workspace:*",
     "@guideforge/collaboration": "workspace:*",
     "@guideforge/commands": "workspace:*",
     "@guideforge/domain": "workspace:*",
     "@guideforge/guide-schema": "workspace:*",
+    "@guideforge/model-gateway": "workspace:*",
     "@guideforge/package-gforge": "workspace:*",
     "@guideforge/scene-core": "workspace:*",
     "@guideforge/scene-react": "workspace:*",

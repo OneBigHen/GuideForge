@@ -409,52 +409,12 @@ export async function rejectProposal(proposalId: string): Promise<void> {
   await db().proposals.update(proposalId, { status: 'rejected' });
 }
 
-/** Generate fake AI proposals for a guide (reviewable, never auto-applied). */
+/** Generate AI proposals for a guide (reviewable, never auto-applied). */
 export async function generateFakeProposals(session: OpenGuideSession): Promise<number> {
   const snap = materializeSnapshot(session.working);
-  let created = 0;
-
-  for (const step of snap.steps) {
-    if (!step.instructionText.trim()) continue;
-    const hasCritical = step.warnings.some((w) => w.severity === 'critical');
-    if (!hasCritical) {
-      await createProposal({
-        guideId: session.guideId,
-        commandType: GUIDE_COMMAND_TYPES.addWarning,
-        payload: {
-          stepId: step.stepId,
-          warningId: uuidv4(),
-          severity: 'warning',
-          message: 'Fake AI suggestion: verify machine is powered off before continuing.',
-        },
-        summary: `Add a safety warning to "${step.instructionText.slice(0, 40)}…"`,
-        confidence: 0.72,
-        sourceHash: null,
-      });
-      created += 1;
-    }
-  }
-
-  if (snap.tasks.length > 0) {
-    const firstStep = snap.steps.find((s) => s.taskId === snap.tasks[0]?.taskId);
-    if (firstStep) {
-      await createProposal({
-        guideId: session.guideId,
-        commandType: GUIDE_COMMAND_TYPES.addTool,
-        payload: {
-          stepId: firstStep.stepId,
-          toolId: uuidv4(),
-          name: 'Calibration tool (fake AI suggestion)',
-        },
-        summary: 'Add a tool requirement to the first step',
-        confidence: 0.61,
-        sourceHash: null,
-      });
-      created += 1;
-    }
-  }
-
-  return created;
+  const { generateGatewayProposals } = await import('./aiProposals');
+  const result = await generateGatewayProposals(snap);
+  return result.created;
 }
 
 export async function closeGuide(session: OpenGuideSession): Promise<void> {
