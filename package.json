@@ -17,6 +17,11 @@
     "format:check": "prettier --check .",
     "boundary": "node scripts/check-boundaries.mjs",
     "dep-check": "node scripts/check-deps.mjs",
+    "security:audit": "node scripts/check-audit-policy.mjs",
+    "security:licenses": "node scripts/check-license-policy.mjs",
+    "security:sbom": "env -u npm_execpath -u npm_config_user_agent cyclonedx-npm --ignore-npm-errors --output-file sbom.xml",
+    "security:secret-scan": "bash scripts/secret-scan.sh",
+    "security:policy-test": "node scripts/policy-scripts.test.mjs",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "turbo run build && changeset publish"
@@ -31,6 +36,7 @@
     "prettier-plugin-organize-imports": "4.3.0",
     "turbo": "2.10.8",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.66.0"
+    "typescript-eslint": "8.66.0",
+    "@cyclonedx/cyclonedx-npm": "catalog:"
   }
 }

@@ -23,6 +23,10 @@ coverage/
 playwright-report/
 test-results/
 
+# Supply-chain reports (generated in CI)
+sbom.xml
+licenses.json
+
 # Tauri
 apps/desktop/src-tauri/plugins/
 .turbo/

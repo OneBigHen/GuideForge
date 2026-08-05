@@ -52,18 +52,28 @@ function readdirRecursive(dir) {
 const sourceFiles = walk(root);
 let failed = false;
 
+/** Extract module specifiers from a source file (ESM import/export, dynamic import, require). */
+function moduleSpecifiers(text) {
+  const specs = new Set();
+  const esmRe =
+    /\b(?:import|export)\s+(?:[^'"]*?\s+from\s+)?['"]([^'"]+)['"]|import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+  const requireRe = /\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+  for (const m of text.matchAll(esmRe)) specs.add(m[1] ?? m[2]);
+  for (const m of text.matchAll(requireRe)) specs.add(m[1]);
+  return [...specs];
+}
+
 for (const rule of rules) {
   const re = fromPattern(rule.from);
   for (const file of sourceFiles) {
     const rel = relative(root, file).split('\\').join('/');
     if (!re.test(rel)) continue;
     const text = readFileSync(file, 'utf8');
-    for (const forbidden of rule.to) {
-      const forbRe = fromPattern(forbidden);
-      if (forbRe.test(text)) {
-        // Only flag actual import statements
-        if (/import\s|from\s['"]/.test(text)) {
-          console.error(`BOUNDARY FAIL: ${rel} may not import "${forbidden}"`);
+    for (const spec of moduleSpecifiers(text)) {
+      for (const forbidden of rule.to) {
+        const forbRe = fromPattern(forbidden);
+        if (forbRe.test(spec)) {
+          console.error(`BOUNDARY FAIL: ${rel} may not import "${forbidden}" (imports "${spec}")`);
           failed = true;
         }
       }

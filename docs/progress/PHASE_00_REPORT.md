@@ -1,84 +1,133 @@
-# Phase 00 Report — Repository Isolation and Evidence Inventory
+# Phase 00 Report — Truth Baseline and CI
 
 ## Outcome
 
-The shipped reference application was preserved read-only, a clean independent
-GuideForge repository was created, and a full evidence inventory of the legacy
-codebase was produced. No product code was written in this phase.
+The repository's claims are now verified by CI. Baseline established at
+`5d9a1d29` (the audited commit); a fresh forced run of every static check, the
+full Playwright suite (desktop + iPad + iPhone emulation), policy-gated
+supply-chain gates, and a no-credential AI test now pass. The capability
+matrix is honest: it records implemented, partial, and missing capabilities
+and names the gaps the pack's later phases must close.
 
-## Discrepancy recorded (important)
+The original (pre-single-user) phase reports were preserved verbatim in
+`docs/progress/legacy/*_original.md` as evidence of intent (per
+`START_HERE.md`: original reports are evidence of intent, not proof of
+completeness).
 
-The build pack identifies the reference as `OneBigHen/Guides-Studiov2` at commit
-`2c85e8409b125b1d337522d41aff615aacf68723`. That repository and commit are
-unreachable (both `OneBigHen/Guides-Studiov2` and `OneBigHen/Guides-Studio` return
-404; the commit hash exists in no local clone or reachable remote). The only
-shipped reference available is the local repository `/root/Vibe/Guides-Studio`
-(live remote `gsk-tech/Guides-Studio`), HEAD `ef07a2708991a1cd1797f3e428b313b2f2570ec3`.
-That shipped state was preserved as the read-only reference and audited. The
-discrepancy is fully documented in `LEGACY_ORIGIN.md`.
+## User-visible vertical slices
+
+Phase 00 is infrastructure; the user-visible effects are:
+
+- CI now actually runs the browser E2E suite and Postgres-backed integration
+  tests (previously claimed but not executed in CI).
+- Supply-chain failures are blocking and visible (audit/license/SBOM/secret),
+  with a documented reviewed-exceptions policy instead of silent `|| true`.
+- A capability matrix and baseline performance/bundle report replace
+  overstated phase-report claims with measured evidence.
 
 ## Commits
 
-- `b2762c9` — chore: initialize independent GuideForge repository (AGENTS.md + LEGACY_ORIGIN.md)
-- `(next)` — chore: add Phase 00 legacy audit reports
+- `066ee0d` chore: establish single-user AI studio execution baseline
+  (branch `feat/single-user-ai-studio`, AGENTS_SINGLE_USER.md installed)
+- (this commit) Phase 00 CI/supply-chain/audit work
 
-## Tasks completed
+## Exact commands and results
 
-1. ✅ Verified reference repo path and remotes (`gsk-tech/Guides-Studio` live; `OneBigHen/*` 404).
-2. ✅ Verified reference commit — build-pack hash unavailable; preserved actual shipped HEAD `ef07a270`.
-3. ✅ Created `legacy/guides-studio-reference` branch, annotated tag `guides-studio-reference-ef07a270`, read-only worktree `~/Vibe/Guides-Studio-reference`.
-4. ✅ Created new orphaned `main` branch in `~/Vibe/GuideForge` (clean git history).
-5. ✅ Created private GitHub repository `OneBigHen/GuideForge` (visibility verified PRIVATE).
-6. ✅ Disabled push to the reference remote (`origin` and `work` push URLs → `DISABLED`).
-7. ✅ Added `LEGACY_ORIGIN.md`.
-8. ✅ Installed `AGENTS.md` (hash matches pack manifest `dd9f1937…`).
-9. ✅ Ran secret scan, large/generated inventory, dependency/license inventory, customer/GSK scan, database/upload/runtime scan.
-10. ✅ Inspected package manifests, routes, domain types, parser/exporter, storage layers, backend/auth, scene editor, AR/XR components, tests, and CI.
-11. ✅ Produced `docs/progress/PHASE_00_REPORT.md`, `docs/legacy/BEHAVIOR_INVENTORY.md`, `docs/legacy/SECURITY_AND_CONTAMINATION_AUDIT.md`, `docs/legacy/REUSE_DECISIONS.md`.
-12. ✅ Committed only clean scaffolding and reports.
+| Command                                                                                | Result                                                                  |
+| -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `pnpm install --frozen-lockfile` (after `rm -rf node_modules apps/*/node_modules ...`) | clean, 810 packages, 17s                                                |
+| `pnpm check --force`                                                                   | 100/100 tasks pass (fresh, no cache)                                    |
+| `pnpm format:check`                                                                    | pass (after fixing pre-existing `docs/adr/0006`)                        |
+| `pnpm boundary`                                                                        | pass (after fixing false-positive whole-file matching)                  |
+| `pnpm dep-check`                                                                       | pass (after catalog-pinning `@types/pg`, `tsx`, `@axe-core/playwright`) |
+| `pnpm security:audit`                                                                  | pass (esbuild moderate = reviewed SUPPLY-0001)                          |
+| `pnpm security:licenses`                                                               | pass (0 blocked licenses in full graph)                                 |
+| `pnpm security:sbom`                                                                   | pass — `sbom.xml` 2.08 MB CycloneDX 1.6                                 |
+| `pnpm security:secret-scan`                                                            | pass (no matches)                                                       |
+| `pnpm security:policy-test`                                                            | 5/5 pass (positive + negative paths)                                    |
+| `pnpm --filter @guideforge/web test:e2e`                                               | 37 passed / 2 skipped (WebKit offline)                                  |
 
 ## Acceptance evidence
 
-| Criterion                                                                                  | Evidence                                                                                                                |
-| ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| Original repo unchanged, no new commits/pushes                                             | `git log -1` still `ef07a270`; `git status` clean; push URLs `DISABLED`                                                 |
-| New repo exists and is private                                                             | `gh repo view OneBigHen/GuideForge` → `PRIVATE`                                                                         |
-| Exact source reference preserved                                                           | branch + annotated tag + read-only worktree at `ef07a270`                                                               |
-| No secrets/customer data/GSK branding/databases/uploads/runtime/node_modules in new `main` | audit in `SECURITY_AND_CONTAMINATION_AUDIT.md`; new `main` contains only scaffold + AGENTS.md + LEGACY_ORIGIN.md + docs |
-| Reports identify reuse/rewrite/fixture/discard per subsystem                               | `REUSE_DECISIONS.md`                                                                                                    |
+Gate items from `prompts/phases/PHASE_00_TRUTH_BASELINE.md`:
 
-## Test results
+| Gate                                                            | Evidence                                                                                                     |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Clean install and all mandatory checks pass                     | frozen install + `pnpm check --force` 100/100                                                                |
+| CI actually runs E2E                                            | `e2e` job in `.github/workflows/ci.yml` (Chromium + WebKit, artifacts)                                       |
+| No capability report overstates hardware/provider evidence      | `docs/progress/CAPABILITY_MATRIX.md` — real-device rows are `blocked`, provider rows are `partial`/`missing` |
+| Failing security/license checks visible and blocking per policy | `docs/security/supply-chain-policy.md` + blocking CI steps + `reviewed-exceptions.json`                      |
 
-- Secret scan: 6 files matched benign templates/design flaws; **0 live secrets**.
-- Traversal/db/upload scan: only `.gitkeep` tracked; runtime state confirmed untracked.
-- No tests run in this phase (no product code; reference tests belong to legacy).
+## AI/provider evidence
 
-## Security and privacy impact
+- No-credential test added to `model-gateway`: gateway with no configured
+  adapters returns `ok:false`, no output, explicit receipt (`provider: gateway`),
+  and never fabricates; offline authoring requires an explicitly registered
+  deterministic adapter whose receipt exposes the producing provider.
+- Live DeepSeek/Docling calls remain gated on credentials (skipped without
+  them) — unchanged from the previous phase; CI does not hold a key.
 
-- Legacy `VITE_API_KEY` design flaw, hard-coded tenant URI, and dual-store
-  fallback confirmed as risks to design out (all already required by spec).
-- No secrets or contamination entered the new repository.
+## Device evidence
 
-## Persisted schema and migration impact
+- Playwright: desktop-chromium, ipad (iPad Pro 11), iphone (iPhone 13) all
+  run in the new CI `e2e` job; 37 passed / 2 skipped (WebKit cannot navigate
+  offline — `apps/web/e2e/offline.spec.ts:11`).
+- Real-device (Safari/Pencil/camera) is an external blocker, recorded as such.
 
-- None (no persisted schema in GuideForge yet). Migration strategy from legacy
-  is documented in `REUSE_DECISIONS.md`.
+## Accessibility evidence
+
+- WCAG 2.2 axe scans run in E2E across all three projects and pass at
+  baseline (no critical/serious violations).
+
+## Security/privacy/license impact
+
+- Secret scan: gitleaks (v3.0.0 action) + regex fallback; hard failure on any
+  match.
+- Audit: high/critical always block; moderate/low block unless reviewed
+  (SUPPLY-0001: esbuild 0.18.20 moderate via dev-only drizzle-kit, expiry
+  2026-11-05).
+- License: GPL/AGPL/SSPL/BUSL/CC-BY-NC block; full-graph `pnpm licenses list`
+  scan; current graph clean.
+- SBOM: blocking generation, uploaded artifact.
+- No secrets, keys, or private artifacts added to the repo.
+
+## Persisted schema/migrations
+
+- None in this phase.
+
+## Package round-trip impact
+
+- None in this phase (package writer unchanged).
+
+## Performance and cost
+
+- Baseline bundle: main chunk 1,583,290 B (452.55 kB gzip), single 1.58 MB
+  route-less bundle above the 500 kB advisory — recorded in
+  `docs/progress/BASELINE_PERFORMANCE_REPORT.md` for Phase 13.
+- CI cost: one extra `e2e` job (~5 min); no product runtime cost.
 
 ## Known limitations
 
-- The build pack's reference commit could not be preserved because it is
-  unreachable; the shipped HEAD was used instead and the discrepancy documented.
-- `Sample_Guide.guide` fixture is referenced for future interop tests but not
-  yet copied into `packages/test-fixtures` (deferred to Phase 02/07 with a
-  fixture-reuse note).
+- gitleaks action requires `GITHUB_TOKEN`; the regex fallback covers
+  environments without it.
+- `pnpm dlx license-checker`/`pnpm dlx @cyclonedx/cyclonedx-npm` remain broken
+  locally by the global `dangerously-allow-all-builds` config; the pinned
+  devDependency + `pnpm licenses list` path is the supported route.
+- `apps/web` e2e depends on a host quirk: the sandbox exports
+  `PLAYWRIGHT_BROWSERS_PATH=0` in `.bashrc`, so local runs need
+  `PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright`. CI is unaffected.
 
-## Blocked external dependencies
+## External blockers
 
-- None.
+- Real-device (Safari/Pencil/camera/Quick Look) testing cannot run in this
+  sandbox; emulation evidence only.
 
-## Next phase readiness
+## Next-phase readiness
 
-- READY. Phase 01 (universal foundation) can start: toolchain pinning via
-  Context7, monorepo scaffold, web + Tauri shell, CI.
+Phase 01 (single-user repairs) can start: the audit findings it must fix are
+itemized in `docs/progress/CAPABILITY_MATRIX.md` (body-supplied roles, padded
+FNV hashes, adapter key retention, shallow validation, localStorage signing
+key, synchronous unzip, stale hierarchy actions, silent fake fallback, random
+audit org IDs, stub approval invalidation).
 
 **Gate:** PASS

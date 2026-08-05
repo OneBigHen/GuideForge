@@ -79,6 +79,42 @@ describe('ModelGateway with fake adapter', () => {
   });
 });
 
+describe('no-credential offline behavior (Phase 00 truth baseline)', () => {
+  it('gateway with no configured adapters reports explicit unavailability, never fabricates output', async () => {
+    const gateway = new ModelGateway([]);
+    const res = await gateway.run(request());
+    expect(res.ok).toBe(false);
+    expect(res.output).toBeUndefined();
+    expect(res.error).toBeTruthy();
+    expect(res.receipt.provider).toBe('gateway');
+    expect(res.receipt.model).toBe('none');
+  });
+
+  it('gateway with only unavailable credential-bound adapters does not silently fall back', async () => {
+    // Both adapters are credential-bound and configured without keys.
+    const gateway = new ModelGateway([
+      new DeepSeekAdapter({ apiKey: '' }),
+      new OpenRouterAdapter({ apiKey: '' }),
+    ]);
+    const res = await gateway.run(request());
+    expect(res.ok).toBe(false);
+    expect(res.output).toBeUndefined();
+    expect(res.error).toBeTruthy();
+  });
+
+  it('explicitly registers a deterministic local adapter when offline authoring is intended', async () => {
+    // The offline authoring path is an explicit choice, not a silent fallback:
+    // the gateway only produces output when a deterministic adapter is
+    // registered and its receipt makes the provider visible.
+    const gateway = new ModelGateway([new DirectModelAdapter('local-llama', true)]);
+    const res = await gateway.run(request());
+    expect(res.ok).toBe(true);
+    // The direct adapter delegates to the deterministic fake adapter for
+    // extraction, so the receipt reports the actual producing adapter.
+    expect(res.receipt.provider).toBe('fake');
+  });
+});
+
 describe('DeepSeek adapter', () => {
   it('is unavailable without a key and available with one', () => {
     expect(new DeepSeekAdapter({ apiKey: '' }).available).toBe(false);

@@ -29,11 +29,11 @@
     "fastify": "catalog:",
     "pg": "catalog:",
     "postgres": "catalog:",
-    "tsx": "4.23.5"
+    "tsx": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",
-    "@types/pg": "8.20.4",
+    "@types/pg": "catalog:",
     "drizzle-kit": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

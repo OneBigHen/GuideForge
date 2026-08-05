@@ -36,7 +36,7 @@
     "zustand": "catalog:"
   },
   "devDependencies": {
-    "@axe-core/playwright": "4.12.1",
+    "@axe-core/playwright": "catalog:",
     "@playwright/test": "catalog:",
     "@tanstack/router-plugin": "catalog:",
     "@testing-library/react": "catalog:",

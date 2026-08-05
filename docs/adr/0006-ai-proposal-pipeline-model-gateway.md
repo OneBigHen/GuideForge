@@ -40,12 +40,12 @@ usage accounting.
 
 Verified via registry metadata and live calls 2026-08-04/05:
 
-| Technology                 | Exact version / ref                          |
-| -------------------------- | -------------------------------------------- |
-| DeepSeek official API      | api.deepseek.com (v4-flash, v4-pro live)     |
-| docling (PyPI, venv)       | 2.118.0 (no-OCR, no-table deterministic)     |
-| fast-check                 | 4.9.0 (property tests)                       |
-| ai/granite-docling (image) | latest (IBM-maintained serving image)        |
+| Technology                 | Exact version / ref                      |
+| -------------------------- | ---------------------------------------- |
+| DeepSeek official API      | api.deepseek.com (v4-flash, v4-pro live) |
+| docling (PyPI, venv)       | 2.118.0 (no-OCR, no-table deterministic) |
+| fast-check                 | 4.9.0 (property tests)                   |
+| ai/granite-docling (image) | latest (IBM-maintained serving image)    |
 
 ## Decision
 
