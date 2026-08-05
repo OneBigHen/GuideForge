@@ -82,17 +82,33 @@ export function buildReleaseEntries(input: ReleaseInput): PackageEntry[] {
   for (const entry of assetEntries) entries.push({ path: entry.path, data: entry.data });
 
   // Signature manifest (RFC 8785 canonical payload, Ed25519 signed).
-  const payload = {
-    format: 'gforge-release',
+  // Content entries: guide.json + assets (signature and manifest come later).
+  const contentEntries = entries.slice();
+
+  // manifest.json lists ONLY content entries (no signature file) and its
+  // canonical JSON is the signed payload, so every content byte is bound.
+  const manifest = {
+    format: 'gforge',
     version: 1,
+    packageType: 'release',
+    createdAt: FIXED_TIMESTAMP,
+    guideId: input.snapshot.guideId,
+    schemaVersion: input.snapshot.schemaVersion,
     releaseId: input.release.releaseId,
-    guideId: input.release.guideId,
     releaseVersion: input.release.releaseVersion,
-    createdAt: input.release.createdAt,
     keyId: input.keyId,
-    entryHashes: entries.map((e) => e.path).sort(),
+    entries: contentEntries.map((e) => ({
+      path: e.path,
+      sha256: hashBytes(e.data),
+      sizeBytes: e.data.length,
+    })),
+    assetCount: assetEntries.length,
   };
-  const signed = signReleasePayload(payload, input.privateKeyHex);
+  const manifestJson = canonicalJsonRfc8785(manifest);
+  entries.push({ path: 'manifest.json', data: strToU8(manifestJson) });
+
+  // Signature over the canonical manifest JSON (Ed25519).
+  const signed = signReleasePayload(manifest, input.privateKeyHex);
   const signatureManifest: ReleaseSignatureManifest = {
     format: 'gforge-release',
     version: 1,
@@ -109,24 +125,6 @@ export function buildReleaseEntries(input: ReleaseInput): PackageEntry[] {
     path: 'signatures/release-signature.json',
     data: strToU8(canonicalJsonRfc8785(signatureManifest)),
   });
-
-  // manifest.json (contains per-entry hashes; excludes signature entry itself)
-  const manifest = {
-    format: 'gforge',
-    version: 1,
-    packageType: 'release',
-    createdAt: FIXED_TIMESTAMP,
-    guideId: input.snapshot.guideId,
-    schemaVersion: input.snapshot.schemaVersion,
-    releaseId: input.release.releaseId,
-    entries: entries.map((e) => ({
-      path: e.path,
-      sha256: hashBytes(e.data),
-      sizeBytes: e.data.length,
-    })),
-    assetCount: assetEntries.length,
-  };
-  entries.push({ path: 'manifest.json', data: strToU8(canonicalJsonRfc8785(manifest)) });
 
   entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 
@@ -198,15 +196,14 @@ export function verifyReleasePackage(bytes: Uint8Array): ReleaseVerificationResu
     }
   }
 
-  // Verify signature against the canonical payload.
+  // Verify signature against the canonical manifest JSON.
   if (signatureEntry) {
     try {
       const sigManifest = JSON.parse(
         new TextDecoder().decode(signatureEntry.data),
       ) as ReleaseSignatureManifest;
       const payload = JSON.parse(sigManifest.payloadJson) as Record<string, unknown>;
-      const expected = canonicalJsonRfc8785(payload);
-      if (expected !== sigManifest.payloadJson) {
+      if (canonicalJsonRfc8785(payload) !== sigManifest.payloadJson) {
         issues.push('signature payload is not canonical');
       }
       const ok = verifyReleaseSignature(
@@ -215,6 +212,13 @@ export function verifyReleasePackage(bytes: Uint8Array): ReleaseVerificationResu
         fromHex(sigManifest.signingKey),
       );
       if (!ok) issues.push('invalid release signature');
+      // The signed payload must equal the on-disk manifest.json content.
+      if (manifest) {
+        const onDisk = canonicalJsonRfc8785(JSON.parse(new TextDecoder().decode(manifest.data)));
+        if (onDisk !== sigManifest.payloadJson) {
+          issues.push('manifest.json does not match the signed payload');
+        }
+      }
       return {
         ok: issues.length === 0,
         issues,

@@ -23,6 +23,7 @@
     "@types/node": "catalog:",
     "fast-check": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "@guideforge/interop-ms-guide": "workspace:*"
   }
 }

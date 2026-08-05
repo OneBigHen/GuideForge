@@ -17,11 +17,11 @@ had no loss report.
 
 Verified via registry metadata 2026-08-04:
 
-| Technology | Exact version |
-|---|---|
-| canonicalize (RFC 8785 JCS) | 3.0.0 |
-| @noble/curves (Ed25519) | 2.2.0 |
-| tauri-plugin-fs / tauri-plugin-store | 2 (crates) |
+| Technology                           | Exact version |
+| ------------------------------------ | ------------- |
+| canonicalize (RFC 8785 JCS)          | 3.0.0         |
+| @noble/curves (Ed25519)              | 2.2.0         |
+| tauri-plugin-fs / tauri-plugin-store | 2 (crates)    |
 
 ## Decision
 

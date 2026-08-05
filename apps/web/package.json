@@ -25,6 +25,7 @@
     "@guideforge/scene-core": "workspace:*",
     "@guideforge/scene-react": "workspace:*",
     "@guideforge/storage-web": "workspace:*",
+    "@guideforge/telemetry": "workspace:*",
     "@guideforge/ui": "workspace:*",
     "@tanstack/react-query": "catalog:",
     "@tanstack/react-router": "catalog:",
@@ -35,6 +36,7 @@
     "zustand": "catalog:"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.12.1",
     "@playwright/test": "catalog:",
     "@tanstack/router-plugin": "catalog:",
     "@testing-library/react": "catalog:",

@@ -373,3 +373,6 @@ export {
   verifyReleaseSignature,
 } from './signing.js';
 export type { Ed25519PublicKey, Ed25519Signature, TrustedKeyEntry } from './signing.js';
+
+export { buildUsdzContainer, quickLookModelLink, USDZ_MIME } from './usdz.js';
+export type { QuickLookLink, UsdzInput } from './usdz.js';

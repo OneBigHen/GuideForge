@@ -33,19 +33,19 @@ web app.
    remains.
 4. **storage-native**: Tauri filesystem asset store + credential store
    abstractions (tested with injected IO); Tauri shell wires `tauri-plugin-fs`
-   + `tauri-plugin-store` and capabilities (same web build).
+   - `tauri-plugin-store` and capabilities (same web build).
 
 ## Acceptance evidence
 
-| Gate | Evidence |
-|---|---|
-| One-byte package tampering fails | signing test flips a byte → verification fails |
-| Revoked release behavior correct | TrustedKeyStore revocation test |
-| Every Microsoft import produces a compatibility report | round-trip test asserts `report` fields |
-| Unsupported export cannot silently lose content | refusal test throws without `acceptApproximations` |
-| Same web editor runs against native filesystem adapter | `NativeFsAssetStore` + `MemoryCredentialStore` tests |
-| Deterministic release (same inputs → same bytes) | signing determinism test |
-| No hard-coded tenant URI | interop test asserts no `crm.dynamics.com` / `dataverse` |
+| Gate                                                   | Evidence                                                 |
+| ------------------------------------------------------ | -------------------------------------------------------- |
+| One-byte package tampering fails                       | signing test flips a byte → verification fails           |
+| Revoked release behavior correct                       | TrustedKeyStore revocation test                          |
+| Every Microsoft import produces a compatibility report | round-trip test asserts `report` fields                  |
+| Unsupported export cannot silently lose content        | refusal test throws without `acceptApproximations`       |
+| Same web editor runs against native filesystem adapter | `NativeFsAssetStore` + `MemoryCredentialStore` tests     |
+| Deterministic release (same inputs → same bytes)       | signing determinism test                                 |
+| No hard-coded tenant URI                               | interop test asserts no `crm.dynamics.com` / `dataverse` |
 
 ## Test results
 
@@ -91,7 +91,7 @@ web app.
 - Tauri native build cannot run in this sandbox (read-only root FS blocks
   webkit2gtk system libs; documented since Phase 01). The shell config,
   plugins, and capabilities are complete; `pnpm --filter @guideforge/desktop
-  build:tauri` must run on a host with the system libraries.
+build:tauri` must run on a host with the system libraries.
 - Microsoft import/export is experimental: target-client opening evidence and
   a legally obtained fixture corpus are required before non-experimental
   status (per spec); our tests use self-generated fixtures.

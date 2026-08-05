@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
 // Phase 07: signed release export produces a downloadable .gforge with a
 // public key note, and .guide import is available in the library.
@@ -13,7 +13,7 @@ test('export a signed release from the editor', async ({ page }) => {
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toContain('.gforge');
 
-  await expect(page.getByRole('status')).toContainText('signed release', { timeout: 5000 });
+  await expect(page.locator('.release-note')).toContainText('signed release', { timeout: 5000 });
 });
 
 test('library offers .guide import', async ({ page }) => {

@@ -4,6 +4,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { routeTree } from './routeTree.gen';
 import { registerServiceWorker } from './services/sw';
+import { trackRoute } from './services/telemetry';
 import './styles.css';
 
 registerServiceWorker();
@@ -12,6 +13,11 @@ const router = createRouter({
   routeTree,
   defaultPreload: 'intent',
   defaultStaleTime: 30_000,
+});
+
+// Privacy-reviewed route telemetry: path only, ids stripped inside telemetry.
+router.subscribe('onResolved', () => {
+  trackRoute(router.state.location.pathname);
 });
 
 declare module '@tanstack/react-router' {
