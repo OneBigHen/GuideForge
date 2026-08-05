@@ -4,8 +4,9 @@
  * and deterministic.
  */
 import type { GuideCommand } from '@guideforge/commands';
-import type { EntityId } from '@guideforge/domain';
+import type { ContentHash, EntityId } from '@guideforge/domain';
 import {
+  type SceneAnnotation,
   type SceneNode,
   type SceneState,
   type Transform,
@@ -30,9 +31,13 @@ export const SCENE_COMMAND_TYPES = {
   duplicate: 'scene/duplicate',
   rename: 'scene/rename',
   setLayer: 'scene/set-layer',
+  addLayer: 'scene/add-layer',
+  setAsset: 'scene/set-asset',
   addCamera: 'scene/add-camera',
   alignSelected: 'scene/align-selected',
   distributeSelected: 'scene/distribute-selected',
+  addAnnotation: 'scene/add-annotation',
+  removeAnnotation: 'scene/remove-annotation',
 } as const;
 
 export interface AddNodePayload {
@@ -179,6 +184,24 @@ export function applySceneCommand(state: SceneState, command: GuideCommand): Sce
       }
       return next;
     }
+    case SCENE_COMMAND_TYPES.addLayer: {
+      const p = command.payload as { layerId: string; name: string; color: string };
+      if (state.layers.has(p.layerId)) return state;
+      return {
+        ...state,
+        layers: new Map(state.layers).set(p.layerId, {
+          name: p.name,
+          visible: true,
+          locked: false,
+          color: p.color,
+        }),
+      };
+    }
+    case SCENE_COMMAND_TYPES.setAsset: {
+      const p = command.payload as { nodeId: EntityId; assetHash: string };
+      if (!state.nodes.has(p.nodeId)) return state;
+      return updateNode(state, p.nodeId, { assetHash: p.assetHash as ContentHash | null });
+    }
     case SCENE_COMMAND_TYPES.addCamera: {
       const p = command.payload as AddCameraPayload;
       const next = {
@@ -234,6 +257,21 @@ export function applySceneCommand(state: SceneState, command: GuideCommand): Sce
         });
       });
       return next;
+    }
+    case SCENE_COMMAND_TYPES.addAnnotation: {
+      const p = command.payload as { annotation: SceneAnnotation };
+      const next = { ...state, annotations: [...state.annotations] };
+      if (next.annotations.some((a) => a.annotationId === p.annotation.annotationId)) return state;
+      next.annotations.push(p.annotation);
+      return next;
+    }
+    case SCENE_COMMAND_TYPES.removeAnnotation: {
+      const p = command.payload as { annotationId: EntityId };
+      if (!state.annotations.some((a) => a.annotationId === p.annotationId)) return state;
+      return {
+        ...state,
+        annotations: state.annotations.filter((a) => a.annotationId !== p.annotationId),
+      };
     }
     default:
       return state;

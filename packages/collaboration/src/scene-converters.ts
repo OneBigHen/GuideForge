@@ -89,6 +89,17 @@ export function guideSceneToSceneState(scene: GuideScene): SceneState {
     layers,
     cameras: scene.cameras.map(toCamera),
     measurements: scene.measurements.map(toMeasurement),
+    annotations: scene.annotations.map((a) => ({
+      annotationId: a.annotationId,
+      kind: a.kind,
+      text: a.text,
+      targetNodeId: a.targetNodeId,
+      targetPoint: a.targetPoint
+        ? { x: a.targetPoint.x, y: a.targetPoint.y, z: a.targetPoint.z }
+        : null,
+      offset: a.offset ? { x: a.offset.x, y: a.offset.y } : null,
+      color: a.color,
+    })),
   };
 }
 
@@ -133,7 +144,15 @@ export function sceneStateToGuideScene(state: SceneState): GuideScene {
       toNodeId: m.toNodeId,
       value: m.value,
     })),
-    annotations: [],
+    annotations: state.annotations.map((a) => ({
+      annotationId: a.annotationId,
+      kind: a.kind,
+      text: a.text,
+      targetNodeId: a.targetNodeId,
+      targetPoint: a.targetPoint ? { ...a.targetPoint } : null,
+      offset: a.offset ? { ...a.offset } : null,
+      color: a.color,
+    })),
     stepStates: {},
   };
 }

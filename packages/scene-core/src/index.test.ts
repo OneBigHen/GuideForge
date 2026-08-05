@@ -322,3 +322,104 @@ describe('scene-core helpers', () => {
     expect(health.warnings.some((w) => w.includes('zero scale'))).toBe(true);
   });
 });
+
+describe('scene-core Phase 03 commands', () => {
+  it('adds annotations, layers, and attaches assets via commands', () => {
+    let state = freshSceneState();
+    state = applySceneCommand(
+      state,
+      cmd(SCENE_COMMAND_TYPES.addNode, { node: node(N1, 'Pipette') }),
+    );
+
+    // Add a layer and assign the node to it.
+    state = applySceneCommand(
+      state,
+      cmd(SCENE_COMMAND_TYPES.addLayer, { layerId: 'layer-2', name: 'Tools', color: '#f59e0b' }),
+    );
+    expect(state.layers.has('layer-2')).toBe(true);
+    state = applySceneCommand(
+      state,
+      cmd(SCENE_COMMAND_TYPES.setLayer, { nodeIds: [N1], layerId: 'layer-2' }),
+    );
+    expect(state.nodes.get(N1)?.layerId).toBe('layer-2');
+
+    // Attach a GLB asset hash to the node.
+    state = applySceneCommand(
+      state,
+      cmd(SCENE_COMMAND_TYPES.setAsset, { nodeId: N1, assetHash: 'a'.repeat(64) }),
+    );
+    expect(state.nodes.get(N1)?.assetHash).toBe('a'.repeat(64));
+
+    // Add + remove an annotation targeting the node.
+    state = applySceneCommand(
+      state,
+      cmd(SCENE_COMMAND_TYPES.addAnnotation, {
+        annotation: {
+          annotationId: 'ann-1',
+          kind: 'label',
+          text: 'Plunger',
+          targetNodeId: N1,
+          targetPoint: { x: 0, y: 0, z: 0 },
+          offset: { x: 0, y: 40 },
+          color: '#2dd4bf',
+        },
+      }),
+    );
+    expect(state.annotations).toHaveLength(1);
+    state = applySceneCommand(
+      state,
+      cmd(SCENE_COMMAND_TYPES.removeAnnotation, { annotationId: 'ann-1' }),
+    );
+    expect(state.annotations).toHaveLength(0);
+  });
+
+  it('aligns and distributes on any axis (not just Y)', () => {
+    let state = freshSceneState();
+    state = applySceneCommand(state, cmd(SCENE_COMMAND_TYPES.addNode, { node: node(N1, 'A') }));
+    state = applySceneCommand(state, cmd(SCENE_COMMAND_TYPES.addNode, { node: node(N2, 'B') }));
+    state = applySceneCommand(state, cmd(SCENE_COMMAND_TYPES.addNode, { node: node(N3, 'C') }));
+    state = applySceneCommand(
+      state,
+      cmd(SCENE_COMMAND_TYPES.setTransform, {
+        nodeIds: [N1],
+        transform: {
+          position: { x: 1, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0, w: 1 },
+          scale: { x: 1, y: 1, z: 1 },
+        },
+        space: 'world',
+      }),
+    );
+    state = applySceneCommand(
+      state,
+      cmd(SCENE_COMMAND_TYPES.setTransform, {
+        nodeIds: [N2],
+        transform: {
+          position: { x: 3, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0, w: 1 },
+          scale: { x: 1, y: 1, z: 1 },
+        },
+        space: 'world',
+      }),
+    );
+    state = applySceneCommand(
+      state,
+      cmd(SCENE_COMMAND_TYPES.setTransform, {
+        nodeIds: [N3],
+        transform: {
+          position: { x: 5, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0, w: 1 },
+          scale: { x: 1, y: 1, z: 1 },
+        },
+        space: 'world',
+      }),
+    );
+    // Align on X to center: all nodes share the X midpoint.
+    state = applySceneCommand(
+      state,
+      cmd(SCENE_COMMAND_TYPES.alignSelected, { nodeIds: [N1, N2, N3], axis: 'x', mode: 'center' }),
+    );
+    const xs = [N1, N2, N3].map((id) => state.nodes.get(id)?.transform.position.x);
+    expect(new Set(xs).size).toBe(1);
+  });
+});

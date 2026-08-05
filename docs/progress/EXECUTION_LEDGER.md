@@ -32,3 +32,9 @@ verified / rejected / superseded.
 | P02-5  | 02    | Semantic comparison                                     | verified | snapshotsSemanticallyEqual test                       | (this commit) | low    | —                  |
 | P02-6  | 02    | Training commands (objective/assessment)                | verified | commands tests (6/6)                                  | (this commit) | low    | —                  |
 | P02-7  | 02    | Vertical slice round trip                               | verified | roundtrip.test.ts (10/10 web)                         | (this commit) | medium | —                  |
+| P03-1  | 03    | Connected asset browser (GLB import + attach)           | verified | scene03 e2e; scene-core set-asset                     | (this commit) | medium | —                  |
+| P03-2  | 03    | All-axis align/distribute + isolate                     | verified | scene-core align-x test; e2e                          | (this commit) | low    | —                  |
+| P03-3  | 03    | Layer UI + camera bookmarks UI                          | verified | scene03 e2e (layers, cameras)                         | (this commit) | low    | —                  |
+| P03-4  | 03    | Annotation UI (add/remove)                              | verified | scene-core 19/19; e2e                                 | (this commit) | low    | —                  |
+| P03-5  | 03    | Undo/redo + keyboard shortcuts                          | verified | scene03 e2e (undo/redo, W)                            | (this commit) | low    | —                  |
+| P03-6  | 03    | Context-loss recovery + demand rendering                | verified | canvas remount; existing demand                       | (this commit) | low    | —                  |

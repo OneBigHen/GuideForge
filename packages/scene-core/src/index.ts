@@ -136,6 +136,18 @@ export interface SceneNode {
   metadata: Record<string, string>;
 }
 
+export interface SceneAnnotation {
+  annotationId: EntityId;
+  kind: 'arrow' | 'label' | 'callout' | 'highlight';
+  text: string;
+  targetNodeId: EntityId;
+  /** Local point on the target mesh (barycentric surface attachment). */
+  targetPoint: Vec3 | null;
+  /** Screen-space offset for labels/callouts. */
+  offset: { x: number; y: number } | null;
+  color: string;
+}
+
 export interface SceneState {
   nodes: Map<EntityId, SceneNode>;
   /** Root-level node order (stable ids under reorder). */
@@ -143,6 +155,7 @@ export interface SceneState {
   layers: Map<string, { name: string; visible: boolean; locked: boolean; color: string }>;
   cameras: CameraBookmark[];
   measurements: Measurement[];
+  annotations: SceneAnnotation[];
 }
 
 export interface CameraBookmark {
@@ -172,6 +185,7 @@ export function createSceneState(): SceneState {
     ]),
     cameras: [],
     measurements: [],
+    annotations: [],
   };
 }
 
@@ -244,6 +258,11 @@ function cloneSceneState(state: SceneState): SceneState {
       target: { ...c.target },
     })),
     measurements: state.measurements.map((m) => ({ ...m })),
+    annotations: state.annotations.map((a) => ({
+      ...a,
+      targetPoint: a.targetPoint ? { ...a.targetPoint } : null,
+      offset: a.offset ? { ...a.offset } : null,
+    })),
   };
 }
 
