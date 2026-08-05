@@ -16,12 +16,12 @@ mixed WebXR, device logic, and React state into one editor.
 
 Verified via registry metadata on 2026-08-04 (versions already pinned in ADR 0001):
 
-| Technology | Exact version |
-|---|---|
-| three | 0.185.1 |
-| @react-three/fiber | 9.7.0 |
-| @react-three/drei | 10.7.7 |
-| @types/three | 0.185.1 |
+| Technology         | Exact version |
+| ------------------ | ------------- |
+| three              | 0.185.1       |
+| @react-three/fiber | 9.7.0         |
+| @react-three/drei  | 10.7.7        |
+| @types/three       | 0.185.1       |
 
 ## Decision
 
@@ -31,7 +31,7 @@ Verified via registry metadata on 2026-08-04 (versions already pinned in ADR 000
      `Vec3`/`Quat` objects; no Three dependency), snapping (grid, angle),
      alignment/distribution/pivot helpers, step scene state, and
      `evaluateSceneHealth` with budget limits.
-   - `packages/scene-react` — R3F adapter that *renders* `SceneState`:
+   - `packages/scene-react` — R3F adapter that _renders_ `SceneState`:
      `Canvas` with `frameloop="demand"`, `TransformControls` gizmo, `Grid`,
      `OrbitControls`, GLB loading by content hash, context-loss handling.
 2. **Scene mutations are commands**: `SCENE_COMMAND_TYPES` (add/remove node,

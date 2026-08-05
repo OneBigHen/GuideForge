@@ -1,0 +1,39 @@
+{
+  "name": "@guideforge/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "format:check": "prettier --check src",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "@fastify/cookie": "catalog:",
+    "@fastify/cors": "catalog:",
+    "@fastify/jwt": "catalog:",
+    "@fastify/swagger": "catalog:",
+    "@guideforge/commands": "workspace:*",
+    "@guideforge/domain": "workspace:*",
+    "@guideforge/guide-schema": "workspace:*",
+    "drizzle-orm": "catalog:",
+    "fastify": "catalog:",
+    "pg": "catalog:",
+    "postgres": "catalog:",
+    "tsx": "4.23.5"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/pg": "8.20.4",
+    "drizzle-kit": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

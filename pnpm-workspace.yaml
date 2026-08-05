@@ -27,8 +27,6 @@ catalog:
   yjs: 13.6.32
   y-indexeddb: 9.0.12
   dexie: 4.4.4
-  '@hocuspocus/server': 4.4.0
-  '@hocuspocus/provider': 4.4.0
 
   # 3D
   three: 0.185.1
@@ -41,6 +39,18 @@ catalog:
   fastify: 5.11.2
   drizzle-orm: 0.45.2
   postgres: 3.4.9
+  pg: 8.22.0
+  drizzle-kit: 0.31.10
+  '@fastify/cors': 11.3.0
+  '@fastify/cookie': 11.1.2
+  '@fastify/jwt': 10.2.1
+  '@fastify/swagger': 9.5.1
+
+  # Collaboration
+  '@hocuspocus/server': 4.5.0
+  '@hocuspocus/extension-database': 4.5.0
+  '@hocuspocus/extension-logger': 4.5.0
+  '@hocuspocus/provider': 4.5.0
 
   # PWA / offline
   workbox-build: 7.4.1

@@ -1,0 +1,67 @@
+name: guideforge
+
+# GuideForge self-hosted stack (Phase 05 control plane).
+# Start: docker compose up -d
+# Then open http://localhost:1420 (web) and http://localhost:8080/health (api).
+#
+# Secrets are injected via environment; never commit real values. For local
+# dev these defaults are fine; for production override ROOM_TICKET_SECRET and
+# SESSION_SECRET with strong random values.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: guideforge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-guideforge}
+      POSTGRES_DB: guideforge
+    volumes:
+      - guideforge-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U guideforge']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://guideforge:${POSTGRES_PASSWORD:-guideforge}@postgres:5432/guideforge
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-session}
+      ROOM_TICKET_SECRET: ${ROOM_TICKET_SECRET:-change-me-tickets}
+      CORS_ORIGIN: http://localhost:1420
+      PORT: 8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - '8080:8080'
+
+  collab:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.collab
+    restart: unless-stopped
+    environment:
+      ROOM_TICKET_SECRET: ${ROOM_TICKET_SECRET:-change-me-tickets}
+      PORT: 1234
+    ports:
+      - '1234:1234'
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    restart: unless-stopped
+    depends_on:
+      - api
+      - collab
+    ports:
+      - '1420:80'
+
+volumes:
+  guideforge-pg:

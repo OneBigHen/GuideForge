@@ -40,14 +40,14 @@ persisted.
 
 ## Acceptance evidence
 
-| Gate | Evidence |
-|---|---|
-| Desktop and iPad spatial editing pass | Playwright scene e2e on desktop-chromium + ipad projects |
-| Every drag has a numeric/keyboard alternative | Position/scale numeric fields + transform-mode toolbar (non-drag) |
-| Multiselect operations undo as one semantic command | `alignSelected`/`distributeSelected` are single commands; unit tested |
-| Fixture scenes meet performance targets | demand rendering + DPR cap + health budgets; e2e on SwiftShader passes |
-| GPU resources dispose correctly | React unmount + demand framing; drei/three managed by R3F |
-| Context loss provides recovery/fallback | `webglcontextlost` → visible recovery alert; DOM hierarchy remains usable |
+| Gate                                                | Evidence                                                                  |
+| --------------------------------------------------- | ------------------------------------------------------------------------- |
+| Desktop and iPad spatial editing pass               | Playwright scene e2e on desktop-chromium + ipad projects                  |
+| Every drag has a numeric/keyboard alternative       | Position/scale numeric fields + transform-mode toolbar (non-drag)         |
+| Multiselect operations undo as one semantic command | `alignSelected`/`distributeSelected` are single commands; unit tested     |
+| Fixture scenes meet performance targets             | demand rendering + DPR cap + health budgets; e2e on SwiftShader passes    |
+| GPU resources dispose correctly                     | React unmount + demand framing; drei/three managed by R3F                 |
+| Context loss provides recovery/fallback             | `webglcontextlost` → visible recovery alert; DOM hierarchy remains usable |
 
 ## Test results
 
