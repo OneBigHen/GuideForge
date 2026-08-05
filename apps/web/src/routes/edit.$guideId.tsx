@@ -12,7 +12,7 @@ import {
   closeGuide,
   dispatchCommand,
   exportDraft,
-  exportSignedRelease,
+  exportPersonalRelease,
   generateFakeProposals,
   openGuide,
   renameGuide,
@@ -117,7 +117,7 @@ function EditPage() {
   function handleExportRelease() {
     if (!session) return;
     try {
-      const { bytes, filename, publicKeyHex } = exportSignedRelease(session, '1.0.0');
+      const { bytes, filename, unsigned } = exportPersonalRelease(session, '1.0.0');
       const blob = new Blob([bytes as BlobPart], { type: 'application/zip' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -125,7 +125,30 @@ function EditPage() {
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
-      setReleaseInfo(`Exported signed release. Public key: ${publicKeyHex.slice(0, 16)}…`);
+      setReleaseInfo(
+        unsigned
+          ? 'Exported personal release (unsigned — signing keys stay in the companion, never the browser).'
+          : 'Exported release.',
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function handleExportDraft() {
+    if (!session) return;
+    try {
+      // Draft export must produce an actual download (audit finding: the
+      // returned package was previously discarded).
+      const { bytes, filename } = await exportDraft(session);
+      const blob = new Blob([bytes as BlobPart], { type: 'application/zip' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -155,7 +178,7 @@ function EditPage() {
           <button
             type="button"
             className="button button--ghost"
-            onClick={() => void exportDraft(session!)}
+            onClick={() => void handleExportDraft()}
           >
             Export .gforge
           </button>
@@ -165,7 +188,7 @@ function EditPage() {
             onClick={() => handleExportRelease()}
             title="Export an Ed25519-signed release package"
           >
-            Export release
+            Export personal release
           </button>
         </div>
       </div>

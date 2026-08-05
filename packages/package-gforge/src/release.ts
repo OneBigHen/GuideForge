@@ -10,6 +10,7 @@
  * Verification: every entry hash, canonical payload match, and signature.
  */
 import type { AssetReference, ContentHash } from '@guideforge/domain';
+import { sha256Hex } from '@guideforge/domain';
 import type { GuideSnapshot } from '@guideforge/guide-schema';
 import { strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import {
@@ -18,6 +19,7 @@ import {
   MAX_SINGLE_FILE_BYTES,
   MAX_TOTAL_BYTES,
   PackageSafetyError,
+  preflightZipArchive,
   validatePackagePath,
   type PackageEntry,
 } from './index.js';
@@ -31,8 +33,13 @@ import {
 export interface ReleaseInput {
   snapshot: GuideSnapshot;
   assets: Map<ContentHash, AssetReference & { bytes: Uint8Array }>;
-  privateKeyHex: string;
-  keyId: string;
+  /** Optional owner signing key. When omitted the release is UNSIGNED: a
+   * personal draft release that browsers may export without ever holding a
+   * signing key (keys belong in the companion key store / OS secure store,
+   * never localStorage). */
+  privateKeyHex?: string;
+  /** Key identifier; required for signed releases, informational otherwise. */
+  keyId?: string;
   /** Release metadata recorded in the signed payload. */
   release: { releaseId: string; releaseVersion: string; createdAt: string; guideId: string };
 }
@@ -96,7 +103,8 @@ export function buildReleaseEntries(input: ReleaseInput): PackageEntry[] {
     schemaVersion: input.snapshot.schemaVersion,
     releaseId: input.release.releaseId,
     releaseVersion: input.release.releaseVersion,
-    keyId: input.keyId,
+    keyId: input.keyId ?? 'unsigned',
+    signed: Boolean(input.privateKeyHex),
     entries: contentEntries.map((e) => ({
       path: e.path,
       sha256: hashBytes(e.data),
@@ -107,24 +115,28 @@ export function buildReleaseEntries(input: ReleaseInput): PackageEntry[] {
   const manifestJson = canonicalJsonRfc8785(manifest);
   entries.push({ path: 'manifest.json', data: strToU8(manifestJson) });
 
-  // Signature over the canonical manifest JSON (Ed25519).
-  const signed = signReleasePayload(manifest, input.privateKeyHex);
-  const signatureManifest: ReleaseSignatureManifest = {
-    format: 'gforge-release',
-    version: 1,
-    releaseId: input.release.releaseId,
-    guideId: input.release.guideId,
-    releaseVersion: input.release.releaseVersion,
-    createdAt: input.release.createdAt,
-    keyId: input.keyId,
-    payloadJson: signed.payloadJson,
-    signature: toHex(signed.signature),
-    signingKey: toHex(signed.publicKey),
-  };
-  entries.push({
-    path: 'signatures/release-signature.json',
-    data: strToU8(canonicalJsonRfc8785(signatureManifest)),
-  });
+  // Optional signature over the canonical manifest JSON (Ed25519). Unsigned
+  // personal releases carry no signature entry; verification reports them as
+  // valid-but-unsigned (trust warning) per the package policy.
+  if (input.privateKeyHex) {
+    const signed = signReleasePayload(manifest, input.privateKeyHex);
+    const signatureManifest: ReleaseSignatureManifest = {
+      format: 'gforge-release',
+      version: 1,
+      releaseId: input.release.releaseId,
+      guideId: input.release.guideId,
+      releaseVersion: input.release.releaseVersion,
+      createdAt: input.release.createdAt,
+      keyId: input.keyId ?? 'local',
+      payloadJson: signed.payloadJson,
+      signature: toHex(signed.signature),
+      signingKey: toHex(signed.publicKey),
+    };
+    entries.push({
+      path: 'signatures/release-signature.json',
+      data: strToU8(canonicalJsonRfc8785(signatureManifest)),
+    });
+  }
 
   entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 
@@ -163,6 +175,8 @@ export function verifyReleasePackage(bytes: Uint8Array): ReleaseVerificationResu
   if (bytes.length > MAX_TOTAL_BYTES) return { ok: false, issues: ['package too large'] };
   let entries: PackageEntry[];
   try {
+    // Bounded preflight before inflation (entry count, sizes, ratio).
+    preflightZipArchive(bytes);
     const unzipped = unzipSync(bytes);
     entries = Object.entries(unzipped).map(([path, data]) => ({ path, data }));
   } catch (err) {
@@ -173,14 +187,16 @@ export function verifyReleasePackage(bytes: Uint8Array): ReleaseVerificationResu
   const manifest = byPath.get('manifest.json');
   const signatureEntry = byPath.get('signatures/release-signature.json');
   if (!manifest) issues.push('missing manifest.json');
-  if (!signatureEntry) issues.push('missing signature');
 
   // Verify every declared entry hash.
+  let declaredSigned = false;
   if (manifest) {
     try {
       const manifestObj = JSON.parse(new TextDecoder().decode(manifest.data)) as {
         entries?: { path: string; sha256: string; sizeBytes: number }[];
+        signed?: boolean;
       };
+      declaredSigned = manifestObj.signed === true;
       for (const declared of manifestObj.entries ?? []) {
         const entry = byPath.get(declared.path);
         if (!entry) {
@@ -195,6 +211,14 @@ export function verifyReleasePackage(bytes: Uint8Array): ReleaseVerificationResu
       issues.push('invalid manifest.json');
     }
   }
+
+  // A package that declares itself signed must carry a valid signature.
+  // An unsigned personal release is valid but untrusted (reported via the
+  // ok flag without a signature issue).
+  if (declaredSigned && !signatureEntry)
+    issues.push('missing signature (manifest declares signed)');
+  if (!declaredSigned && signatureEntry)
+    issues.push('signature present but manifest declares unsigned');
 
   // Verify signature against the canonical manifest JSON.
   if (signatureEntry) {
@@ -242,16 +266,9 @@ export function verifyReleasePackage(bytes: Uint8Array): ReleaseVerificationResu
 }
 
 function hashBytes(bytes: Uint8Array): string {
-  // Browser-safe FNV-1a 64-bit hex (deterministic).
-  let h1 = 0x811c9dc5;
-  let h2 = 0x01000193;
-  for (const byte of bytes) {
-    h1 ^= byte;
-    h1 = Math.imul(h1, 0x01000193);
-    h2 = Math.imul(h2 ^ byte, 0x01000193);
-  }
-  const toHex32 = (n: number) => (n >>> 0).toString(16).padStart(8, '0');
-  return `${toHex32(h1)}${toHex32(h2)}`.padEnd(64, '0');
+  // Real SHA-256 of the bytes (release verification claims SHA-256 content
+  // identity; FNV was an audit finding).
+  return sha256Hex(bytes);
 }
 
 function toHex(bytes: Uint8Array): string {

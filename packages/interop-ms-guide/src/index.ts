@@ -11,7 +11,7 @@
  *  - exports ONLY the supported subset and refuses silent loss,
  *  - never hard-codes tenant/environment URIs.
  */
-import type { ContentHash, EntityId } from '@guideforge/domain';
+import { sha256Hex, type ContentHash, type EntityId } from '@guideforge/domain';
 import type { GuideSnapshot } from '@guideforge/guide-schema';
 import { strFromU8, strToU8 } from 'fflate';
 
@@ -328,14 +328,6 @@ function writePosixTar(files: { name: string; data: Uint8Array }[]): Uint8Array 
 }
 
 function hashBytes(bytes: Uint8Array): ContentHash {
-  // FNV-1a 64-bit hex padded to 64 chars for determinism in tests.
-  let h1 = 0x811c9dc5;
-  let h2 = 0x01000193;
-  for (const byte of bytes) {
-    h1 ^= byte;
-    h1 = Math.imul(h1, 0x01000193);
-    h2 = Math.imul(h2 ^ byte, 0x01000193);
-  }
-  const hex = (n: number) => (n >>> 0).toString(16).padStart(8, '0');
-  return `${hex(h1)}${hex(h2)}`.padEnd(64, '0') as ContentHash;
+  // Real SHA-256 of the asset bytes — deterministic content identity.
+  return sha256Hex(bytes) as ContentHash;
 }

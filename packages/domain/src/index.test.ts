@@ -6,6 +6,7 @@ import {
   isGuideLifecycleState,
   isReleaseStatus,
   isUnitQuaternion,
+  sha256Hex,
   type SpatialTransform,
 } from './index.js';
 
@@ -18,6 +19,23 @@ describe('domain value guards', () => {
   it('validates content hashes', () => {
     expect(isContentHash('a'.repeat(64))).toBe(true);
     expect(isContentHash('abc')).toBe(false);
+  });
+
+  it('computes real SHA-256 (known test vectors, never a padded short hash)', () => {
+    const enc = new TextEncoder();
+    // NIST / FIPS 180-4 test vectors.
+    expect(sha256Hex(enc.encode('abc'))).toBe(
+      'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+    );
+    expect(sha256Hex(enc.encode(''))).toBe(
+      'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    );
+    // Digest is exactly 64 lowercase hex chars (ContentHash contract).
+    const digest = sha256Hex(enc.encode('GuideForge content identity'));
+    expect(isContentHash(digest)).toBe(true);
+    // Deterministic and byte-sensitive.
+    expect(sha256Hex(enc.encode('a'))).toBe(sha256Hex(enc.encode('a')));
+    expect(sha256Hex(enc.encode('a'))).not.toBe(sha256Hex(enc.encode('b')));
   });
 
   it('validates lifecycle states', () => {

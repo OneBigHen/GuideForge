@@ -4,6 +4,8 @@
  * MUST remain framework-independent: no React, Three.js, Yjs, Dexie, Node,
  * Tauri, or database imports (enforced by `boundary` check).
  */
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 
 /** Deterministic UUID v4 generated outside the domain (injected). */
 export type EntityId = string & { readonly __brand: 'EntityId' };
@@ -17,6 +19,16 @@ export type ContentHash = string & { readonly __brand: 'ContentHash' };
 
 export function isContentHash(value: string): value is ContentHash {
   return /^[0-9a-f]{64}$/i.test(value);
+}
+
+/**
+ * Real SHA-256 digest of arbitrary bytes, hex-encoded (64 lowercase chars).
+ * Uses @noble/hashes (pure JS, audited, browser + node safe) — never FNV or
+ * a padded short hash. Runtime callers must verify `isContentHash` on the
+ * result when the value is typed as a ContentHash.
+ */
+export function sha256Hex(data: Uint8Array): string {
+  return bytesToHex(sha256(data));
 }
 
 /** Guide lifecycle states (canonical release state machine). */

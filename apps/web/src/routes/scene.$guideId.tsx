@@ -129,12 +129,18 @@ function SceneEditorPage() {
     );
   }
 
-  function handleToggleVisible() {
-    void run(makeCommand(SCENE_COMMAND_TYPES.toggleVisible, guideId, { nodeIds: selected }));
+  function handleToggleVisible(nodeIds?: string[]) {
+    // Explicit nodeIds avoid acting on a stale `selected` closure (the row
+    // buttons previously setState then read the old selection).
+    void run(
+      makeCommand(SCENE_COMMAND_TYPES.toggleVisible, guideId, { nodeIds: nodeIds ?? selected }),
+    );
   }
 
-  function handleToggleLock() {
-    void run(makeCommand(SCENE_COMMAND_TYPES.toggleLock, guideId, { nodeIds: selected }));
+  function handleToggleLock(nodeIds?: string[]) {
+    void run(
+      makeCommand(SCENE_COMMAND_TYPES.toggleLock, guideId, { nodeIds: nodeIds ?? selected }),
+    );
   }
 
   function handleTransform(nodeId: string, transform: Transform, drag: boolean) {
@@ -214,10 +220,7 @@ function SceneEditorPage() {
                     type="button"
                     className="icon-button"
                     aria-label={`Toggle visibility of ${row.node.name}`}
-                    onClick={() => {
-                      setSelected([row.nodeId]);
-                      handleToggleVisible();
-                    }}
+                    onClick={() => handleToggleVisible([row.nodeId])}
                   >
                     {row.node.visible ? 'Hide' : 'Show'}
                   </button>
@@ -239,7 +242,7 @@ function SceneEditorPage() {
               <button
                 type="button"
                 className="button button--small button--ghost"
-                onClick={handleToggleVisible}
+                onClick={() => handleToggleVisible()}
                 disabled={selected.length === 0}
               >
                 {selectedNode?.visible ? 'Hide' : 'Show'} selected
@@ -247,7 +250,7 @@ function SceneEditorPage() {
               <button
                 type="button"
                 className="button button--small button--ghost"
-                onClick={handleToggleLock}
+                onClick={() => handleToggleLock()}
                 disabled={selected.length === 0}
               >
                 {selectedNode?.locked ? 'Unlock' : 'Lock'}

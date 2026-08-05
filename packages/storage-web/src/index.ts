@@ -64,6 +64,20 @@ export interface AiProposalRecord {
   summary: string;
   confidence: number;
   sourceHash: string | null;
+  /** Source regions cited by this proposal (regionId + page + excerpt hash). */
+  citations: { regionId: string; pageIndex: number; excerptHash: string; claimRef: string }[];
+  /** Provider/model/receipt provenance for the generation that produced it. */
+  receipt: {
+    provider: string;
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    latencyMs: number;
+    promptVersion: string;
+    schemaVersion: string;
+    requestId: string;
+    createdAtIso: string;
+  };
   createdAtIso: string;
   status: 'pending' | 'accepted' | 'rejected';
 }
@@ -83,6 +97,14 @@ export class GuideForgeDb extends Dexie {
       assetBlobs: 'hash',
     });
     this.version(2).stores({
+      guides: 'guideId, title, updatedAtIso, lifecycleState',
+      assets: 'hash, mimeType, sizeBytes',
+      assetBlobs: 'hash',
+      evidence: 'evidenceId, guideId, stepId, capturedAtIso',
+      proposals: 'proposalId, guideId, status, createdAtIso',
+    });
+    // v3: proposals retain full citation + provider receipt provenance.
+    this.version(3).stores({
       guides: 'guideId, title, updatedAtIso, lifecycleState',
       assets: 'hash, mimeType, sizeBytes',
       assetBlobs: 'hash',

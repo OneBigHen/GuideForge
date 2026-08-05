@@ -77,7 +77,23 @@ export function ProposalsPanel({
               <p className="proposal-card__summary">{p.summary}</p>
               <p className="proposal-card__meta">
                 confidence {Math.round(p.confidence * 100)}% · {p.commandType}
+                {' · provider '}
+                <span
+                  className={
+                    p.receipt?.provider === 'deepseek'
+                      ? 'provider-badge provider-badge--live'
+                      : 'provider-badge'
+                  }
+                >
+                  {providerLabel(p.receipt?.provider)}
+                </span>
               </p>
+              {p.citations.length > 0 && (
+                <p className="proposal-card__citations">
+                  {p.citations.length} source citation{p.citations.length === 1 ? '' : 's'} ·{' '}
+                  {p.citations.map((c) => c.regionId).join(', ')}
+                </p>
+              )}
               <div className="proposal-card__actions">
                 <button
                   type="button"
@@ -100,4 +116,18 @@ export function ProposalsPanel({
       )}
     </div>
   );
+}
+
+/** Human label for the provider that produced a proposal (explicit, honest). */
+function providerLabel(provider: string | undefined): string {
+  switch (provider) {
+    case 'deepseek':
+      return 'DeepSeek (live)';
+    case 'fake':
+      return 'offline deterministic';
+    case 'none':
+      return 'none';
+    default:
+      return provider && provider.length > 0 ? provider : 'unknown';
+  }
 }

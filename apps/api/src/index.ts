@@ -10,11 +10,12 @@ import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import swagger from '@fastify/swagger';
 import { structuralChunking, type SourceRegion } from '@guideforge/ai-contracts';
-import type { ContentHash } from '@guideforge/domain';
+import { isContentHash, type ContentHash } from '@guideforge/domain';
 import { DeepSeekAdapter, ModelGateway } from '@guideforge/model-gateway';
 import { eq } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { createHash } from 'node:crypto';
 import { Pool } from 'pg';
 import { PermissionDeniedError, requirePermission, type Role } from './auth/rbac.js';
 import { RoomTicketService } from './auth/room-ticket.js';
@@ -27,6 +28,9 @@ export interface ApiConfig {
   roomTicketTtlSeconds?: number;
   corsOrigin?: string[];
   logLevel?: string;
+  /** The single owner identity (network mode). When set, only this user can
+   * establish a session; roles are never accepted from the request body. */
+  ownerId?: string;
   /** Server-side DeepSeek API key (never exposed to the browser). */
   deepSeekApiKey?: string;
   deepSeekModel?: string;
@@ -78,23 +82,71 @@ export async function buildServer(
     }
   });
 
+  // CSRF protection: cookie-authenticated mutating requests must come from an
+  // allowed origin. SameSite=lax blocks cross-site POSTs, and this explicit
+  // Origin check is defense in depth (network companion requirement).
+  const allowedOrigins = config.corsOrigin ?? ['http://localhost:1420'];
+  app.addHook('preHandler', async (req, reply) => {
+    const method = req.method;
+    const isMutating = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
+    if (!isMutating) return;
+    const hasSession = Boolean(req.cookies.gf_session);
+    if (!hasSession) return; // anonymous mutating calls are rejected by auth below
+    const origin = req.headers.origin;
+    if (!origin) {
+      return reply.code(403).send({ error: 'origin required for cookie-authenticated writes' });
+    }
+    if (!allowedOrigins.includes(origin)) {
+      return reply.code(403).send({ error: `origin not allowed: ${origin}` });
+    }
+  });
+
+  // Simple per-IP in-memory rate limiter for identity and AI (expensive) routes.
+  const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+  function rateLimit(key: string, limit: number, windowMs: number): boolean {
+    const now = Date.now();
+    const bucket = rateBuckets.get(key);
+    if (!bucket || bucket.resetAt < now) {
+      rateBuckets.set(key, { count: 1, resetAt: now + windowMs });
+      return true;
+    }
+    bucket.count += 1;
+    return bucket.count <= limit;
+  }
+  function rateLimited(key: string, limit: number, windowMs: number): boolean {
+    return !rateLimit(key, limit, windowMs);
+  }
+
   app.get('/health', () => ({ status: 'ok', time: new Date().toISOString() }));
 
   app.get('/openapi.json', () => app.swagger());
 
-  // Identity: BFF session (Phase 05 uses a signed session cookie; real OIDC
-  // code+PKCE exchange is wired behind a provider adapter).
+  // Identity: single-owner BFF session. Roles are NEVER accepted from the
+  // request body; the server derives the owner role from configuration.
   app.post('/api/session', async (req, reply) => {
+    // Rate-limit identity attempts (login brute-force protection).
+    const ip = req.ip ?? 'unknown';
+    if (rateLimited(`session:${ip}`, 50, 60_000)) {
+      return reply.code(429).send({ error: 'too many session attempts; slow down' });
+    }
     const body = req.body as {
       userId: string;
       displayName: string;
       email: string;
-      roles: string[];
     };
     if (!body?.userId) {
       return reply.code(401).send({ error: 'missing identity' });
     }
-    const token = app.jwt.sign({ sub: body.userId, name: body.displayName, roles: body.roles });
+    // Network mode: only the configured owner may establish a session.
+    // Loopback/dev mode (no ownerId) treats the caller as the single owner.
+    if (config.ownerId && body.userId !== config.ownerId) {
+      return reply.code(403).send({ error: 'not the owner' });
+    }
+    const token = app.jwt.sign({
+      sub: body.userId,
+      name: body.displayName,
+      roles: ['organization-owner'],
+    });
     reply.setCookie('gf_session', token, {
       httpOnly: true,
       secure: false,
@@ -165,7 +217,7 @@ export async function buildServer(
       .returning();
 
     await db.insert(schema.auditEvents).values({
-      organizationId: crypto.randomUUID(),
+      organizationId: SINGLE_OWNER_ORG_ID,
       actorId: session.sub,
       action: 'guide.submit-review',
       resourceType: 'guide',
@@ -181,16 +233,36 @@ export async function buildServer(
     if (!session?.sub) return reply.code(401).send({ error: 'unauthenticated' });
     requirePermission((session.roles ?? []) as Role[], 'approve', 'guide');
     const { reviewId } = req.params as { reviewId: string };
-    const body = req.body as { decision: 'approved' | 'rejected' };
+    const body = req.body as {
+      decision: 'approved' | 'rejected';
+      /** SHA-256 of the current guide content, supplied by the client. */
+      currentContentHash?: string;
+    };
+    if (body.decision !== 'approved' && body.decision !== 'rejected') {
+      return reply.code(400).send({ error: 'decision must be approved or rejected' });
+    }
 
     const review = await db.query.reviews.findFirst({ where: eq(schema.reviews.id, reviewId) });
     if (!review) return reply.code(404).send({ error: 'review not found' });
+    if (review.status !== 'in-review') {
+      return reply.code(409).send({ error: 'review already decided' });
+    }
 
-    const guide = await db.query.guides.findFirst({ where: eq(schema.guides.id, review.guideId) });
-    // Content change invalidates approval: compare current doc hash.
-    if (guide && body.decision === 'approved' && guide.updatedAt) {
-      // The API does not yet know the live Yjs hash; the client supplies it.
-      // For robustness, the decision body may include the current contentHash.
+    // Content-change invalidation: an approval is only valid for the exact
+    // content that was reviewed. If the client's current hash differs from the
+    // reviewed hash, the approval is refused and the guide returns to draft.
+    if (body.decision === 'approved' && body.currentContentHash) {
+      if (body.currentContentHash !== review.contentHash) {
+        await db
+          .update(schema.guides)
+          .set({ lifecycleState: 'draft' })
+          .where(eq(schema.guides.id, review.guideId));
+        return reply.code(409).send({
+          error: 'content changed since review; approval invalidated',
+          reviewedHash: review.contentHash,
+          currentHash: body.currentContentHash,
+        });
+      }
     }
 
     const approval = await db
@@ -220,7 +292,7 @@ export async function buildServer(
     }
 
     await db.insert(schema.auditEvents).values({
-      organizationId: crypto.randomUUID(),
+      organizationId: SINGLE_OWNER_ORG_ID,
       actorId: session.sub,
       action: body.decision === 'approved' ? 'release.approve' : 'release.reject',
       resourceType: 'release',
@@ -251,6 +323,11 @@ export async function buildServer(
     const session = req.user as { sub?: string; roles?: string[] } | undefined;
     if (!session?.sub) return reply.code(401).send({ error: 'unauthenticated' });
     requirePermission((session.roles ?? []) as Role[], 'read', 'guide');
+    // Rate-limit expensive model calls per user.
+    const ip = req.ip ?? 'unknown';
+    if (rateLimited(`ai:${session.sub}:${ip}`, 10, 60_000)) {
+      return reply.code(429).send({ error: 'too many AI requests; slow down' });
+    }
     const { guideId } = req.params as { guideId: string };
     const body = req.body as { steps: { stepId: string; instructionText: string }[] };
 
@@ -259,7 +336,7 @@ export async function buildServer(
     }
 
     // Deterministic source hash from the step text (immutable reference).
-    const sourceHash = fnvHex(JSON.stringify(body.steps)) as ContentHash;
+    const sourceHash = sha256HexText(JSON.stringify(body.steps));
     const regions = new Map<string, SourceRegion>();
     const chunks = structuralChunking(
       sourceHash,
@@ -315,7 +392,7 @@ export async function buildServer(
     }
 
     await db.insert(schema.auditEvents).values({
-      organizationId: crypto.randomUUID(),
+      organizationId: SINGLE_OWNER_ORG_ID,
       actorId: session.sub,
       action: 'ai.propose',
       resourceType: 'guide',
@@ -332,13 +409,21 @@ export async function buildServer(
 
     return {
       proposals,
-      citations: response.citations?.length ?? 0,
+      citations: response.citations ?? [],
+      sourceHash,
+      confidence: response.confidence?.overall ?? null,
       receipt: {
         provider: response.receipt.provider,
         model: response.receipt.model,
         inputTokens: response.receipt.inputTokens,
         outputTokens: response.receipt.outputTokens,
+        cacheTokens: response.receipt.cacheTokens,
+        providerCostUsd: response.receipt.providerCostUsd,
         latencyMs: response.receipt.latencyMs,
+        requestId: response.receipt.requestId,
+        schemaVersion: response.receipt.schemaVersion,
+        promptVersion: response.receipt.promptVersion,
+        createdAtIso: response.receipt.createdAtIso,
       },
     };
   });
@@ -346,14 +431,20 @@ export async function buildServer(
   return app;
 }
 
-function fnvHex(text: string): string {
-  let h1 = 0x811c9dc5;
-  let h2 = 0x01000193;
-  for (let i = 0; i < text.length; i++) {
-    h1 ^= text.charCodeAt(i);
-    h1 = Math.imul(h1, 0x01000193);
-    h2 = Math.imul(h2 ^ text.charCodeAt(i), 0x01000193);
+function sha256HexText(text: string): ContentHash {
+  // Real SHA-256 of the UTF-8 bytes — the API claims SHA-256 content identity,
+  // so the digest must actually be SHA-256 (never a padded short hash).
+  const digest = createHash('sha256').update(text, 'utf8').digest('hex');
+  if (!isContentHash(digest)) {
+    throw new Error('internal error: sha256 produced an invalid content hash');
   }
-  const hex = (n: number) => (n >>> 0).toString(16).padStart(8, '0');
-  return `${hex(h1)}${hex(h2)}`.padEnd(64, '0');
+  return digest;
 }
+
+/**
+ * Deterministic single-owner organization context for the append-only audit.
+ * A fixed UUID (not random per event) so audit rows are stable, sortable, and
+ * attributable to the one owner. Random per-event org IDs were an audit
+ * finding; the single-user model has exactly one owner context.
+ */
+const SINGLE_OWNER_ORG_ID = '00000000-0000-4000-8000-000000000001';

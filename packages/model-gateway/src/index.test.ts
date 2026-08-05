@@ -7,6 +7,7 @@ import {
   FakeModelAdapter,
   ModelGateway,
   OpenRouterAdapter,
+  type ModelAdapter,
 } from './index.js';
 
 const HASH = 'a'.repeat(64) as ContentHash;
@@ -58,6 +59,66 @@ describe('ModelGateway with fake adapter', () => {
     });
     expect(res.ok).toBe(false);
     expect(res.error).toContain('uncited');
+  });
+
+  it('rejects zero-citation steps (every actionable step must cite a region)', async () => {
+    // A custom adapter whose step carries no citations at all must be refused
+    // even though no *unknown* region is referenced.
+    const adapter: ModelAdapter = {
+      provider: 'test',
+      model: 'test-v1',
+      available: true,
+      extract() {
+        return Promise.resolve({
+          output: {
+            schemaVersion: 1,
+            guideId: 'g',
+            tasks: [
+              {
+                taskId: 't1',
+                title: 'T',
+                steps: [
+                  {
+                    stepId: 's1',
+                    taskId: 't1',
+                    action: 'Do the thing',
+                    warnings: [],
+                    prerequisites: [],
+                    tools: [],
+                    parts: [],
+                    values: [],
+                    conditions: [],
+                    verificationSteps: [],
+                    citations: [],
+                  },
+                ],
+              },
+            ],
+          },
+          usage: {
+            receiptId: 'r',
+            provider: 'test',
+            model: 'test-v1',
+            attempts: 1,
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheTokens: 0,
+            providerCostUsd: 0,
+            latencyMs: 0,
+            requestId: 'req',
+            policy: 'default',
+            sourceHash: null,
+            schemaVersion: '1',
+            promptVersion: 'v1',
+            createdAtIso: new Date().toISOString(),
+          },
+        });
+      },
+    };
+    const gateway = new ModelGateway([adapter]);
+    const res = await gateway.run(request());
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('no valid citation');
   });
 
   it('routes ZDR policy through the privacy-safe fake adapter', async () => {
@@ -121,6 +182,40 @@ describe('DeepSeek adapter', () => {
     expect(new DeepSeekAdapter({ apiKey: 'sk-test' }).available).toBe(true);
   });
 
+  it('uses the constructor-provided API key for requests (env ignored when set)', async () => {
+    // Regression for the audit finding: the adapter previously read only
+    // process.env.DEEPSEEK_API_KEY, silently dropping the constructor key.
+    const adapter = new DeepSeekAdapter({
+      apiKey: 'sk-constructor-key',
+      model: 'deepseek-v4-flash',
+    });
+    const originalFetch = globalThis.fetch;
+    const seen: { url: string; auth: string }[] = [];
+    globalThis.fetch = (_input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push({
+        url: '',
+        auth: String(
+          init?.headers instanceof Headers
+            ? (init.headers.get('authorization') ?? '')
+            : Array.isArray(init?.headers)
+              ? (init.headers.find(([k]) => k.toLowerCase() === 'authorization')?.[1] ?? '')
+              : (init?.headers?.authorization ?? ''),
+        ),
+      });
+      return Promise.resolve(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
+    };
+    try {
+      await adapter.extract(request());
+    } catch {
+      // The response has no choices, so extraction may throw; the assertion
+      // that matters is which key was sent in the Authorization header.
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen[0]!.auth).toBe('Bearer sk-constructor-key');
+  });
+
   it(
     'performs a live extraction when DEEPSEEK_API_KEY is set (skipped otherwise)',
     { timeout: 60_000 },
@@ -138,4 +233,37 @@ describe('DeepSeek adapter', () => {
       expect(res.receipt.provider).toBe('deepseek');
     },
   );
+});
+
+describe('OpenRouter adapter', () => {
+  it('uses the constructor-provided API key for requests (env ignored when set)', async () => {
+    const adapter = new OpenRouterAdapter({
+      apiKey: 'sk-or-constructor',
+      model: 'anthropic/claude-sonnet-4.5',
+    });
+    const originalFetch = globalThis.fetch;
+    const seen: { url: string; auth: string }[] = [];
+    globalThis.fetch = (_input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push({
+        url: '',
+        auth: String(
+          init?.headers instanceof Headers
+            ? (init.headers.get('authorization') ?? '')
+            : Array.isArray(init?.headers)
+              ? (init.headers.find(([k]) => k.toLowerCase() === 'authorization')?.[1] ?? '')
+              : (init?.headers?.authorization ?? ''),
+        ),
+      });
+      return Promise.resolve(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
+    };
+    try {
+      await adapter.extract(request());
+    } catch {
+      // Response has no choices; the assertion that matters is the header.
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen[0]!.auth).toBe('Bearer sk-or-constructor');
+  });
 });

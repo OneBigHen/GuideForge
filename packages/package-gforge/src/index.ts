@@ -18,6 +18,7 @@
  * Safety rules:
  *   - rejects absolute paths, `..`, duplicate normalized paths
  *   - expansion-bomb limits (entry count, size, ratio)
+ *   - bounded preflight of archive metadata before any inflation
  */
 import type { AssetReference, ContentHash } from '@guideforge/domain';
 import type { GuideSnapshot } from '@guideforge/guide-schema';
@@ -71,6 +72,114 @@ export class PackageSafetyError extends Error {
     super(message);
     this.name = 'PackageSafetyError';
   }
+}
+
+/**
+ * Bounded preflight of a ZIP archive BEFORE any inflation.
+ *
+ * Parses the End of Central Directory + central directory entries (metadata
+ * only — no decompression) and enforces the expansion-bomb limits:
+ *   - entry count ≤ MAX_ENTRIES
+ *   - total uncompressed bytes ≤ MAX_TOTAL_BYTES
+ *   - any single entry ≤ MAX_SINGLE_FILE_BYTES
+ *   - compression ratio (compressed→uncompressed) ≤ MAX_COMPRESSION_RATIO
+ *
+ * Throws PackageSafetyError on any violation, so callers can reject hostile
+ * archives without ever allocating the expanded bytes. Returns the entry
+ * count + total uncompressed size for further checks.
+ */
+export function preflightZipArchive(bytes: Uint8Array): {
+  entryCount: number;
+  totalUncompressed: number;
+} {
+  if (bytes.length > MAX_TOTAL_BYTES) {
+    throw new PackageSafetyError('archive exceeds total size budget');
+  }
+  // Locate End of Central Directory record (EOCD): signature 0x06054b50,
+  // scanning from the end (allowing for an optional trailing comment ≤64KiB).
+  let eocd = -1;
+  const scanStart = Math.max(0, bytes.length - 65557);
+  for (let i = bytes.length - 22; i >= scanStart; i--) {
+    const sig =
+      (bytes[i]! | (bytes[i + 1]! << 8) | (bytes[i + 2]! << 16) | (bytes[i + 3]! << 24)) >>> 0;
+    if (sig === 0x06054b50) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd < 0) throw new PackageSafetyError('not a zip archive (no EOCD)');
+  const readU16 = (off: number): number => bytes[off]! | (bytes[off + 1]! << 8);
+  const readU32 = (off: number): number =>
+    (bytes[off]! | (bytes[off + 1]! << 8) | (bytes[off + 2]! << 16) | (bytes[off + 3]! << 24)) >>>
+    0;
+
+  const entryCount = readU16(eocd + 10);
+  if (entryCount > MAX_ENTRIES) {
+    throw new PackageSafetyError(`archive has too many entries: ${entryCount}`);
+  }
+  const cdSize = readU32(eocd + 12);
+  const cdOffset = readU32(eocd + 16);
+  if (cdOffset > bytes.length || cdSize > bytes.length || cdOffset + cdSize > bytes.length) {
+    throw new PackageSafetyError('invalid central directory bounds');
+  }
+
+  // Walk central directory entries (signature 0x02014b50).
+  let totalUncompressed = 0;
+  let offset = cdOffset;
+  const end = cdOffset + cdSize;
+  const seen = new Set<string>();
+  for (let i = 0; i < entryCount; i++) {
+    if (offset + 46 > end) throw new PackageSafetyError('truncated central directory');
+    if (
+      bytes[offset] !== 0x50 ||
+      bytes[offset + 1] !== 0x4b ||
+      bytes[offset + 2] !== 0x01 ||
+      bytes[offset + 3] !== 0x02
+    ) {
+      throw new PackageSafetyError('invalid central directory entry signature');
+    }
+    const method = readU16(offset + 10);
+    const compressedSize = readU32(offset + 20);
+    const uncompressedSize = readU32(offset + 24);
+    const nameLen = readU16(offset + 28);
+    const extraLen = readU16(offset + 30);
+    const commentLen = readU16(offset + 32);
+    const nameOffset = offset + 46;
+    if (nameOffset + nameLen > end) throw new PackageSafetyError('truncated entry name');
+
+    // Reject unsafe paths before any extraction.
+    let name = '';
+    for (let j = 0; j < nameLen; j++) name += String.fromCharCode(bytes[nameOffset + j]!);
+    try {
+      validatePackagePath(name);
+    } catch {
+      throw new PackageSafetyError(`unsafe entry path rejected: ${name}`);
+    }
+    if (seen.has(name)) throw new PackageSafetyError(`duplicate entry path: ${name}`);
+    seen.add(name);
+
+    if (uncompressedSize > MAX_SINGLE_FILE_BYTES) {
+      throw new PackageSafetyError(
+        `entry too large after inflation: ${name} (${uncompressedSize})`,
+      );
+    }
+    totalUncompressed += uncompressedSize;
+    if (totalUncompressed > MAX_TOTAL_BYTES) {
+      throw new PackageSafetyError('archive expands beyond total size budget');
+    }
+    // Compression ratio guard (skip ratio check for stored/zero-compressed).
+    if (
+      method !== 0 &&
+      compressedSize > 0 &&
+      uncompressedSize / compressedSize > MAX_COMPRESSION_RATIO
+    ) {
+      throw new PackageSafetyError(`compression ratio exceeded for ${name}`);
+    }
+
+    offset = nameOffset + nameLen + extraLen + commentLen;
+  }
+
+  return { entryCount, totalUncompressed };
 }
 
 /** Normalize and validate a package-relative path. */

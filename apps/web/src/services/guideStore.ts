@@ -24,8 +24,7 @@ import { importMsGuide as msImport } from '@guideforge/interop-ms-guide';
 import {
   createDraftPackageAsync,
   createReleasePackage,
-  derivePublicKeyHex,
-  generateSigningKeyPair,
+  preflightZipArchive,
   verifyPackageStructureAsync,
   type PackageEntry,
 } from '@guideforge/package-gforge';
@@ -371,6 +370,20 @@ export interface NewProposal {
   summary: string;
   confidence: number;
   sourceHash: string | null;
+  /** Source regions cited by this proposal. */
+  citations?: { regionId: string; pageIndex: number; excerptHash: string; claimRef: string }[];
+  /** Provider/receipt provenance from the generation run. */
+  receipt?: {
+    provider: string;
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    latencyMs: number;
+    promptVersion: string;
+    schemaVersion: string;
+    requestId: string;
+    createdAtIso: string;
+  };
 }
 
 export async function createProposal(input: NewProposal): Promise<string> {
@@ -383,6 +396,18 @@ export async function createProposal(input: NewProposal): Promise<string> {
     summary: input.summary,
     confidence: input.confidence,
     sourceHash: input.sourceHash,
+    citations: input.citations ?? [],
+    receipt: input.receipt ?? {
+      provider: 'unknown',
+      model: '',
+      inputTokens: 0,
+      outputTokens: 0,
+      latencyMs: 0,
+      promptVersion: '',
+      schemaVersion: '',
+      requestId: '',
+      createdAtIso: new Date().toISOString(),
+    },
     createdAtIso: new Date().toISOString(),
     status: 'pending',
   });
@@ -470,9 +495,12 @@ export async function importDraft(bytes: Uint8Array): Promise<{ guideId: string;
   return { guideId, title: snapshot.title };
 }
 
-/** Extract and validate zip entries (bounds-checked). */
+/** Extract and validate zip entries (bounds-checked preflight before inflation). */
 function extractZipEntries(bytes: Uint8Array): PackageEntry[] {
   if (bytes.length > 512 * 1024 * 1024) throw new Error('import: package too large');
+  // Bounded preflight of the central directory (metadata only) so hostile
+  // archives are rejected before any decompression allocates memory.
+  preflightZipArchive(bytes);
   const unzipped = unzipSync(bytes);
   const entries: PackageEntry[] = [];
   for (const [path, data] of Object.entries(unzipped)) {
@@ -482,32 +510,23 @@ function extractZipEntries(bytes: Uint8Array): PackageEntry[] {
 }
 
 // ---------------------------------------------------------------------------
-// Signed release export + Microsoft .guide import
+// Personal release export + Microsoft .guide import
 // ---------------------------------------------------------------------------
 
-/** Export a signed release `.gforge` (Ed25519; key from localStorage demo). */
-export function exportSignedRelease(
+/**
+ * Export a personal release `.gforge`. The browser NEVER holds a signing key
+ * (localStorage demo keys were an audit finding); personal releases are
+ * unsigned and clearly marked. Signed releases belong to the companion key
+ * store / OS secure store (Phase 07+).
+ */
+export function exportPersonalRelease(
   session: OpenGuideSession,
   releaseVersion: string,
-): { bytes: Uint8Array; filename: string; publicKeyHex: string } {
+): { bytes: Uint8Array; filename: string; unsigned: true } {
   const snapshot = materializeSnapshot(session.working);
-  // Demo key management: derive a stable per-guide keypair, persisted locally.
-  const storageKey = `gf-signing-${session.guideId}`;
-  let privateKeyHex = localStorage.getItem(storageKey);
-  let publicKeyHex: string;
-  if (!privateKeyHex) {
-    const pair = generateSigningKeyPair();
-    privateKeyHex = pair.privateKeyHex;
-    publicKeyHex = pair.publicKeyHex;
-    localStorage.setItem(storageKey, privateKeyHex);
-  } else {
-    publicKeyHex = derivePublicKey(privateKeyHex);
-  }
   const bytes = createReleasePackage({
     snapshot,
     assets: new Map(),
-    privateKeyHex,
-    keyId: `local-${session.guideId.slice(0, 8)}`,
     release: {
       releaseId: crypto.randomUUID(),
       releaseVersion,
@@ -518,13 +537,8 @@ export function exportSignedRelease(
   return {
     bytes,
     filename: `${snapshot.title.replace(/[^a-z0-9-_]+/gi, '-')}-${releaseVersion}.gforge`,
-    publicKeyHex,
+    unsigned: true,
   };
-}
-
-function derivePublicKey(privateKeyHex: string): string {
-  // Recompute the public key from the stored private key.
-  return derivePublicKeyHex(privateKeyHex);
 }
 
 /** Import a Microsoft `.guide` package into the library. */

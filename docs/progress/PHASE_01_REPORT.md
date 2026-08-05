@@ -1,110 +1,117 @@
-# Phase 01 Report — Universal Foundation
+# Phase 01 Report — Single-User Architecture and Correctness Repairs
 
 ## Outcome
 
-The GuideForge monorepo foundation is complete: pnpm workspaces with a version
-catalog, Turborepo task graph, strict TypeScript, a Vite 8 + React 19
-`apps/web` with TanStack Router/Query, an accessible minimal app shell, a thin
-Tauri 2 `apps/desktop` shell that loads the exact `apps/web` build, CI, and a
-full `pnpm check` gate. Exact tool versions are pinned and recorded in
-ADR 0001 with Context7/registry evidence.
+The enterprise-shaped control plane is now an honest single-owner companion:
+roles can no longer be self-assigned from the request body, audit context is a
+stable single-owner constant, approval invalidation is real, every claimed
+content hash is real SHA-256, adapters honor their constructor keys, model
+output is deeply validated and zero-citation output is rejected, proposals
+retain citations + provider receipts, provider/fallback is explicit in the UI,
+signing keys never enter the browser, archive extraction is bounded before
+inflation, and the API has CSRF/rate-limit/loopback-default hardening.
+
+## User-visible vertical slices
+
+- **Proposals panel** now labels each proposal's producing provider
+  ("DeepSeek (live)" vs "offline deterministic") and shows citation counts —
+  the user always knows whether a real provider ran.
+- **"Export .gforge"** (draft) now actually downloads a file (previously
+  discarded).
+- **"Export personal release"** is explicitly unsigned with an honest note —
+  no more fake demo signing keys in localStorage.
+- **Footer status** probes the companion and reports "Browser-only mode — no
+  companion" / "Companion connected" truthfully.
+- **Hierarchy row actions** (hide/show) act on the correct row (stale-selection
+  bug fixed).
 
 ## Commits
 
-- `b2762c9` chore: initialize independent GuideForge repository
-- `06350d4` chore: add Phase 00 legacy audit reports
-- `(this commit)` feat: Phase 01 universal foundation
+- (this commit) feat: Phase 01 single-user repairs — owner session, SHA-256,
+  validation, provenance, bounded unzip, unsigned releases
 
-## Delivered vertical slices
+## Exact commands and results
 
-1. Monorepo: `pnpm-workspace.yaml` (catalog), `turbo.json`, root scripts.
-2. `apps/web`: Vite 8 + React 19 + TanStack Router (file routes `/`, `/library`)
-   - TanStack Query, typed `routeTree.gen.ts` via `@tanstack/router-plugin`,
-     accessible AppShell with theme toggle, focus-visible, reduced-motion.
-3. `apps/desktop`: Tauri 2.11 shell (`tauri.conf.json`, `Cargo.toml`,
-   capabilities) with `frontendDist: ../../web/dist` and `devUrl`
-   `http://localhost:1420` — verified to load the same web build.
-4. Shared packages: `@guideforge/domain`, `@guideforge/guide-schema`,
-   `@guideforge/ui` (framework-independent, tested).
-5. Tooling: ESLint 10 + typescript-eslint (type-aware), Prettier, boundary
-   checker (`scripts/check-boundaries.mjs` + `boundaries.json`), dependency
-   checker (`scripts/check-deps.mjs`, catalog enforcement).
-6. CI (`.github/workflows/ci.yml`): lockfile install, format, lint, typecheck,
-   unit tests, build, boundary, dep-check, secret scan, audit, license, SBOM.
-7. Changesets + `.changeset/config.json`.
-8. Playwright e2e across Desktop Chrome, iPad Pro 11, iPhone 13 projects.
+| Command                                                  | Result                                                                                                          |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `pnpm --filter @guideforge/api test`                     | 17/17 (7 new: body-roles ignored, owner enforcement, stable audit org, approval invalidation, CSRF, rate limit) |
+| `pnpm --filter @guideforge/model-gateway test`           | 13/13 (constructor-key retention ×2, zero-citation rejection, no-credential ×3)                                 |
+| `pnpm --filter @guideforge/package-gforge test`          | 32/32 (unsigned release, preflight zip-bomb/traversal/EOCD)                                                     |
+| `pnpm --filter @guideforge/domain test`                  | 7/7 (SHA-256 FIPS vectors)                                                                                      |
+| `pnpm --filter @guideforge/ai-contracts test`            | 17/17 (deep extraction validation)                                                                              |
+| `pnpm --filter @guideforge/web test`                     | 8/8 (proposal provenance retention)                                                                             |
+| `pnpm check --force`                                     | 100/100 tasks pass (fresh)                                                                                      |
+| `pnpm --filter @guideforge/web test:e2e`                 | 37 passed / 2 skipped (WebKit offline)                                                                          |
+| `pnpm dep-check` / `pnpm boundary` / `pnpm format:check` | pass                                                                                                            |
 
 ## Acceptance evidence
 
-| Criterion                                          | Evidence                                                                                                                                                      |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| No duplicate desktop frontend                      | `apps/desktop` has no React editor; only Rust shell + `verify-shell.mjs` proving `frontendDist` == `apps/web/dist`                                            |
-| `pnpm check` passes                                | `Tasks: 25 successful, 25 total` (format, lint, typecheck, tests, build)                                                                                      |
-| Workspace cycles fail                              | pnpm install enforces acyclic workspace graph; install succeeds with no cycles                                                                                |
-| Browser and Tauri load the same web build          | `verify-shell.mjs` OK (frontendDist + devUrl + dist/index.html); Playwright renders same app in 3 form factors; production `vite preview` screenshot captured |
-| Exact versions and official documentation recorded | `docs/adr/0001-toolchain-and-monorepo.md` with Context7 library IDs + registry-verified versions                                                              |
+Gate items from `prompts/phases/PHASE_01_SINGLE_USER_REPAIRS.md`:
 
-## Test results
+| Gate                                                | Evidence                                                                               |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| No caller can grant privileges through request body | body-supplied-role regression test; `GET /api/session` shows server-derived owner role |
+| Network companion is not usable anonymously         | `ownerId` enforcement test (non-owner 403)                                             |
+| All claimed hashes are SHA-256                      | domain FIPS vectors; FNV removed from api/interop/gateway/package/web                  |
+| Invalid/uncited model output is rejected            | deep `isExtractionOutput`; zero-citation step rejection test                           |
+| Package import is bounded                           | `preflightZipArchive` (entry count, sizes, ratio) before inflation                     |
+| Signing keys are protected                          | unsigned personal releases; no localStorage key anywhere                               |
+| Known audit findings have regression tests          | 7 new api tests + gateway/package/web tests above                                      |
 
-- `pnpm check`: 25/25 tasks pass.
-- Vitest: domain 3, guide-schema 3, ui 2, desktop 2, web 1 = 11 unit tests pass.
-- Playwright e2e: 6/6 pass (desktop-chromium, ipad, iphone projects).
-- Boundary check: pass. Dependency check: pass (catalog + workspace only).
+## AI/provider evidence
 
-## Responsive/device evidence
+- Real SHA-256 source hashes, citations, confidence, and full provider receipt
+  now flow server → proposal → persisted record → UI.
+- No-credential behavior proven (gateway reports explicit unavailability).
 
-- Playwright iPad Pro 11 and iPhone 13 projects render the shell and navigate;
-  layouts are container/capability based, not UA-only (Phase 03 completes the
-  full responsive matrix).
+## Device evidence
+
+- E2E desktop/iPad/iPhone emulation: 37 passed / 2 skipped (WebKit offline).
+- Real-device remains an external blocker.
 
 ## Accessibility evidence
 
-- AppShell: semantic landmarks (`header`, `nav`, `main`, `footer`), `aria-label`
-  on navs, focus-visible outlines, `prefers-reduced-motion` support, 44px touch
-  targets, theme toggle `aria-pressed`. Full WCAG 2.2 AA audit is a Phase 08
-  gate.
+- Axe scans still pass in E2E; provider badge + citations are text content.
 
-## Security and privacy impact
+## Security/privacy/license impact
 
-- No secrets anywhere; `.env*` ignored; `pnpm audit`, license check, secret
-  scan, and SBOM in CI.
-- ESLint type-aware rules (`no-explicit-any` error, strict unused checks) in
-  all packages.
-- Domain/guide-schema packages verified free of React/Node/db imports by
-  boundary check.
+- CSRF Origin check + rate limits + loopback default (server.ts).
+- No signing secret in browser storage; unsigned releases verify as
+  untrusted with a visible warning.
+- `@noble/hashes` 2.2.0 (MIT) added to catalog for real SHA-256.
 
-## Persisted schema and migration impact
+## Persisted schema/migrations
 
-- `guide-schema` introduces `GuideSnapshot` v1 (draft of canonical schema);
-  migration runner is a Phase 02 deliverable.
+- Dexie `guideforge` DB: version 3 adds `citations` + `receipt` to proposals
+  (additive, same indexes).
 
-## Context7/ADR updates
+## Package round-trip impact
 
-- `docs/adr/0001-toolchain-and-monorepo.md` added (accepted).
-- Context7 consulted for Tauri 2 (create-project, vite integration,
-  capabilities) and pnpm (workspaces, catalogs).
+- Release manifest now carries `signed: false` for unsigned personal
+  releases; verification accepts them (valid but untrusted).
+
+## Performance and cost
+
+- Preflight is metadata-only; no measurable cost.
 
 ## Known limitations
 
-- **Native Tauri build cannot run in this sandbox**: the root filesystem is
-  read-only, so Tauri's system libraries (`libwebkit2gtk-4.1-dev`,
-  `libgtk-3-dev`, `libsoup-3.0-dev`) cannot be installed. The Rust shell is
-  fully scaffolded and `verify-shell.mjs` proves the config loads the same web
-  build; `tauri build`/`cargo build` must be executed on a machine with the
-  system deps (CI/dev machine). This is an environment blocker, not a code gap.
-- Playwright webkit required a one-time `playwright install webkit` (done).
-- Vite 8 / ESLint 10 / TS 6 are new majors; pinned exactly with revisit
-  triggers in ADR 0001.
+- Rate limits are in-memory (per-process); a multi-instance deployment would
+  need a shared store. Single-user companion is fine.
+- Signed releases still require the companion key store (Phase 07+); browser
+  path is unsigned by design.
+- Zip extraction is still synchronous after preflight; worker-based
+  extraction remains a Phase 02/05 hardening item.
 
-## Blocked external dependencies
+## External blockers
 
-- Tauri native compile: blocked on system libraries (read-only root FS).
-  Smallest action to resume: run `pnpm --filter @guideforge/desktop build:tauri`
-  on a host with webkit2gtk-4.1 installed.
+- Real-device (Safari/Pencil/camera) testing cannot run in this sandbox.
 
-## Next phase readiness
+## Next-phase readiness
 
-- READY. Phase 02 (domain, commands, Yjs, local-first storage, draft package)
-  can build on the verified foundation.
+Phase 02 (canonical spatial guide + complete `.gforge`) can start: scene and
+training are still outside the canonical Yjs/snapshot, assets are still passed
+as empty maps, and Dexie remains authoritative for scenes — all Phase 02
+targets.
 
 **Gate:** PASS

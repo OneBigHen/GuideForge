@@ -187,12 +187,26 @@ describe('confidence', () => {
 });
 
 describe('extraction output schema', () => {
-  it('validates a conforming extraction', () => {
+  const validStep = {
+    stepId: 's1',
+    taskId: 't1',
+    action: 'Disconnect power before opening the housing.',
+    warnings: [] as string[],
+    prerequisites: [] as string[],
+    tools: [] as string[],
+    parts: [] as string[],
+    values: [] as { label: string; value: string }[],
+    conditions: [] as string[],
+    verificationSteps: [] as string[],
+    citations: ['reg-1'],
+  };
+
+  it('validates a conforming extraction (deep)', () => {
     expect(
       isExtractionOutput({
         schemaVersion: 1,
         guideId: 'g1',
-        tasks: [{ taskId: 't1', title: 'T', steps: [] }],
+        tasks: [{ taskId: 't1', title: 'T', steps: [validStep] }],
       }),
     ).toBe(true);
   });
@@ -201,5 +215,47 @@ describe('extraction output schema', () => {
     expect(isExtractionOutput({ schemaVersion: 2, guideId: 'g', tasks: [] })).toBe(false);
     expect(isExtractionOutput(null)).toBe(false);
     expect(isExtractionOutput({ schemaVersion: 1, guideId: 'g', tasks: 'nope' })).toBe(false);
+  });
+
+  it('deep-rejects malformed steps (JSON mode does not guarantee domain conformance)', () => {
+    const base = {
+      schemaVersion: 1,
+      guideId: 'g1',
+      tasks: [{ taskId: 't1', title: 'T', steps: [validStep] }],
+    };
+    // Missing step action.
+    expect(
+      isExtractionOutput({
+        ...base,
+        tasks: [{ taskId: 't1', title: 'T', steps: [{ ...validStep, action: '' }] }],
+      }),
+    ).toBe(false);
+    // Non-string citations.
+    expect(
+      isExtractionOutput({
+        ...base,
+        tasks: [{ taskId: 't1', title: 'T', steps: [{ ...validStep, citations: [42] }] }],
+      }),
+    ).toBe(false);
+    // Empty task step list is rejected (a task must produce steps).
+    expect(
+      isExtractionOutput({
+        ...base,
+        tasks: [{ taskId: 't1', title: 'T', steps: [] }],
+      }),
+    ).toBe(false);
+    // Malformed values entry.
+    expect(
+      isExtractionOutput({
+        ...base,
+        tasks: [
+          {
+            taskId: 't1',
+            title: 'T',
+            steps: [{ ...validStep, values: [{ label: 'x' }] }],
+          },
+        ],
+      }),
+    ).toBe(false);
   });
 });

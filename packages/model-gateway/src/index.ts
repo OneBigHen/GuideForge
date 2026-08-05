@@ -20,7 +20,7 @@ import type {
   SourceRegion,
 } from '@guideforge/ai-contracts';
 import { computeConfidence, isExtractionOutput } from '@guideforge/ai-contracts';
-import type { ContentHash } from '@guideforge/domain';
+import { sha256Hex, type ContentHash } from '@guideforge/domain';
 
 export type PrivacyPolicy = 'zdr' | 'eu-only' | 'default';
 
@@ -152,9 +152,11 @@ export class OpenRouterAdapter implements ModelAdapter {
   readonly model: string;
   readonly available: boolean;
   private readonly baseUrl: string;
+  private readonly apiKey: string;
 
   constructor(config: OpenRouterAdapterConfig) {
     this.model = config.model ?? 'anthropic/claude-sonnet-4.5';
+    this.apiKey = config.apiKey;
     this.available = config.apiKey.length > 0;
     this.baseUrl = config.baseUrl ?? 'https://openrouter.ai/api/v1';
   }
@@ -170,7 +172,9 @@ export class OpenRouterAdapter implements ModelAdapter {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        authorization: `Bearer ${process.env.OPENROUTER_API_KEY ?? ''}`,
+        authorization: `Bearer ${
+          this.apiKey.length > 0 ? this.apiKey : (process.env.OPENROUTER_API_KEY ?? '')
+        }`,
       },
       body: JSON.stringify({
         model: this.model,
@@ -228,9 +232,11 @@ export class DeepSeekAdapter implements ModelAdapter {
   readonly model: string;
   readonly available: boolean;
   private readonly baseUrl: string;
+  private readonly apiKey: string;
 
   constructor(config: DeepSeekAdapterConfig) {
     this.model = config.model ?? 'deepseek-v4-flash';
+    this.apiKey = config.apiKey;
     this.available = config.apiKey.length > 0;
     this.baseUrl = config.baseUrl ?? 'https://api.deepseek.com';
   }
@@ -304,9 +310,10 @@ export class DeepSeekAdapter implements ModelAdapter {
   }
 
   private configApiKey(): string {
-    // Prefer the explicit key passed to the constructor, else env.
-    // The env path is used by the server worker; both avoid browser exposure.
-    return process.env.DEEPSEEK_API_KEY ?? '';
+    // Prefer the key passed to the constructor (server BFF passes the
+    // config-supplied key), else the environment variable. Both avoid
+    // browser exposure; the constructor path must actually be honored.
+    return this.apiKey.length > 0 ? this.apiKey : (process.env.DEEPSEEK_API_KEY ?? '');
   }
 }
 
@@ -379,23 +386,30 @@ export class ModelGateway {
           error: `${adapter.provider}: invalid extraction schema`,
         };
       }
-      // Citation gate: every step's citations must resolve to real regions.
+      // Citation gate: every actionable step must have at least one citation
+      // that resolves to a real region (zero-citation output is rejected).
       const citations: Citation[] = [];
       const issues: string[] = [];
       for (const task of output.tasks) {
         for (const step of task.steps) {
+          const stepCitations: Citation[] = [];
           for (const regionId of step.citations) {
             const region = request.regions.get(regionId);
             if (!region) {
               issues.push(`uncited region ${regionId}`);
               continue;
             }
-            citations.push({
+            stepCitations.push({
               regionId,
               pageIndex: region.pageIndex,
               excerptHash: hashExcerpt(region.excerpt),
               claimRef: step.stepId,
             });
+          }
+          if (stepCitations.length === 0) {
+            issues.push(`step ${step.stepId} has no valid citation`);
+          } else {
+            citations.push(...stepCitations);
           }
         }
       }
@@ -439,11 +453,7 @@ export class ModelGateway {
 }
 
 function hashExcerpt(text: string): string {
-  // Browser-safe deterministic hash (FNV-1a 32-bit hex) for excerpt identity.
-  let h = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return (h >>> 0).toString(16).padStart(8, '0');
+  // Real SHA-256 (hex) of the excerpt bytes — deterministic content identity,
+  // not a padded short hash. Matches the ContentHash contract (64 hex chars).
+  return sha256Hex(new TextEncoder().encode(text));
 }

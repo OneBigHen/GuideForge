@@ -162,19 +162,53 @@ export interface ExtractionOutput {
 export function isExtractionOutput(value: unknown): value is ExtractionOutput {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Record<string, unknown>;
-  return (
-    v.schemaVersion === 1 &&
-    typeof v.guideId === 'string' &&
-    Array.isArray(v.tasks) &&
-    v.tasks.every(
-      (t) =>
-        typeof t === 'object' &&
-        t !== null &&
-        typeof (t as Record<string, unknown>).taskId === 'string' &&
-        typeof (t as Record<string, unknown>).title === 'string' &&
-        Array.isArray((t as Record<string, unknown>).steps),
-    )
-  );
+  if (v.schemaVersion !== 1 || typeof v.guideId !== 'string' || !Array.isArray(v.tasks)) {
+    return false;
+  }
+  // Deep validation: every task must carry a taskId, title, and non-empty
+  // steps; every step must have all required string/string[] fields and valid
+  // citation entries. The model's JSON mode guarantees JSON syntax only, so
+  // domain conformance must be proven here (AGENTS_SINGLE_USER.md).
+  return v.tasks.every((t) => {
+    if (typeof t !== 'object' || t === null) return false;
+    const task = t as Record<string, unknown>;
+    if (typeof task.taskId !== 'string' || task.taskId.length === 0) return false;
+    if (typeof task.title !== 'string') return false;
+    if (!Array.isArray(task.steps) || task.steps.length === 0) return false;
+    return task.steps.every((s) => {
+      if (typeof s !== 'object' || s === null) return false;
+      const step = s as Record<string, unknown>;
+      return (
+        typeof step.stepId === 'string' &&
+        step.stepId.length > 0 &&
+        typeof step.taskId === 'string' &&
+        typeof step.action === 'string' &&
+        step.action.length > 0 &&
+        Array.isArray(step.warnings) &&
+        step.warnings.every((w) => typeof w === 'string') &&
+        Array.isArray(step.prerequisites) &&
+        step.prerequisites.every((p) => typeof p === 'string') &&
+        Array.isArray(step.tools) &&
+        step.tools.every((tl) => typeof tl === 'string') &&
+        Array.isArray(step.parts) &&
+        step.parts.every((p) => typeof p === 'string') &&
+        Array.isArray(step.values) &&
+        step.values.every(
+          (val) =>
+            typeof val === 'object' &&
+            val !== null &&
+            typeof (val as Record<string, unknown>).label === 'string' &&
+            typeof (val as Record<string, unknown>).value === 'string',
+        ) &&
+        Array.isArray(step.conditions) &&
+        step.conditions.every((c) => typeof c === 'string') &&
+        Array.isArray(step.verificationSteps) &&
+        step.verificationSteps.every((v2) => typeof v2 === 'string') &&
+        Array.isArray(step.citations) &&
+        step.citations.every((c) => typeof c === 'string')
+      );
+    });
+  });
 }
 
 export interface Citation {

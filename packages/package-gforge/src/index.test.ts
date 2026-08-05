@@ -1,6 +1,7 @@
 import type { ContentHash } from '@guideforge/domain';
 import type { GuideSnapshot } from '@guideforge/guide-schema';
 import fc from 'fast-check';
+import { zipSync } from 'fflate';
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
@@ -8,6 +9,7 @@ import {
   createDraftPackage,
   FIXED_TIMESTAMP,
   PackageSafetyError,
+  preflightZipArchive,
   validatePackagePath,
   verifyPackageStructure,
 } from './index.js';
@@ -143,5 +145,31 @@ describe('package-gforge verification', () => {
     tampered[0] = tampered[0]! ^ 0xff;
     target!.data = tampered;
     expect(() => verifyPackageStructure(entries)).toThrow(/hash mismatch for guide.json/);
+  });
+});
+
+describe('package-gforge bounded archive preflight', () => {
+  it('accepts a normal package archive', () => {
+    const bytes = createDraftPackage({ snapshot: snapshot('Preflight'), assets: new Map() });
+    const result = preflightZipArchive(bytes);
+    expect(result.entryCount).toBe(2); // guide.json + manifest.json
+    expect(result.totalUncompressed).toBeGreaterThan(0);
+  });
+
+  it('rejects a zip bomb via compression ratio before inflation', () => {
+    // A 1 MB entry of zeros compresses to a few KB; fflate deflates it. The
+    // preflight must reject the ratio without ever inflating the full data.
+    const big = new Uint8Array(1024 * 1024); // zeros — highly compressible
+    const bomb = zipSync({ 'bomb.bin': big }, { level: 9 });
+    expect(() => preflightZipArchive(bomb)).toThrow(/compression ratio exceeded/);
+  });
+
+  it('rejects unsafe entry paths during preflight (no extraction)', () => {
+    const evil = zipSync({ '../escape.txt': new Uint8Array([1]) });
+    expect(() => preflightZipArchive(evil)).toThrow(/unsafe entry path rejected/);
+  });
+
+  it('rejects non-zip input', () => {
+    expect(() => preflightZipArchive(new Uint8Array([1, 2, 3, 4, 5]))).toThrow(/no EOCD/);
   });
 });
