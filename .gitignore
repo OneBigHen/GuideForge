@@ -26,3 +26,7 @@ test-results/
 # Tauri
 apps/desktop/src-tauri/plugins/
 .turbo/
+
+# Single-user build pack (binding instructions, not repo content)
+GuideForge_Single_User_AI_Build_Pack/
+GuideForge_Single_User_AI_Build_Pack.zip
