@@ -1,6 +1,12 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
-import { createGuide, importDraft, listGuides, type LibraryEntry } from '../services/guideStore';
+import {
+  createGuide,
+  importDraft,
+  importMsGuidePackage,
+  listGuides,
+  type LibraryEntry,
+} from '../services/guideStore';
 
 export const Route = createFileRoute('/library')({
   component: LibraryPage,
@@ -55,6 +61,19 @@ function LibraryPage() {
     }
   }
 
+  async function handleImportMsGuide(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const result = await importMsGuidePackage(bytes, file.name);
+      setError(null);
+      void navigate({ to: '/edit/$guideId', params: { guideId: result.guideId } });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   return (
     <section aria-labelledby="library-title">
       <h1 id="library-title">Guide library</h1>
@@ -82,6 +101,15 @@ function LibraryPage() {
             accept=".gforge"
             className="visually-hidden"
             onChange={(e) => void handleImport(e)}
+          />
+        </label>
+        <label className="button button--ghost">
+          Import .guide
+          <input
+            type="file"
+            accept=".guide"
+            className="visually-hidden"
+            onChange={(e) => void handleImportMsGuide(e)}
           />
         </label>
       </div>

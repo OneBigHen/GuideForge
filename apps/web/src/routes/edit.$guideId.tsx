@@ -12,6 +12,7 @@ import {
   closeGuide,
   dispatchCommand,
   exportDraft,
+  exportSignedRelease,
   generateFakeProposals,
   openGuide,
   renameGuide,
@@ -31,6 +32,7 @@ function EditPage() {
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [releaseInfo, setReleaseInfo] = useState<string | null>(null);
   const [showProposals, setShowProposals] = useState(false);
 
   const refresh = useCallback(
@@ -112,6 +114,23 @@ function EditPage() {
     setShowProposals(true);
   }
 
+  function handleExportRelease() {
+    if (!session) return;
+    try {
+      const { bytes, filename, publicKeyHex } = exportSignedRelease(session, '1.0.0');
+      const blob = new Blob([bytes as BlobPart], { type: 'application/zip' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      setReleaseInfo(`Exported signed release. Public key: ${publicKeyHex.slice(0, 16)}…`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   const task = currentTask();
   const step = currentStep();
 
@@ -140,12 +159,25 @@ function EditPage() {
           >
             Export .gforge
           </button>
+          <button
+            type="button"
+            className="button button--ghost"
+            onClick={() => handleExportRelease()}
+            title="Export an Ed25519-signed release package"
+          >
+            Export release
+          </button>
         </div>
       </div>
 
       {error && (
         <p role="alert" className="error-text">
           {error}
+        </p>
+      )}
+      {releaseInfo && (
+        <p role="status" className="release-note">
+          {releaseInfo}
         </p>
       )}
 

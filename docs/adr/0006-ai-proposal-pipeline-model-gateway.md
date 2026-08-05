@@ -17,10 +17,10 @@ privacy routing, and usage accounting.
 
 Verified via registry metadata 2026-08-04:
 
-| Technology | Exact version / ref |
-|---|---|
+| Technology                | Exact version / ref                       |
+| ------------------------- | ----------------------------------------- |
 | ds4sd/docling (container) | 2.37.0 (tesseract OCR, standard pipeline) |
-| fast-check | 4.9.0 (property tests) |
+| fast-check                | 4.9.0 (property tests)                    |
 
 OpenRouter structured outputs: `response_format: { type: 'json_schema' }`
 strict mode; routing + ZDR per OpenRouter docs (adapter implemented to spec).

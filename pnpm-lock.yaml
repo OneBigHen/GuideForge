@@ -30,6 +30,9 @@ catalogs:
     '@hocuspocus/server':
       specifier: 4.5.0
       version: 4.5.0
+    '@noble/curves':
+      specifier: 2.2.0
+      version: 2.2.0
     '@playwright/test':
       specifier: 1.62.1
       version: 1.62.1
@@ -72,6 +75,9 @@ catalogs:
     '@vitejs/plugin-react':
       specifier: 6.0.5
       version: 6.0.5
+    canonicalize:
+      specifier: 3.0.0
+      version: 3.0.0
     dexie:
       specifier: 4.4.4
       version: 4.4.4
@@ -305,6 +311,9 @@ importers:
       '@guideforge/guide-schema':
         specifier: workspace:*
         version: link:../../packages/guide-schema
+      '@guideforge/interop-ms-guide':
+        specifier: workspace:*
+        version: link:../../packages/interop-ms-guide
       '@guideforge/model-gateway':
         specifier: workspace:*
         version: link:../../packages/model-gateway
@@ -492,6 +501,28 @@ importers:
         specifier: 'catalog:'
         version: 4.1.10(@types/node@26.1.2)(jsdom@27.2.0)(vite@8.2.0(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.1)(tsx@4.23.5)(yaml@2.9.0))
 
+  packages/interop-ms-guide:
+    dependencies:
+      '@guideforge/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@guideforge/guide-schema':
+        specifier: workspace:*
+        version: link:../guide-schema
+      fflate:
+        specifier: 'catalog:'
+        version: 0.8.3
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.2
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@types/node@26.1.2)(jsdom@27.2.0)(vite@8.2.0(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.1)(tsx@4.23.5)(yaml@2.9.0))
+
   packages/model-gateway:
     dependencies:
       '@guideforge/ai-contracts':
@@ -519,6 +550,12 @@ importers:
       '@guideforge/guide-schema':
         specifier: workspace:*
         version: link:../guide-schema
+      '@noble/curves':
+        specifier: 'catalog:'
+        version: 2.2.0
+      canonicalize:
+        specifier: 'catalog:'
+        version: 3.0.0
       fflate:
         specifier: 'catalog:'
         version: 0.8.3
@@ -582,6 +619,22 @@ importers:
       '@types/three':
         specifier: 'catalog:'
         version: 0.185.1
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@types/node@26.1.2)(jsdom@27.2.0)(vite@8.2.0(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.1)(tsx@4.23.5)(yaml@2.9.0))
+
+  packages/storage-native:
+    dependencies:
+      '@guideforge/domain':
+        specifier: workspace:*
+        version: link:../domain
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.2
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -1885,6 +1938,14 @@ packages:
     os: [linux]
     libc: [glibc]
 
+  '@noble/curves@2.2.0':
+    resolution: {integrity: sha512-T/BoHgFXirb0ENSPBquzX0rcjXeM6Lo892a2jlYJkqk83LqZx0l1Of7DzlKJ6jkpvMrkHSnAcgb5JegL8SeIkQ==}
+    engines: {node: '>= 20.19.0'}
+
+  '@noble/hashes@2.2.0':
+    resolution: {integrity: sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg==}
+    engines: {node: '>= 20.19.0'}
+
   '@nodelib/fs.scandir@2.1.5':
     resolution: {integrity: sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==}
     engines: {node: '>= 8'}
@@ -2782,6 +2843,11 @@ packages:
 
   caniuse-lite@1.0.30001806:
     resolution: {integrity: sha512-72Cuvd95zbSYPKq6Fhg8eDJRlzgWDf7/mtoZv6Qe/DYNCEBdNxoA3+rZAU2ZhGCpZlns3EssFavaZomckT5Uuw==}
+
+  canonicalize@3.0.0:
+    resolution: {integrity: sha512-yYLfHyDMIXRyRqsKBRLX023riFLpXY2YOfdtqKXZRZy9qsfOJ9U+4F9YZL7MEzL5+ziN2x2nlBvY/Voi3EBljA==}
+    engines: {node: '>=18'}
+    hasBin: true
 
   chai@6.2.2:
     resolution: {integrity: sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==}
@@ -6265,6 +6331,12 @@ snapshots:
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
 
+  '@noble/curves@2.2.0':
+    dependencies:
+      '@noble/hashes': 2.2.0
+
+  '@noble/hashes@2.2.0': {}
+
   '@nodelib/fs.scandir@2.1.5':
     dependencies:
       '@nodelib/fs.stat': 2.0.5
@@ -7082,6 +7154,8 @@ snapshots:
       three: 0.185.1
 
   caniuse-lite@1.0.30001806: {}
+
+  canonicalize@3.0.0: {}
 
   chai@6.2.2: {}
 

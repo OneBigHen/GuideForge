@@ -20,8 +20,12 @@ import type { GuideCommand } from '@guideforge/commands';
 import { GUIDE_COMMAND_TYPES } from '@guideforge/commands';
 import type { EntityId } from '@guideforge/domain';
 import type { GuideSnapshot } from '@guideforge/guide-schema';
+import { importMsGuide as msImport } from '@guideforge/interop-ms-guide';
 import {
   createDraftPackageAsync,
+  createReleasePackage,
+  derivePublicKeyHex,
+  generateSigningKeyPair,
   verifyPackageStructureAsync,
   type PackageEntry,
 } from '@guideforge/package-gforge';
@@ -475,4 +479,78 @@ function extractZipEntries(bytes: Uint8Array): PackageEntry[] {
     entries.push({ path, data });
   }
   return entries;
+}
+
+// ---------------------------------------------------------------------------
+// Signed release export + Microsoft .guide import
+// ---------------------------------------------------------------------------
+
+/** Export a signed release `.gforge` (Ed25519; key from localStorage demo). */
+export function exportSignedRelease(
+  session: OpenGuideSession,
+  releaseVersion: string,
+): { bytes: Uint8Array; filename: string; publicKeyHex: string } {
+  const snapshot = materializeSnapshot(session.working);
+  // Demo key management: derive a stable per-guide keypair, persisted locally.
+  const storageKey = `gf-signing-${session.guideId}`;
+  let privateKeyHex = localStorage.getItem(storageKey);
+  let publicKeyHex: string;
+  if (!privateKeyHex) {
+    const pair = generateSigningKeyPair();
+    privateKeyHex = pair.privateKeyHex;
+    publicKeyHex = pair.publicKeyHex;
+    localStorage.setItem(storageKey, privateKeyHex);
+  } else {
+    publicKeyHex = derivePublicKey(privateKeyHex);
+  }
+  const bytes = createReleasePackage({
+    snapshot,
+    assets: new Map(),
+    privateKeyHex,
+    keyId: `local-${session.guideId.slice(0, 8)}`,
+    release: {
+      releaseId: crypto.randomUUID(),
+      releaseVersion,
+      createdAt: new Date().toISOString(),
+      guideId: session.guideId,
+    },
+  });
+  return {
+    bytes,
+    filename: `${snapshot.title.replace(/[^a-z0-9-_]+/gi, '-')}-${releaseVersion}.gforge`,
+    publicKeyHex,
+  };
+}
+
+function derivePublicKey(privateKeyHex: string): string {
+  // Recompute the public key from the stored private key.
+  return derivePublicKeyHex(privateKeyHex);
+}
+
+/** Import a Microsoft `.guide` package into the library. */
+export async function importMsGuidePackage(
+  bytes: Uint8Array,
+  filename: string,
+): Promise<{ guideId: string; warnings: string[] }> {
+  const imported = msImport(bytes, filename);
+  const working = createEmptyWorkingGuide();
+  const persistence = persistWorkingDoc(working.doc, imported.snapshot.guideId);
+  await persistence.synced;
+  seedEmptyWorkingGuide(working, imported.snapshot.guideId, imported.snapshot.title);
+  hydrateWorkingGuide(working, imported.snapshot);
+
+  await db().guides.put({
+    guideId: imported.snapshot.guideId,
+    title: imported.snapshot.title,
+    description: imported.snapshot.description,
+    lifecycleState: imported.snapshot.lifecycleState,
+    createdAtIso: imported.snapshot.createdAtIso,
+    updatedAtIso: imported.snapshot.updatedAtIso,
+    taskCount: imported.snapshot.tasks.length,
+    stepCount: imported.snapshot.steps.length,
+    docName: imported.snapshot.guideId,
+  });
+  await persistence.provider.destroy();
+  working.doc.destroy();
+  return { guideId: imported.snapshot.guideId, warnings: imported.report.warnings };
 }

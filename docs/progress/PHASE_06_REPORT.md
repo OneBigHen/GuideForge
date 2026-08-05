@@ -41,14 +41,14 @@ produces cited, human-reviewable proposals.
 
 ## Acceptance evidence
 
-| Gate | Evidence |
-|---|---|
-| Repeated source/config creates stable region IDs | `stableRegionId` deterministic + property test |
-| Uncited actionable output is rejected | gateway test + `validateCitations` tests |
-| AI cannot mutate a guide before acceptance | proposals only applied via `acceptProposal` command path (Phase 03) |
-| Privacy policy never relaxes automatically | ZDR routing test forces privacy-safe adapter |
-| Cost receipts and routing attempts recorded | `UsageReceipt` in every gateway response; unit tested |
-| Injection fixtures fail safely | `injection.test.ts`: command-shape outputs rejected, malicious excerpts only cited as sources |
+| Gate                                             | Evidence                                                                                      |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| Repeated source/config creates stable region IDs | `stableRegionId` deterministic + property test                                                |
+| Uncited actionable output is rejected            | gateway test + `validateCitations` tests                                                      |
+| AI cannot mutate a guide before acceptance       | proposals only applied via `acceptProposal` command path (Phase 03)                           |
+| Privacy policy never relaxes automatically       | ZDR routing test forces privacy-safe adapter                                                  |
+| Cost receipts and routing attempts recorded      | `UsageReceipt` in every gateway response; unit tested                                         |
+| Injection fixtures fail safely                   | `injection.test.ts`: command-shape outputs rejected, malicious excerpts only cited as sources |
 
 ## Test results
 

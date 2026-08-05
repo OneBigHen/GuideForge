@@ -351,3 +351,25 @@ export async function buildDraftEntriesWithHash(
   }
   return entries;
 }
+
+export {
+  buildReleaseEntries,
+  createReleasePackage,
+  serializeReleasePackage,
+  verifyReleasePackage,
+} from './release.js';
+export type {
+  ReleaseInput,
+  ReleaseSignatureManifest,
+  ReleaseVerificationResult,
+} from './release.js';
+export {
+  canonicalJsonRfc8785,
+  derivePublicKeyHex,
+  generateSigningKeyPair,
+  ReleaseSignatureError,
+  signReleasePayload,
+  TrustedKeyStore,
+  verifyReleaseSignature,
+} from './signing.js';
+export type { Ed25519PublicKey, Ed25519Signature, TrustedKeyEntry } from './signing.js';

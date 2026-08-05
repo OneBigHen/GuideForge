@@ -902,3 +902,15 @@ body {
     order: -1;
   }
 }
+
+/* ---- Release / interop ---- */
+
+.release-note {
+  padding: var(--space-2) var(--space-3);
+  background: #ecfdf5;
+  border: 1px solid #10b981;
+  border-radius: var(--radius);
+  color: #064e3b;
+  margin-bottom: var(--space-3);
+  font-size: 0.875rem;
+}
