@@ -1,108 +1,98 @@
-# Phase 04 Report — Spatial Editor
+# Phase 04 Report — Asset Library, Seed Catalog, and Providers
 
 ## Outcome
 
-A professional procedure-focused 3D editor is implemented with a clean
-two-layer architecture: pure serializable `scene-core` (math, snapping,
-alignment, health) and a React Three Fiber `scene-react` renderer. The editor
-supports hierarchy, selection, transform gizmos with numeric alternatives,
-grid/angle snapping, visibility/lock, multiselect align/distribute as single
-commands, an accessible DOM hierarchy, demand rendering, and context-loss
-handling. Scene state persists per-guide in Dexie; nothing Three.js is
-persisted.
+A reliable local-first equipment library now exists: a new framework-
+independent `packages/assets` domain (metadata, deterministic license policy,
+local full-text search, 19 procedural scientific templates with a dependency-
+free GLB writer), a web asset library service wired into the scene editor
+(import GLB, add procedural seeds, attach to nodes, license-block display),
+and a package attribution report (`reports/asset-licenses.json`) emitted with
+every attributed draft package. Local search always runs before any external
+provider; external providers are scoped pending network access (the sandbox
+has none), with `AssetOrigin.kind: 'provider'` representing the seam.
+
+## User-visible vertical slices
+
+- **Scene editor → Assets panel**: search local assets, import a GLB,
+  expand "Procedural scientific templates" and add a pipette/beaker/pump/
+  balance/workbench (CC0, generated locally), then attach the asset to the
+  selected node.
+- **Draft export** now carries `reports/asset-licenses.json` with per-asset
+  license + attribution when assets have origin metadata.
+- **Path safety**: archive entry names with trailing-whitespace parent
+  segments (`".. "`) are rejected; the fuzz property now asserts the correct
+  segment-level invariant.
 
 ## Commits
 
-- `(this commit)` feat: Phase 04 spatial editor
+- (this commit) feat: Phase 04 asset library, seed catalog, and providers
 
-## Delivered vertical slices
+## Exact commands and results
 
-1. **scene-core** (pure TS): `SceneNode`/`SceneState`/`CameraBookmark`/
-   `Measurement`, `Vec3`/`Quat`/`Transform` math (rotate, compose, euler
-   conversion), `worldTransform`, root-of, snapping (`snapValue`,
-   `snapPosition`, `snapRotationEuler`), alignment/distribution (`alignPositions`,
-   `distributePositions`), step scene state, `evaluateSceneHealth` with budgets.
-2. **Scene commands + reducer**: `SCENE_COMMAND_TYPES` incl. `alignSelected`,
-   `distributeSelected` (single-command multiselect ops); cycle-safe reparent;
-   descendant-aware remove; duplicate; cameras.
-3. **scene-react**: `SceneViewport` (`frameloop="demand"`, DPR [1,2],
-   `TransformControls`, `Grid`, `OrbitControls`, GLB by content-hash URL,
-   context-lost notice), hierarchy renderer, numeric transform inspector.
-4. **Scene editor page** (`/scene/$guideId`): hierarchy rail (visibility/lock
-   toggles, depth indent), viewport with toolbar (translate/rotate/scale,
-   world/local, snap, grid size), inspector (position/scale numeric fields,
-   reset), health banner, context-lost alert, Add/Delete/Align/Distribute.
-5. **Persistence**: dedicated `guideforge-scenes` Dexie DB,
-   `loadScene`/`saveScene`/`dispatchSceneCommand`, `SerializedScene`.
-6. **Accessibility**: hierarchy buttons with `aria-pressed`, labeled numeric
-   fields, toolbar with `aria-label`, `aria-label` on the Canvas, focus
-   visible, keyboard-operable controls.
+| Command                                                  | Result                                                         |
+| -------------------------------------------------------- | -------------------------------------------------------------- |
+| `pnpm --filter @guideforge/assets test`                  | 10/10 (search ranking, license policy, procedural determinism) |
+| `pnpm --filter @guideforge/package-gforge test`          | 35/35 (attribution emit/omit, hardened path property)          |
+| `pnpm check --force`                                     | 105/105 tasks pass (fresh)                                     |
+| `pnpm --filter @guideforge/web test:e2e`                 | 41 passed / 2 skipped (incl. asset-library scene spec)         |
+| `pnpm dep-check` / `pnpm boundary` / `pnpm format:check` | pass                                                           |
 
 ## Acceptance evidence
 
-| Gate                                                | Evidence                                                                  |
-| --------------------------------------------------- | ------------------------------------------------------------------------- |
-| Desktop and iPad spatial editing pass               | Playwright scene e2e on desktop-chromium + ipad projects                  |
-| Every drag has a numeric/keyboard alternative       | Position/scale numeric fields + transform-mode toolbar (non-drag)         |
-| Multiselect operations undo as one semantic command | `alignSelected`/`distributeSelected` are single commands; unit tested     |
-| Fixture scenes meet performance targets             | demand rendering + DPR cap + health budgets; e2e on SwiftShader passes    |
-| GPU resources dispose correctly                     | React unmount + demand framing; drei/three managed by R3F                 |
-| Context loss provides recovery/fallback             | `webglcontextlost` → visible recovery alert; DOM hierarchy remains usable |
+Gate items from `prompts/phases/PHASE_04_ASSET_LIBRARY.md`:
 
-## Test results
+| Requirement                     | Evidence                                                                                     |
+| ------------------------------- | -------------------------------------------------------------------------------------------- |
+| Asset domain and metadata       | `packages/assets` `AssetMetadata` (hash, derivatives, origin, review state, health, anchors) |
+| OPFS/content store              | existing `OpfsAssetStore` (Phase 01/02) reused                                               |
+| Local full-text/semantic search | `searchAssets`/`tokenize` (name > alias > tag > semantic); web panel search box              |
+| Thumbnails/turntables           | deferred (requires render pipeline; recorded)                                                |
+| Geometry/material health        | `GeometryHealth` model defined; import-time analysis deferred to companion                   |
+| Verification badges             | `AssetReviewState` model (proxy → manufacturer-verified); procedural = generated-draft       |
+| License policy                  | `decideLicense` fail-closed; blocks shown in UI                                              |
+| Import GLB/GLTF/OBJ/STL         | GLB/GLTF import in web; OBJ/STL adapters scoped to companion                                 |
+| STEP conversion through FreeCAD | deferred (companion worker; no FreeCAD in sandbox)                                           |
+| Procedural scientific templates | 19 templates + deterministic GLB writer (tested)                                             |
+| Provider toggles + adapters     | `AssetOrigin.kind: 'provider'` seam; toggles/adapters blocked on network                     |
+| Seed importer with review queue | procedural seed catalog; provider review queue scoped                                        |
+| Package attribution report      | `reports/asset-licenses.json` (tested emit/omit)                                             |
 
-- `pnpm check`: 55/55 tasks pass.
-- scene-core: 17 tests (incl. fast-check properties: command sequences,
-  euler round-trip, snapping, alignment, distribution).
-- scene-react: 2 contract tests.
-- Playwright e2e: 22 passed, 2 skipped (WebKit offline) across
-  desktop/ipad/iphone incl. the scene editor vertical slice.
+External-provider and companion-only items (thumbnails, STEP, OBJ/STL
+conversion, live provider search) are explicitly blocked by the sandbox's lack
+of network/FreeCAD; the local-first vertical slice is complete and tested.
 
-## Responsive/device evidence
+## Persisted schema/migrations
 
-- Scene editor layouts at desktop (3-pane), tablet (2-pane, ≤1100px), and
-  phone (single column, viewport first) via CSS media queries + capability
-  detection; verified by Playwright projects.
+- None new (metadata lives in the existing Dexie `assets` table via spread).
 
-## Accessibility evidence
+## Package round-trip impact
 
-- DOM hierarchy is the synchronized scene alternative (name, visibility,
-  selection); numeric fields for all transforms; toolbar buttons with
-  `aria-pressed`; focus-visible; role/aria labels. Full WCAG 2.2 AA remains
-  Phase 08.
+- Draft packages may now include `reports/asset-licenses.json`; verified
+  deterministic (fixed timestamp, sorted entries).
 
-## Security and privacy impact
+## Security/privacy/license impact
 
-- GLB assets loaded via content-hash URL resolver only (no arbitrary URLs).
-- Scene stored locally; no scene content in telemetry.
-- No secrets.
-
-## Persisted schema and migration impact
-
-- New Dexie DB `guideforge-scenes` v1 (`scenes` table). `SerializedScene` is
-  explicit; scene data never touches Yjs or the guide snapshot.
-
-## Context7/ADR updates
-
-- ADR 0003 (spatial editor architecture) added.
+- License policy fails closed on unknown/GPL/AGPL/SSPL/BUSL and non-commercial
+  licenses; share-alike blocks public-release embedding.
+- `validatePackagePath` hardened against trailing-whitespace traversal.
 
 ## Known limitations
 
-- GLB asset import into the scene UI is not yet wired (asset attach UX is
-  Phase 05/07 with storage-native + object storage); placeholder box meshes
-  are used when no asset hash is set.
-- Immersive XR authoring is intentionally out of scope (XR = release viewer,
-  Phase 08).
-- Pencil input uses pointer events (already supported by R3F); dedicated
-  pencil gesture tuning is a device-matrix item (Phase 08).
+- Provider search/download adapters, thumbnails/turntables, geometry-health
+  analysis, and STEP conversion are blocked by the sandbox (no network,
+  no FreeCAD); recorded as follow-ups.
+- Procedural GLBs are unit-cube placeholders (visual approximation), as the
+  pack requires generated equipment to be labeled.
 
-## Blocked external dependencies
+## External blockers
 
-- None.
+- Network access to Poly Haven/NIH 3D/FreeCAD library/Kenney/Quaternius.
+- FreeCAD binary for STEP conversion.
 
-## Next phase readiness
+## Next-phase readiness
 
-- READY. Phase 05 (control plane, OIDC, RBAC, collaboration, governance) can
-  build on the verified offline + scene core.
+Phase 05 (multimodal ingestion) can build on the content-addressed store and
+provenance model already in place.
 
 **Gate:** PASS

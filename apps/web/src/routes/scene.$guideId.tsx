@@ -1,3 +1,8 @@
+import {
+  generateProceduralGlb,
+  PROCEDURAL_TEMPLATES,
+  type ProceduralTemplate,
+} from '@guideforge/assets';
 import type { GuideCommand } from '@guideforge/commands';
 import type { EntityId } from '@guideforge/domain';
 import {
@@ -72,6 +77,7 @@ function SceneEditorPage() {
   const [redoStack, setRedoStack] = useState<SceneState[]>([]);
   const [assetHashes, setAssetHashes] = useState<string[]>([]);
   const [assetError, setAssetError] = useState<string | null>(null);
+  const [assetQuery, setAssetQuery] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -372,6 +378,18 @@ function SceneEditorPage() {
     }
   }
 
+  async function handleAddProcedural(template: ProceduralTemplate) {
+    if (!session) return;
+    try {
+      const bytes = generateProceduralGlb(template);
+      const meta = await session.assets.put(bytes, 'model/gltf-binary', 'glb');
+      setAssetHashes((h) => (h.includes(meta.hash) ? h : [...h, meta.hash]));
+      setAssetError(null);
+    } catch (err) {
+      setAssetError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   const selectedNode = selected.length === 1 ? scene.nodes.get(selected[0] as EntityId) : null;
   const health = useMemo(() => evaluateSceneHealth(scene), [scene]);
   const assetUrl = useMemo(() => makeAssetUrlResolver(new Map()), []);
@@ -562,7 +580,7 @@ function SceneEditorPage() {
             </div>
           </aside>
 
-          {/* Phase 03 panels: assets, layers, cameras, annotations */}
+          {/* Phase 03/04 panels: assets, layers, cameras, annotations */}
           {showAssets && (
             <aside className="scene-panel scene-panel--extra" aria-label="Asset library">
               <h2>Assets</h2>
@@ -578,9 +596,43 @@ function SceneEditorPage() {
                 />
               </label>
               {assetError && <p className="error-text">{assetError}</p>}
+              <div className="field-row">
+                <input
+                  type="search"
+                  value={assetQuery}
+                  onChange={(e) => setAssetQuery(e.target.value)}
+                  aria-label="Search assets"
+                  placeholder="Search local assets…"
+                />
+              </div>
+              <details className="scene-seeds">
+                <summary>Procedural scientific templates (CC0, local)</summary>
+                <div className="seed-grid">
+                  {(
+                    [
+                      'simple-pipette',
+                      'beaker',
+                      'graduated-cylinder',
+                      'peristaltic-pump',
+                      'balance-proxy',
+                      'workbench',
+                    ] as const
+                  ).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      className="button button--small button--ghost"
+                      onClick={() => void handleAddProcedural(t)}
+                    >
+                      {PROCEDURAL_TEMPLATES[t].displayName}
+                    </button>
+                  ))}
+                </div>
+              </details>
               {assetHashes.length === 0 ? (
                 <p className="empty-hint">
-                  No assets yet. Import a GLB to attach to a selected node.
+                  No assets yet. Import a GLB or add a procedural template to attach to a selected
+                  node.
                 </p>
               ) : (
                 <ul className="asset-list">

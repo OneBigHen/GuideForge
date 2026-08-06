@@ -82,11 +82,32 @@ describe('package-gforge path safety', () => {
   it('property: rejects any path with traversal or absolute form', () => {
     fc.assert(
       fc.property(fc.string(), (s) => {
-        if (s.includes('..') || s.startsWith('/') || s.includes('\\')) {
+        // The traversal invariant is SEGMENT-level: `..` as a whole segment
+        // (including trailing-whitespace variants some filesystems normalize),
+        // absolute prefixes, and backslashes. A filename like `a..b` contains
+        // `..` as a substring but is NOT traversal and must be accepted.
+        const segments = s.split('/');
+        const hasParentSegment = segments.some((seg) => seg.trimEnd() === '..');
+        const hasNonNormalizedSegment = segments.some(
+          (seg) => seg.trimEnd() === '.' || seg.trimEnd() === '',
+        );
+        if (
+          hasParentSegment ||
+          hasNonNormalizedSegment ||
+          s.startsWith('/') ||
+          /^[A-Za-z]:/.test(s) ||
+          s.includes('\\')
+        ) {
           expect(() => validatePackagePath(s)).toThrow(PackageSafetyError);
         }
       }),
     );
+  });
+
+  it('accepts filenames that merely contain a dot-dot substring', () => {
+    // Regression: `a..b` is a legal filename; only `..` as a whole segment is
+    // traversal. The fuzzer surfaced this distinction.
+    expect(() => validatePackagePath('v1..2.glb')).not.toThrow();
   });
 });
 
@@ -189,5 +210,37 @@ describe('package-gforge bounded archive preflight', () => {
 
   it('rejects non-zip input', () => {
     expect(() => preflightZipArchive(new Uint8Array([1, 2, 3, 4, 5]))).toThrow(/no EOCD/);
+  });
+});
+
+describe('package-gforge attribution report (Phase 04)', () => {
+  it('emits reports/asset-licenses.json with licenses and attribution', () => {
+    const hash = realHash(new Uint8Array([9, 9, 9]));
+    const attributions = new Map<
+      string,
+      { name: string; licenseId?: string; attribution?: string }
+    >([[hash, { name: 'Pipette', licenseId: 'CC0', attribution: 'GuideForge' }]]);
+    const entries = buildDraftEntries({
+      snapshot: snapshot('Attributed'),
+      assets: new Map([[hash, assetBytes(hash, 'glb', new Uint8Array([9, 9, 9]))]]),
+      attributions: attributions as Map<
+        ContentHash,
+        { name: string; licenseId?: string; attribution?: string; source?: string }
+      >,
+    });
+    const reportEntry = entries.find((e) => e.path === 'reports/asset-licenses.json');
+    expect(reportEntry).toBeDefined();
+    const report = JSON.parse(new TextDecoder().decode(reportEntry!.data)) as {
+      format: string;
+      assets: { hash: string; name: string; licenseId: string }[];
+    };
+    expect(report.format).toBe('gforge-asset-licenses');
+    expect(report.assets[0]!.name).toBe('Pipette');
+    expect(report.assets[0]!.licenseId).toBe('CC0');
+  });
+
+  it('omits the report when no attributions are provided', () => {
+    const entries = buildDraftEntries({ snapshot: snapshot('NoAttrib'), assets: new Map() });
+    expect(entries.some((e) => e.path === 'reports/asset-licenses.json')).toBe(false);
   });
 });

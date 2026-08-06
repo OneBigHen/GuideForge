@@ -33,7 +33,8 @@
     "fflate": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
-    "zustand": "catalog:"
+    "zustand": "catalog:",
+    "@guideforge/assets": "workspace:*"
   },
   "devDependencies": {
     "@axe-core/playwright": "catalog:",

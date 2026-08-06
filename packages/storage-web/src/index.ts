@@ -85,7 +85,7 @@ export interface AiProposalRecord {
 export class GuideForgeDb extends Dexie {
   guides!: Table<LibraryGuideMeta, string>;
   assets!: Table<AssetMetaRecord, string>;
-  assetBlobs!: Table<{ hash: string; bytes: Blob }, string>;
+  assetBlobs!: Table<{ hash: string; bytes: Uint8Array | ArrayBuffer | Blob }, string>;
   evidence!: Table<EvidenceRecord, string>;
   proposals!: Table<AiProposalRecord, string>;
 
@@ -177,7 +177,7 @@ export function isOpfsSupported(): boolean {
 
 class IndexedDbAssetStore {
   private db: GuideForgeDb;
-  private readonly blobs: Table<{ hash: string; bytes: Blob }, string>;
+  private readonly blobs: Table<{ hash: string; bytes: Uint8Array | ArrayBuffer | Blob }, string>;
 
   constructor(db: GuideForgeDb) {
     this.db = db;
@@ -190,7 +190,11 @@ class IndexedDbAssetStore {
   ): Promise<AssetMetaRecord> {
     const hash = (await sha256Hex(bytes)) as ContentHash;
     const record: AssetMetaRecord = { ...meta, hash, location: 'indexeddb' };
-    await this.blobs.put({ hash, bytes: new Blob([bytes as BlobPart], { type: meta.mimeType }) });
+    // Store the bytes as a plain Uint8Array (not a bare ArrayBuffer or Blob):
+    // some WebKit builds fail to structured-clone a bare ArrayBuffer into
+    // IndexedDB ("Error preparing Blob/File data"), while typed arrays clone
+    // reliably everywhere.
+    await this.blobs.put({ hash, bytes: bytes.slice() });
     await this.db.assets.put(record);
     return record;
   }
@@ -198,7 +202,16 @@ class IndexedDbAssetStore {
   async get(hash: ContentHash): Promise<Uint8Array | null> {
     const row = await this.blobs.get(hash);
     if (!row) return null;
-    return new Uint8Array(await row.bytes.arrayBuffer());
+    const bytes = row.bytes;
+    // Cross-realm structured-clone results defeat `instanceof` in some
+    // engines (WebKit, fake-indexeddb). Duck-type instead.
+    if (typeof bytes === 'object' && bytes !== null && 'length' in bytes) {
+      const arr = bytes as unknown as ArrayLike<number>;
+      return Uint8Array.from(arr);
+    }
+    if (bytes instanceof ArrayBuffer) return new Uint8Array(bytes);
+    // Backward compatibility: earliest versions stored a Blob.
+    return new Uint8Array(await bytes.arrayBuffer());
   }
 
   async has(hash: ContentHash): Promise<boolean> {

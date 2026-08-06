@@ -3,6 +3,11 @@ packages:
   - 'packages/*'
   - 'services/*'
 
+# Native postinstall scripts required for vite/tsx/libxmljs builds (pnpm 10).
+onlyBuiltDependencies:
+  - esbuild
+  - libxmljs2
+
 # Single source of truth for exact dependency versions (ADR 0001).
 catalog:
   # React

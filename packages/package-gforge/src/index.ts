@@ -190,9 +190,13 @@ export function validatePackagePath(rawPath: string): string {
   }
   const parts = rawPath.split('/');
   for (const part of parts) {
-    if (part === '..') throw new PackageSafetyError(`parent traversal rejected: ${rawPath}`);
-    if (part === '.' || part === '')
+    // Any segment that resolves to the parent directory (including trailing
+    // whitespace/suffix variants like ".. " that some filesystems normalize)
+    // is rejected — path traversal must never survive normalization.
+    const trimmed = part.trimEnd();
+    if (trimmed === '..' || trimmed === '.' || trimmed === '') {
       throw new PackageSafetyError(`non-normalized path: ${rawPath}`);
+    }
     if (part.includes('\\')) throw new PackageSafetyError(`backslash rejected: ${rawPath}`);
     for (const ch of part) {
       const code = ch.codePointAt(0) ?? 0;
@@ -212,6 +216,15 @@ export interface DraftPackageInput {
   assets: Map<ContentHash, AssetReference & { bytes: Uint8Array }>;
   /** Optional extra manifest fields (e.g. tool version). */
   extraManifest?: Record<string, unknown>;
+  /**
+   * Asset attributions for the package license report
+   * (`reports/asset-licenses.json`): hash -> {name, licenseId, attribution,
+   * source}. Empty/omitted when no assets are attributed.
+   */
+  attributions?: Map<
+    ContentHash,
+    { name: string; licenseId?: string; attribution?: string; source?: string }
+  >;
 }
 
 export interface PackageManifest {
@@ -237,6 +250,35 @@ export async function webSha256(bytes: Uint8Array): Promise<string> {
 export function canonicalJson(value: unknown): Uint8Array {
   const json = JSON.stringify(sortKeys(value));
   return strToU8(json);
+}
+
+/** Build the asset license/attribution report object (Phase 04). */
+function attributionReport(attributions: NonNullable<DraftPackageInput['attributions']>): {
+  format: string;
+  version: number;
+  generatedAt: string;
+  assets: {
+    hash: string;
+    name: string;
+    licenseId: string | null;
+    attribution: string | null;
+    source: string | null;
+  }[];
+} {
+  return {
+    format: 'gforge-asset-licenses',
+    version: 1,
+    generatedAt: FIXED_TIMESTAMP,
+    assets: Array.from(attributions.entries())
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([hashVal, a]) => ({
+        hash: hashVal,
+        name: a.name,
+        licenseId: a.licenseId ?? null,
+        attribution: a.attribution ?? null,
+        source: a.source ?? null,
+      })),
+  };
 }
 
 function sortKeys(value: unknown): unknown {
@@ -303,6 +345,14 @@ export function buildDraftEntries(input: DraftPackageInput): PackageEntry[] {
     ...(input.extraManifest ?? {}),
   };
   entries.push({ path: 'manifest.json', data: canonicalJson(manifest) });
+
+  // Asset license/attribution report (Phase 04).
+  if (input.attributions && input.attributions.size > 0) {
+    entries.push({
+      path: 'reports/asset-licenses.json',
+      data: canonicalJson(attributionReport(input.attributions)),
+    });
+  }
 
   // Lexicographic order across the whole archive.
   entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
@@ -448,6 +498,17 @@ export async function buildDraftEntriesWithHash(
     ...(input.extraManifest ?? {}),
   };
   entries.push({ path: 'manifest.json', data: canonicalJson(manifest) });
+
+  // Asset license/attribution report (Phase 04): every attributed asset is
+  // listed with its license + attribution so the package is redistributable
+  // with credit. Skipped when no attributions are provided.
+  if (input.attributions && input.attributions.size > 0) {
+    entries.push({
+      path: 'reports/asset-licenses.json',
+      data: canonicalJson(attributionReport(input.attributions)),
+    });
+  }
+
   entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 
   const seen = new Set<string>();

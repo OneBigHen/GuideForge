@@ -33,6 +33,7 @@ import {
   openDb,
   persistWorkingDoc,
   type AiProposalRecord,
+  type AssetMetaRecord,
   type EvidenceRecord,
   type GuideForgeDb,
   type YjsPersistenceHandle,
@@ -511,7 +512,41 @@ export async function exportDraft(
 ): Promise<{ bytes: Uint8Array; filename: string }> {
   const snapshot = materializeSnapshot(session.working);
   const assets = await collectReferencedAssets(session, snapshot);
-  const { bytes } = await createDraftPackageAsync({ snapshot, assets });
+  // Attribution report for every packaged asset (Phase 04).
+  const attributions = new Map<
+    string,
+    { name: string; licenseId?: string; attribution?: string; source?: string }
+  >();
+  for (const hash of assets.keys()) {
+    const meta = (await session.db.assets.get(hash)) as
+      | (AssetMetaRecord & {
+          name?: string;
+          origin?: { kind: string; licenseId?: string; attribution?: string; record?: string };
+        })
+      | undefined;
+    if (meta) {
+      const attribution: {
+        name: string;
+        licenseId?: string;
+        attribution?: string;
+        source?: string;
+      } = {
+        name: meta.name ?? hash.slice(0, 10),
+      };
+      if (meta.origin?.licenseId) attribution.licenseId = meta.origin.licenseId;
+      if (meta.origin?.attribution) attribution.attribution = meta.origin.attribution;
+      if (meta.origin?.record) attribution.source = meta.origin.record;
+      attributions.set(hash, attribution);
+    }
+  }
+  const { bytes } = await createDraftPackageAsync({
+    snapshot,
+    assets,
+    attributions: attributions as Map<
+      ContentHash,
+      { name: string; licenseId?: string; attribution?: string; source?: string }
+    >,
+  });
   return { bytes, filename: `${snapshot.title.replace(/[^a-z0-9-_]+/gi, '-')}.gforge` };
 }
 
