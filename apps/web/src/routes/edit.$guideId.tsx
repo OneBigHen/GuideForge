@@ -165,6 +165,9 @@ function EditPage() {
         </Link>
         <h1 id="edit-title">Edit guide</h1>
         <div className="edit-header__actions">
+          <Link to="/sources/$guideId" params={{ guideId }} className="button button--small">
+            Source Studio
+          </Link>
           <Link to="/scene/$guideId" params={{ guideId }} className="button button--small">
             Spatial editor
           </Link>

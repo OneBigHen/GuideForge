@@ -19,6 +19,7 @@
     "@guideforge/commands": "workspace:*",
     "@guideforge/domain": "workspace:*",
     "@guideforge/guide-schema": "workspace:*",
+    "@guideforge/ingestion": "workspace:*",
     "@guideforge/interop-ms-guide": "workspace:*",
     "@guideforge/model-gateway": "workspace:*",
     "@guideforge/package-gforge": "workspace:*",

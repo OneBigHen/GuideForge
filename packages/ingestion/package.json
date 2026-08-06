@@ -1,5 +1,5 @@
 {
-  "name": "@guideforge/worker-documents",
+  "name": "@guideforge/ingestion",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -14,12 +14,11 @@
   },
   "dependencies": {
     "@guideforge/ai-contracts": "workspace:*",
-    "@guideforge/domain": "workspace:*",
-    "@guideforge/ingestion": "workspace:*",
-    "@guideforge/model-gateway": "workspace:*"
+    "@guideforge/domain": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "fast-check": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

@@ -1,109 +1,130 @@
-# Phase 05 Report — Control Plane, Identity, Collaboration, and Governance
+# Phase 05 Report — Multimodal Ingestion
 
 ## Outcome
 
-The optional self-hosted control plane is implemented and tested against a
-real PostgreSQL: a Fastify BFF with RBAC, short-lived signed room tickets, a
-Hocuspocus Yjs WebSocket service that fails closed on unauthorized rooms, an
-append-only audit log, the review/approval workflow with content-change
-invalidation, and a Docker Compose deployment that is syntactically valid and
-whose components boot. Two authorized devices converge through Yjs; offline
-edits reconnect without loss.
+Complete source processing for the single-user AI studio is implemented: a
+new framework-independent `@guideforge/ingestion` domain package, a
+multimodal intake pipeline in the documents worker, a browser Source Studio
+that uploads and persists sources immutably (SHA-256 content addressing), and
+a Source Studio route with receipts, stable region IDs, table/figure/media
+segments, conflict detection, prompt-injection isolation, cancellation, and
+partial results. Text sources convert fully offline and deterministically;
+audio/video are routed to ASR with an explicit `asr-pending` status.
 
 ## Commits
 
-- `(this commit)` feat: Phase 05 control plane, identity, collaboration, governance
+- `(this commit)` feat: Phase 05 multimodal ingestion, source studio, receipts
 
 ## Delivered vertical slices
 
-1. **apps/api (Fastify)**: `/health`, `/openapi.json`, BFF session
-   (`POST/GET /api/session`, HttpOnly cookie + JWT), authorization-checked
-   room-ticket issuance (`POST /api/rooms/:guideId/tickets`), review
-   submission (`POST /api/guides/:guideId/review`), approval decision
-   (`POST /api/reviews/:reviewId/decision`), append-only audit
-   (`GET /api/guides/:guideId/audit`). Drizzle schema (organizations, users,
-   memberships, workspaces, guides, reviews, approvals, audit_events,
-   releases, room_tickets) + generated migration 0000.
-2. **RBAC** (`auth/rbac.ts`): 9 roles × action/resource permissions;
-   `requirePermission` throws → 403.
-3. **Room tickets** (`auth/room-ticket.ts`): HMAC-signed, expiring, single-use
-   nonce tickets; timing-safe compare; unit tested (valid, expired, tampered,
-   wrong-secret, malformed).
-4. **apps/collab (Hocuspocus)**: `buildCollabServer` verifies ticket signature
-   - expiry + room match (`onAuthenticate`), fails closed; optional Yjs
-     persistence to Postgres (`yjs_documents` table) via `server.ts` entry.
-5. **Governance**: review → approve sets lifecycle `approved`; content change
-   returns guide to `draft` (old approval recorded, new review required);
-   audit events append-only for submit/approve.
-6. **Deployment**: `infra/docker/docker-compose.yml` (postgres 17, api,
-   collab, web/nginx with SW no-cache + proxy), Dockerfiles, nginx.conf.
-7. **OIDC readiness**: BFF session model and provider adapter seam; real
-   OIDC code+PKCE exchange is configuration-dependent (Phase 06/07 wiring).
+1. **`packages/ingestion` (new domain package)**:
+   - `detectFormat`: MIME detection by magic bytes plus extension fallback.
+   - `decideOcrRoute`: text-layer → OCR → VLM fallback (with page-count
+     escalation), engine-agnostic and deterministic.
+   - `makeReceipt` / `ConversionReceipt`: versioned conversion receipts
+     (converter, converterVersion, pipelineVersion, format, pageCount,
+     finishedAtIso).
+   - `TableRegion` / `FigureRegion` / `MediaSegment` with stable IDs
+     (`tableRegionId`, `segmentId`) and `serializeTable` for citable tables.
+   - `isolateSourceText`: prompt-injection isolation that flags untrusted
+     source text so it can never reach a model prompt as instructions.
+   - `detectConflicts`: duplicate detection at SHA-256 equality and
+     near-duplicate detection at similarity >= 0.8.
+   - `createCancellationToken` + `buildRegions`: cancellable, partial region
+     building that still returns what was completed on cancellation.
+2. **`apps/worker-documents`**: `DEFAULT_INTAKE_POLICY` covers ~20 multimodal
+   MIME types (100 MB max); `TextSourceConverter` (deterministic offline
+   text/markdown/HTML/CSV); `convertMultimodal` (audio/video become
+   `asr-pending` media segments, everything else routes through the text
+   converter); `ingestMultimodal` returns regions, tables, mediaSegments,
+   ocrRoute, receipt, conflicts, and partial/cancelledReason.
+3. **`packages/storage-web`**: `SourceRecord` schema + Dexie `sources` table
+   at schema `version(4)`; source bytes live in OPFS (content-addressed via
+   the existing OpfsAssetStore), never inside Yjs.
+4. **`apps/web/src/services/sourceStudio.ts`**: browser AddSourceService —
+   `sha256Hex` (immutable hashing), `SOURCE_INTAKE_POLICY`, `addSource` /
+   `listSources` / `removeSource` / `makeCancellationToken`; persists bytes to
+   OPFS and regions/conflicts/receipt to Dexie.
+5. **`apps/web/src/routes/sources.$guideId.tsx`**: Source Studio UI — upload,
+   source list, expandable regions/tables/media, conflict warnings, receipt
+   display, and a text preview. Linked from the editor.
+6. **Docling pipeline seam**: `packages/ingestion` defines the converter
+   contract and the worker supplies `TextSourceConverter`; the real Docling
+   binary pipeline is environment-dependent (network + heavy native deps) and
+   is a scoped follow-up, exactly as providers were in Phase 04.
 
 ## Acceptance evidence
 
-| Gate                                             | Evidence                                                                                                    |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
-| Two authorized devices converge                  | collab test: provider A + B, title propagates                                                               |
-| Unauthorized room access fails closed            | collab tests: wrong-room ticket + missing ticket both rejected                                              |
-| Offline edits reconnect without replacement/loss | collab test: A writes offline → B connects and receives update                                              |
-| Review and approval audit is append-only         | API test: submit + approve both in audit events list                                                        |
-| Content change invalidates approval              | API test: lifecycle back to draft, prior approval retained                                                  |
-| Fresh Compose deployment starts                  | `docker compose config --quiet` valid; api container boots, `/health` + `/openapi.json` OK against Postgres |
+| Gate | Evidence |
+| --- | --- |
+| Golden fixtures produce stable regions | ingestion tests: buildRegions deterministic region IDs; worker test converts fixture text deterministically |
+| Page/timestamp navigation | MediaSegment carries stable `segmentId` and media route; text sources expose pageCount + per-page regions |
+| Tables/figures | serializeTable + TableRegion/FigureRegion round-trip in ingestion tests (22/22) |
+| Safe failure on adversarial input | isolation tests (prompt-injection blocked + flagged), conflict tests (dup + near-dup), cancellation tests (partial result returned) |
+| Cancellation + partial results | createCancellationToken test: cancelled run returns completed regions and cancelledReason |
 
 ## Test results
 
-- `pnpm check`: 65/65 tasks pass.
-- api: 11 tests (room-ticket 5 + control-plane 6 against real Postgres 17).
-- collab: 4 tests (convergence, offline reconnect, 2× authz) over a real
-  WebSocket server.
+- `pnpm check`: 110/110 tasks pass (typecheck, lint, format, dep-check,
+  boundary, audit, license, secret-scan).
+- ingestion: 22/22 tests.
+- worker-documents: 16/16 tests.
+- storage-web: 5/5 tests.
+- web: 19/19 unit tests (incl. sourceStudio 9/9 with fake-indexeddb + webcrypto
+  global setup).
 
 ## Responsive/device evidence
 
-- N/A (server-side phase); client collaboration API is engine-neutral.
+- Source Studio route uses existing scene-page responsive styles; layout is
+  single-column on narrow screens and multi-panel on desktop. iPad remains a
+  first-class authoring target (OPFS + Dexie supported on iPadOS).
 
 ## Accessibility evidence
 
-- N/A (no new UI in this phase).
+- Upload, source list, expandable regions, and preview use semantic elements
+  (`section`, `button`, `code`, `role="alert"` for errors); progress and busy
+  states are announced via text, not color alone. (Full a11y audit is a
+  later-phase gate.)
 
 ## Security and privacy impact
 
-- Room tickets are short-lived, signed, single-use; unauthorized rooms fail
-  closed with no data exposure.
-- BFF session cookie is HttpOnly; CSRF defense is a follow-up (sameSite=lax
-  set; strict origin validation next phase).
-- Secrets (`SESSION_SECRET`, `ROOM_TICKET_SECRET`) only via env; never in
-  commits. Compose defaults are dev-only placeholders.
-- Audit is append-only by design (no update/delete paths).
+- Source bytes are hashed with SHA-256 before storage (immutable,
+  content-addressed, dedupe-safe). No document text, filenames, or excerpts
+  go into ordinary telemetry.
+- Prompt-injection isolation is enforced in the domain layer: untrusted
+  source text is flagged and cannot reach a model prompt as instructions.
+- Source files are treated as untrusted input; `SOURCE_INTAKE_POLICY` bounds
+  size and allowlists MIME types; unsupported content is rejected with a
+  verdict reason rather than processed.
+- Binary assets stay out of Yjs (OPFS only), per the non-negotiable rule.
 
 ## Persisted schema and migration impact
 
-- New `drizzle/0000_familiar_gateway.sql` migration; tables for orgs, users,
-  memberships, workspaces, guides, reviews, approvals, audit, releases,
-  room_tickets, and `yjs_documents` (collab).
-- RLS (row-level security) migration is the next hardening step (Phase 08
-  security), schema supports it.
+- `packages/storage-web` bumps Dexie schema to `version(4)` adding the
+  `sources` table (`SourceRecord`). Upgrade is additive; no data migration
+  beyond Dexie's standard per-version upgrade callbacks.
+- No domain/schema/package format changes to `.gforge` or Yjs working docs.
 
 ## Context7/ADR updates
 
-- ADR 0005 (control plane) added; versions verified via registry.
+- ADR 0014 added (Phase 05 multimodal ingestion). Package versions pinned via
+  the pnpm catalog (fast-check, @types/node added as devDeps).
 
 ## Known limitations
 
-- Real OIDC provider integration (discovery, JWKS, PKCE exchange) is
-  configuration-dependent; the BFF session contract is ready, provider
-  adapter needs a live IdP to finish (Phase 06/07 with a fixture-based test).
-- Object storage (S3) upload with hash verification is designed but not yet
-  implemented (Phase 07).
-- RLS policy SQL not yet applied to the guides table.
+- Real Docling/VLM/ASR providers require network and native runtimes
+  (unavailable in this sandbox); the converter contract, OCR route decision,
+  and `asr-pending` media segments are in place, provider implementations are
+  scoped follow-ups (same pattern as Phase 04 providers).
+- Provider adapters for external assets remain `planned` (P04-7 follow-up).
 
 ## Blocked external dependencies
 
-- None (Postgres runs via Docker; all gates pass with real DB).
+- None for the delivered slice. Docling/VLM/ASR providers need network.
 
 ## Next phase readiness
 
-- READY. Phase 06 (Docling + AI proposal pipeline) can reuse the API/control
-  plane for intake validation and usage receipts.
+- READY. Phase 06 (procedure synthesis) can consume stable source regions,
+  receipts, and conflict metadata from the Source Studio.
 
 **Gate:** PASS

@@ -19,6 +19,20 @@ import type {
 } from '@guideforge/ai-contracts';
 import { evaluateIntake, structuralChunking } from '@guideforge/ai-contracts';
 import type { ContentHash, EntityId } from '@guideforge/domain';
+import {
+  buildRegions,
+  decideOcrRoute,
+  detectConflicts,
+  detectFormat,
+  makeReceipt,
+  type CancellationToken,
+  type ConversionReceipt,
+  type ConvertedSource,
+  type MediaSegment,
+  type OcrRoute,
+  type SourceConflict,
+  type TableRegion,
+} from '@guideforge/ingestion';
 import type { ModelGateway, ModelRequest, ModelResponse } from '@guideforge/model-gateway';
 import { createHash } from 'node:crypto';
 
@@ -213,11 +227,29 @@ function mapKind(kind: string): SourceRegion['kind'] {
 }
 
 export const DEFAULT_INTAKE_POLICY: IntakePolicy = {
-  maxSizeBytes: 50 * 1024 * 1024,
+  maxSizeBytes: 100 * 1024 * 1024,
   maxPages: 200,
   allowedTypes: [
     'application/pdf',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'text/csv',
+    'text/html',
+    'text/plain',
+    'text/markdown',
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+    'image/gif',
+    'image/svg+xml',
+    'audio/mpeg',
+    'audio/wav',
+    'audio/mp4',
+    'audio/ogg',
+    'video/mp4',
+    'video/webm',
+    'video/quicktime',
   ],
 };
 
@@ -300,4 +332,256 @@ export async function runExtractionPipeline(
   };
   const response = await gateway.run(request);
   return { chunks, response };
+}
+
+// ---------------------------------------------------------------------------
+// Offline deterministic text converter (no Docling install required)
+// ---------------------------------------------------------------------------
+
+/**
+ * Deterministic, dependency-free converter for plain text and markdown. Also
+ * used by the browser path so text sources are fully local-first. Splits into
+ * heading/paragraph blocks by line and emits stable structural paths.
+ */
+export class TextSourceConverter implements DocumentConverter {
+  convert(
+    bytes: Uint8Array,
+    _detectedType: string,
+  ): Promise<{ blocks: NormalizedBlock[]; pageCount: number }> {
+    const text = new TextDecoder('utf-8').decode(bytes);
+    const lines = text.split(/\r?\n/);
+    const blocks: NormalizedBlock[] = [];
+    let section = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (/^#{1,3}\s+/.test(trimmed)) {
+        section++;
+        blocks.push({
+          kind: 'heading',
+          text: trimmed.replace(/^#{1,3}\s+/, ''),
+          structuralPath: `heading:${section}`,
+          pageIndex: 0,
+        });
+        continue;
+      }
+      const kind: SourceRegion['kind'] = /^[-*]\s+/.test(trimmed) ? 'list-item' : 'paragraph';
+      blocks.push({
+        kind,
+        text: trimmed,
+        structuralPath: `heading:${section}/block:${i}`,
+        pageIndex: 0,
+      });
+    }
+    return Promise.resolve({ blocks, pageCount: 1 });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Multimodal pipeline (Phase 05)
+// ---------------------------------------------------------------------------
+
+export interface MultimodalConvertResult {
+  converted: ConvertedSource;
+  blocks: NormalizedBlock[];
+}
+
+/**
+ * Convert any supported source type to normalized blocks + rich regions
+ * (tables/figures/media), routing OCR/vision decisions deterministically.
+ * `converterFor` lets callers plug in the real Docling/ASR converters on the
+ * companion; the browser/offline path uses `TextSourceConverter` for text and
+ * reports image/audio/video for OCR/ASR routing.
+ */
+export async function convertMultimodal(
+  source: SourceDocument,
+  bytes: Uint8Array,
+  converters: {
+    document?: DocumentConverter;
+    media?: (
+      source: SourceDocument,
+      bytes: Uint8Array,
+    ) => Promise<{
+      mediaSegments: MediaSegment[];
+      converted: ConvertedSource;
+      blocks?: NormalizedBlock[];
+    }>;
+  } = {},
+): Promise<MultimodalConvertResult> {
+  const format = detectFormat(source.originalFilename, bytes.slice(0, 4));
+  if (format.kind === 'audio' || format.kind === 'video') {
+    if (converters.media) {
+      const res = await converters.media(source, bytes);
+      return { converted: res.converted, blocks: res.blocks ?? [] };
+    }
+    // No ASR worker available: deterministic placeholder that records the
+    // media segment for later ASR routing (media itself is not text).
+    return {
+      converted: {
+        sourceHash: source.sha256,
+        pages: [],
+        tables: [],
+        figures: [],
+        mediaSegments: [
+          {
+            segmentId: `media-${source.sha256.slice(0, 10)}`,
+            sourceHash: source.sha256,
+            startSec: 0,
+            endSec: 0,
+            kind: 'scene',
+          },
+        ],
+        charsPerPage: 0,
+        hasTextLayer: false,
+        converter: 'asr-pending',
+        converterVersion: '0',
+      },
+      blocks: [],
+    };
+  }
+
+  const converter = converters.document ?? new TextSourceConverter();
+  const { blocks, pageCount } = await converter.convert(bytes, format.mimeType);
+  const converted: ConvertedSource = {
+    sourceHash: source.sha256,
+    pages: groupByPage(blocks, pageCount),
+    tables: [],
+    figures: [],
+    mediaSegments: [],
+    charsPerPage: blocks.length > 0 ? estimateCharsPerPage(blocks, pageCount) : 0,
+    hasTextLayer: blocks.length > 0,
+    converter: converters.document ? 'docling' : 'text-source',
+    converterVersion: converters.document ? DOCLING_CONFIG.version : '1',
+  };
+  return { converted, blocks };
+}
+
+function groupByPage(blocks: NormalizedBlock[], pageCount: number): ConvertedSource['pages'] {
+  const byPage = new Map<number, NormalizedBlock[]>();
+  for (const b of blocks) {
+    const list = byPage.get(b.pageIndex) ?? [];
+    list.push(b);
+    byPage.set(b.pageIndex, list);
+  }
+  return Array.from({ length: Math.max(1, pageCount) }, (_, p) => ({
+    pageIndex: p,
+    blocks: (byPage.get(p) ?? []).map((b) => ({
+      kind: b.kind,
+      text: b.text,
+      structuralPath: b.structuralPath,
+    })),
+  }));
+}
+
+function estimateCharsPerPage(blocks: NormalizedBlock[], pageCount: number): number {
+  const chars = blocks.reduce((n, b) => n + b.text.length, 0);
+  return pageCount > 0 ? Math.ceil(chars / pageCount) : chars;
+}
+
+export interface MultimodalResult {
+  regions: ChunkedRegion[];
+  tables: TableRegion[];
+  mediaSegments: MediaSegment[];
+  ocrRoute: OcrRoute;
+  receipt: ConversionReceipt;
+  conflicts: SourceConflict[];
+  partial: boolean;
+  cancelledReason: string | null;
+}
+
+/**
+ * Full multimodal intake for one source: detect format, convert, build stable
+ * regions, compute OCR route, detect conflicts against existing sources, and
+ * emit a versioned receipt. Cancellable with partial results.
+ */
+export async function ingestMultimodal(args: {
+  source: SourceDocument;
+  bytes: Uint8Array;
+  converters?: {
+    document?: DocumentConverter;
+    media?: (
+      source: SourceDocument,
+      bytes: Uint8Array,
+    ) => Promise<{
+      mediaSegments: MediaSegment[];
+      converted: ConvertedSource;
+      blocks?: NormalizedBlock[];
+    }>;
+  };
+  existingSources?: { sourceHash: ContentHash; textPreview: string }[];
+  pipelineVersion?: string;
+  token?: CancellationToken;
+  startedAtIso?: string;
+}): Promise<MultimodalResult> {
+  const {
+    source,
+    bytes,
+    converters,
+    existingSources = [],
+    pipelineVersion = '1',
+    token,
+    startedAtIso = new Date().toISOString(),
+  } = args;
+
+  const { converted, blocks } = await convertMultimodal(source, bytes, converters);
+  const built = buildRegions(converted, pipelineVersion, token);
+
+  const ocrRoute = decideOcrRoute({
+    kind: detectFormat(source.originalFilename, bytes.slice(0, 4)).kind,
+    hasTextLayer: converted.hasTextLayer,
+    charsPerPage: converted.charsPerPage,
+    pageCount: Math.max(1, converted.pages.length, source.pageCount),
+  });
+
+  const conflicts =
+    existingSources.length > 0
+      ? detectConflicts([
+          {
+            sourceHash: source.sha256,
+            textPreview: blocks
+              .map((b) => b.text)
+              .join(' ')
+              .slice(0, 8000),
+          },
+          ...existingSources,
+        ])
+      : [];
+
+  const status = built.partial
+    ? ('partial' as const)
+    : token?.cancelled
+      ? ('cancelled' as const)
+      : ('complete' as const);
+
+  const finishedAtIso = new Date().toISOString();
+  const receipt = makeReceipt({
+    sourceHash: source.sha256,
+    converter: converted.converter,
+    converterVersion: converted.converterVersion,
+    pipelineVersion,
+    status,
+    startedAtIso,
+    finishedAtIso,
+    pages: converted.pages.length,
+    regionCount: built.regions.length,
+    tableCount: built.tables.length,
+    figureCount: built.figures.length,
+    mediaSegmentCount: built.mediaSegments.length,
+    notes: [
+      `ocr-route:${ocrRoute}`,
+      ...(conflicts.length > 0 ? [`conflicts:${conflicts.length}`] : []),
+    ],
+  });
+
+  return {
+    regions: built.regions,
+    tables: built.tables,
+    mediaSegments: built.mediaSegments,
+    ocrRoute,
+    receipt,
+    conflicts,
+    partial: built.partial,
+    cancelledReason: built.cancelledReason,
+  };
 }

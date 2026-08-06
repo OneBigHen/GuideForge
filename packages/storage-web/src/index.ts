@@ -82,12 +82,65 @@ export interface AiProposalRecord {
   status: 'pending' | 'accepted' | 'rejected';
 }
 
+/** Ingested multimodal source document (Phase 05 Source Studio). */
+export interface SourceRecord {
+  sourceId: string;
+  guideId: string;
+  originalFilename: string;
+  detectedType: string;
+  /** content kind: pdf/docx/pptx/xlsx/csv/html/text/image/audio/video. */
+  kind: string;
+  sha256: string;
+  sizeBytes: number;
+  pageCount: number;
+  receivedAtIso: string;
+  /** Deterministic OCR/vision route decision. */
+  ocrRoute: string;
+  /** Status of the intake run. */
+  status: 'complete' | 'partial' | 'cancelled' | 'failed' | 'asr-pending';
+  /** Versioned conversion receipt (content-addressed id). */
+  receipt: {
+    receiptId: string;
+    converter: string;
+    converterVersion: string;
+    pipelineVersion: string;
+    durationMs: number;
+    regionCount: number;
+    tableCount: number;
+    figureCount: number;
+    mediaSegmentCount: number;
+    notes: string[];
+    status: string;
+  } | null;
+  /** Stable regions (regionId, page, kind, excerpt, structuralPath). */
+  regions: {
+    regionId: string;
+    pageIndex: number;
+    kind: string;
+    excerpt: string;
+    structuralPath: string;
+  }[];
+  /** Detected conflicts against other sources in the same guide. */
+  conflicts: { kind: string; canonicalHash: string; otherHash: string; similarity: number }[];
+  /** Tables extracted from this source (deterministic). */
+  tables: { regionId: string; pageIndex: number; header: string[]; rows: string[][] }[];
+  /** Media segments (audio/video) with timestamps. */
+  mediaSegments: {
+    segmentId: string;
+    startSec: number;
+    endSec: number;
+    kind: string;
+    transcript?: string;
+  }[];
+}
+
 export class GuideForgeDb extends Dexie {
   guides!: Table<LibraryGuideMeta, string>;
   assets!: Table<AssetMetaRecord, string>;
   assetBlobs!: Table<{ hash: string; bytes: Uint8Array | ArrayBuffer | Blob }, string>;
   evidence!: Table<EvidenceRecord, string>;
   proposals!: Table<AiProposalRecord, string>;
+  sources!: Table<SourceRecord, string>;
 
   constructor() {
     super('guideforge');
@@ -110,6 +163,15 @@ export class GuideForgeDb extends Dexie {
       assetBlobs: 'hash',
       evidence: 'evidenceId, guideId, stepId, capturedAtIso',
       proposals: 'proposalId, guideId, status, createdAtIso',
+    });
+    // v4: multimodal source documents (Phase 05 Source Studio).
+    this.version(4).stores({
+      guides: 'guideId, title, updatedAtIso, lifecycleState',
+      assets: 'hash, mimeType, sizeBytes',
+      assetBlobs: 'hash',
+      evidence: 'evidenceId, guideId, stepId, capturedAtIso',
+      proposals: 'proposalId, guideId, status, createdAtIso',
+      sources: 'sourceId, guideId, sha256, receivedAtIso',
     });
   }
 }
