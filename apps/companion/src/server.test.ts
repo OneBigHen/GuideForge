@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { execFileSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createPublicKey, randomBytes, verify as verifySignature } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { request as httpsRequest } from 'node:https';
 import { tmpdir } from 'node:os';
@@ -150,7 +150,12 @@ describe('companion owner security', () => {
         session: string;
         passkey: { seam: string };
       };
-      features: { sqlite: boolean; encryptedProviderSecrets: boolean; pairing: boolean };
+      features: {
+        sqlite: boolean;
+        encryptedProviderSecrets: boolean;
+        pairing: boolean;
+        signingKeyStore: boolean;
+      };
       transport: {
         loopbackDefault: boolean;
         httpsRequiredForNonLoopback: boolean;
@@ -162,7 +167,12 @@ describe('companion owner security', () => {
     expect(body.auth.passwordHash).toBe('argon2id');
     expect(body.auth.session).toBe('opaque-rotating-cookie');
     expect(body.auth.passkey.seam).toBe('webauthn-v1');
-    expect(body.features).toEqual({ sqlite: true, encryptedProviderSecrets: true, pairing: true });
+    expect(body.features).toEqual({
+      sqlite: true,
+      encryptedProviderSecrets: true,
+      pairing: true,
+      signingKeyStore: true,
+    });
     expect(body.transport).toEqual({
       loopbackDefault: true,
       httpsRequiredForNonLoopback: true,
@@ -233,6 +243,78 @@ describe('companion owner security', () => {
     const stored = db.getSecret('provider');
     expect(stored).toBeDefined();
     expect(secretBox.decrypt(stored!)).toBe('provider-secret');
+  });
+
+  it('rotates, signs with, and revokes encrypted companion signing keys', async () => {
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/signing-keys/rotate',
+      headers: cookieHeaders(sessionCookie, ORIGIN),
+    });
+    expect(first.statusCode).toBe(200);
+    const firstKey = jsonOf<{ keyId: string; publicKeyHex: string }>(first);
+    expect(firstKey.publicKeyHex).toHaveLength(64);
+    expect(db.getSecret(`signing-key-${firstKey.keyId}`)).toBeDefined();
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/signing-keys/rotate',
+      headers: cookieHeaders(sessionCookie, ORIGIN),
+    });
+    const secondKey = jsonOf<{ keyId: string; publicKeyHex: string }>(second);
+    expect(second.statusCode).toBe(200);
+    expect(secondKey.keyId).not.toBe(firstKey.keyId);
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: '/api/signing-keys',
+      headers: cookieHeaders(sessionCookie),
+    });
+    const listedKeys = jsonOf<{ keys: { keyId: string; status: string }[] }>(listed).keys;
+    expect(listedKeys).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ keyId: firstKey.keyId, status: 'retired' }),
+        expect.objectContaining({ keyId: secondKey.keyId, status: 'active' }),
+      ]),
+    );
+
+    const payloadJson = '{"guideId":"guide-1","version":1}';
+    const signed = await app.inject({
+      method: 'POST',
+      url: `/api/signing-keys/${secondKey.keyId}/sign`,
+      headers: cookieHeaders(sessionCookie, ORIGIN),
+      payload: { payloadJson },
+    });
+    const signature = jsonOf<{ signatureHex: string; publicKeyHex: string }>(signed);
+    const spkiPrefix = Buffer.from('302a300506032b6570032100', 'hex');
+    const valid = verifySignature(
+      null,
+      Buffer.from(payloadJson),
+      createPublicKey({
+        key: Buffer.concat([spkiPrefix, Buffer.from(signature.publicKeyHex, 'hex')]),
+        format: 'der',
+        type: 'spki',
+      }),
+      Buffer.from(signature.signatureHex, 'hex'),
+    );
+    expect(signed.statusCode).toBe(200);
+    expect(valid).toBe(true);
+
+    const revoked = await app.inject({
+      method: 'POST',
+      url: `/api/signing-keys/${secondKey.keyId}/revoke`,
+      headers: cookieHeaders(sessionCookie, ORIGIN),
+      payload: { reason: 'test rotation' },
+    });
+    expect(revoked.statusCode).toBe(200);
+    expect(db.getSecret(`signing-key-${secondKey.keyId}`)).toBeUndefined();
+    const afterRevoke = await app.inject({
+      method: 'POST',
+      url: `/api/signing-keys/${secondKey.keyId}/sign`,
+      headers: cookieHeaders(sessionCookie, ORIGIN),
+      payload: { payloadJson },
+    });
+    expect(afterRevoke.statusCode).toBe(409);
   });
 
   it('rotates and revokes sessions, and consumes pairing codes once', async () => {

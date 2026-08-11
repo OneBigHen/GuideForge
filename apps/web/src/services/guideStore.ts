@@ -22,24 +22,30 @@ import type { AssetReference, ContentHash, EntityId } from '@guideforge/domain';
 import { isGuideSnapshot, migrateToCurrent, type GuideSnapshot } from '@guideforge/guide-schema';
 import { importMsGuide as msImport } from '@guideforge/interop-ms-guide';
 import {
+  canonicalJson,
   createDraftPackageAsync,
   createReleasePackage,
-  preflightZipArchive,
+  extractZipArchive,
+  sanitizePackageMetadata,
   verifyPackageStructureAsync,
-  type PackageEntry,
+  webSha256,
+  type PackageBinary,
 } from '@guideforge/package-gforge';
 import {
-  OpfsAssetStore,
+  loadSourceBytes,
   migrateDexieSourcesToCanonical,
   openDb,
+  OpfsAssetStore,
   persistWorkingDoc,
+  storeSourceBytes,
   type AiProposalRecord,
   type AssetMetaRecord,
   type EvidenceRecord,
   type GuideForgeDb,
+  type StorageHealth,
   type YjsPersistenceHandle,
 } from '@guideforge/storage-web';
-import { strFromU8, unzipSync } from 'fflate';
+import { strFromU8 } from 'fflate';
 
 export interface OpenGuideSession {
   guideId: string;
@@ -63,6 +69,14 @@ let sharedDb: GuideForgeDb | null = null;
 function db(): GuideForgeDb {
   sharedDb ??= openDb();
   return sharedDb;
+}
+
+export async function getStorageHealth(): Promise<StorageHealth> {
+  return new OpfsAssetStore(db()).status();
+}
+
+export async function requestStoragePersistence(): Promise<boolean> {
+  return new OpfsAssetStore(db()).requestPersistence();
 }
 
 function uuidv4(): EntityId {
@@ -421,6 +435,130 @@ export async function listEvidence(guideId: string): Promise<EvidenceRecord[]> {
   return db().evidence.where('guideId').equals(guideId).reverse().sortBy('capturedAtIso');
 }
 
+const EVIDENCE_KINDS = new Set<EvidenceRecord['kind']>([
+  'photo',
+  'note',
+  'signature',
+  'measurement',
+]);
+
+function isEvidenceRecord(value: unknown): value is EvidenceRecord {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.evidenceId === 'string' &&
+    typeof record.guideId === 'string' &&
+    typeof record.stepId === 'string' &&
+    typeof record.kind === 'string' &&
+    EVIDENCE_KINDS.has(record.kind as EvidenceRecord['kind']) &&
+    typeof record.capturedAtIso === 'string' &&
+    typeof record.actorId === 'string' &&
+    (record.value === undefined || typeof record.value === 'string') &&
+    (record.assetHash === undefined ||
+      (typeof record.assetHash === 'string' && /^[0-9a-f]{64}$/.test(record.assetHash))) &&
+    (record.mimeType === undefined || typeof record.mimeType === 'string')
+  );
+}
+
+function referencedAssetHashes(
+  snapshot: GuideSnapshot,
+  evidence: readonly EvidenceRecord[] = [],
+): Set<string> {
+  const hashes = new Set<string>();
+  for (const step of snapshot.steps) for (const media of step.media) hashes.add(media.assetHash);
+  for (const node of snapshot.scene.nodes) if (node.assetHash) hashes.add(node.assetHash);
+  for (const record of evidence) if (record.assetHash) hashes.add(record.assetHash);
+  return hashes;
+}
+
+function assetMimeAndExtension(meta: AssetMetaRecord | undefined): {
+  mimeType: string;
+  extension: string;
+} {
+  const mimeType = meta?.mimeType ?? 'application/octet-stream';
+  const extension =
+    mimeType === 'model/gltf-binary'
+      ? 'glb'
+      : mimeType.startsWith('image/')
+        ? (mimeType.split('/')[1] ?? 'bin')
+        : mimeType.startsWith('video/')
+          ? (mimeType.split('/')[1] ?? 'bin')
+          : 'bin';
+  return { mimeType, extension };
+}
+
+async function collectAttributions(
+  session: OpenGuideSession,
+  assets: ReadonlyMap<ContentHash, AssetReference & { bytes: Uint8Array }>,
+): Promise<
+  Map<ContentHash, { name: string; licenseId?: string; attribution?: string; source?: string }>
+> {
+  const attributions = new Map<
+    ContentHash,
+    { name: string; licenseId?: string; attribution?: string; source?: string }
+  >();
+  for (const hash of assets.keys()) {
+    const meta = (await session.db.assets.get(hash)) as
+      | (AssetMetaRecord & {
+          name?: string;
+          origin?: { kind: string; licenseId?: string; attribution?: string; record?: string };
+        })
+      | undefined;
+    if (!meta) continue;
+    attributions.set(hash, {
+      name: meta.name ?? hash.slice(0, 10),
+      ...(meta.origin?.licenseId ? { licenseId: meta.origin.licenseId } : {}),
+      ...(meta.origin?.attribution ? { attribution: meta.origin.attribution } : {}),
+      ...(meta.origin?.record ? { source: meta.origin.record } : {}),
+    });
+  }
+  return attributions;
+}
+
+async function collectSourceBytes(
+  session: OpenGuideSession,
+  snapshot: GuideSnapshot,
+): Promise<Map<ContentHash, PackageBinary>> {
+  const sourceBytes = new Map<ContentHash, PackageBinary>();
+  for (const source of snapshot.sources) {
+    const bytes =
+      (await loadSourceBytes(session.db, source.sha256)) ??
+      (await session.assets.get(source.sha256));
+    if (!bytes) continue;
+    const extensionCandidate = source.originalName.split('.').pop()?.toLowerCase() ?? 'bin';
+    const extension = /^[a-z0-9]{1,16}$/.test(extensionCandidate) ? extensionCandidate : 'bin';
+    sourceBytes.set(source.sha256, {
+      bytes,
+      extension,
+      mimeType: source.mediaType,
+    });
+  }
+  return sourceBytes;
+}
+
+async function readStoredBytes(value: Uint8Array | ArrayBuffer | Blob): Promise<Uint8Array> {
+  if (typeof value === 'object' && value !== null && 'length' in value) {
+    return Uint8Array.from(value as unknown as ArrayLike<number>);
+  }
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  return new Uint8Array(await value.arrayBuffer());
+}
+
+async function collectRuntimeFiles(session: OpenGuideSession): Promise<Map<string, PackageBinary>> {
+  const files = new Map<string, PackageBinary>();
+  for (const row of await session.db.runtimeBlobs
+    .where('guideId')
+    .equals(session.guideId)
+    .toArray()) {
+    files.set(row.path, {
+      bytes: await readStoredBytes(row.bytes),
+      extension: row.extension,
+      mimeType: row.mimeType,
+    });
+  }
+  return files;
+}
+
 // ---------------------------------------------------------------------------
 // Fake AI proposals (Phase 03: human-reviewable, applied via commands)
 // ---------------------------------------------------------------------------
@@ -519,43 +657,66 @@ export async function exportDraft(
   session: OpenGuideSession,
 ): Promise<{ bytes: Uint8Array; filename: string }> {
   const snapshot = materializeSnapshot(session.working);
-  const assets = await collectReferencedAssets(session, snapshot);
-  // Attribution report for every packaged asset (Phase 04).
-  const attributions = new Map<
-    string,
-    { name: string; licenseId?: string; attribution?: string; source?: string }
-  >();
-  for (const hash of assets.keys()) {
-    const meta = (await session.db.assets.get(hash)) as
-      | (AssetMetaRecord & {
-          name?: string;
-          origin?: { kind: string; licenseId?: string; attribution?: string; record?: string };
-        })
-      | undefined;
-    if (meta) {
-      const attribution: {
-        name: string;
-        licenseId?: string;
-        attribution?: string;
-        source?: string;
-      } = {
-        name: meta.name ?? hash.slice(0, 10),
-      };
-      if (meta.origin?.licenseId) attribution.licenseId = meta.origin.licenseId;
-      if (meta.origin?.attribution) attribution.attribution = meta.origin.attribution;
-      if (meta.origin?.record) attribution.source = meta.origin.record;
-      attributions.set(hash, attribution);
-    }
+  const validation = await validateReferencedAssets(session);
+  if (validation.missing.length > 0) {
+    throw new Error(`export: missing referenced assets: ${validation.missing.join(', ')}`);
   }
+  const assets = await collectReferencedAssets(session, snapshot);
+  const attributions = await collectAttributions(session, assets);
   const { bytes } = await createDraftPackageAsync({
     snapshot,
     assets,
-    attributions: attributions as Map<
-      ContentHash,
-      { name: string; licenseId?: string; attribution?: string; source?: string }
-    >,
+    sourceBytes: await collectSourceBytes(session, snapshot),
+    attributions,
   });
   return { bytes, filename: `${snapshot.title.replace(/[^a-z0-9-_]+/gi, '-')}.gforge` };
+}
+
+/** Export every restorable project artifact, including execution evidence. */
+export async function exportFullBackup(
+  session: OpenGuideSession,
+): Promise<{ bytes: Uint8Array; filename: string }> {
+  const snapshot = materializeSnapshot(session.working);
+  const evidence = await session.db.evidence.where('guideId').equals(session.guideId).toArray();
+  const validation = await validateReferencedAssets(session, evidence);
+  if (validation.missing.length > 0) {
+    throw new Error(`backup: missing referenced assets: ${validation.missing.join(', ')}`);
+  }
+  const assets = await collectReferencedAssets(session, snapshot, evidence);
+  const sourceBytes = await collectSourceBytes(session, snapshot);
+  const assetBytes = Array.from(assets.values()).reduce(
+    (total, asset) => total + asset.bytes.length,
+    0,
+  );
+  const sourceByteCount = Array.from(sourceBytes.values()).reduce(
+    (total, source) => total + source.bytes.length,
+    0,
+  );
+  const { bytes } = await createDraftPackageAsync({
+    snapshot,
+    assets,
+    packageType: 'backup',
+    sourceBytes,
+    reports: {
+      generation: { runs: snapshot.generationRuns },
+      validation: {
+        missingAssets: [],
+        assetCount: assets.size,
+        sourceCount: snapshot.sources.length,
+      },
+      cost: { assetBytes, sourceBytes: sourceByteCount, evidenceCount: evidence.length },
+    },
+    runtime: {
+      includeEvidence: true,
+      evidenceRecords: evidence,
+      files: await collectRuntimeFiles(session),
+    },
+    attributions: await collectAttributions(session, assets),
+  });
+  return {
+    bytes,
+    filename: `${snapshot.title.replace(/[^a-z0-9-_]+/gi, '-')}-backup.gforge`,
+  };
 }
 
 /**
@@ -566,33 +727,20 @@ export async function exportDraft(
 async function collectReferencedAssets(
   session: OpenGuideSession,
   snapshot: GuideSnapshot,
+  evidence: readonly EvidenceRecord[] = [],
 ): Promise<Map<ContentHash, AssetReference & { bytes: Uint8Array }>> {
   const assets = new Map<ContentHash, AssetReference & { bytes: Uint8Array }>();
-  const hashes = new Set<string>();
-
-  for (const step of snapshot.steps) {
-    for (const media of step.media) hashes.add(media.assetHash);
-  }
-  for (const node of snapshot.scene.nodes) {
-    if (node.assetHash) hashes.add(node.assetHash);
-  }
+  const hashes = referencedAssetHashes(snapshot, evidence);
 
   for (const hash of hashes) {
     const bytes = await session.assets.get(hash as ContentHash);
-    if (!bytes) continue; // missing assets are reported by validateReferencedAssets
+    if (!bytes) throw new Error(`asset bytes unavailable: ${hash}`);
     const meta = await session.db.assets.get(hash);
-    const extension =
-      meta?.mimeType === 'model/gltf-binary'
-        ? 'glb'
-        : meta?.mimeType?.startsWith('image/')
-          ? (meta.mimeType.split('/')[1] ?? 'bin')
-          : meta?.mimeType?.startsWith('video/')
-            ? (meta.mimeType.split('/')[1] ?? 'bin')
-            : 'bin';
+    const { mimeType, extension } = assetMimeAndExtension(meta);
     assets.set(hash as ContentHash, {
       bytes,
       hash: hash as ContentHash,
-      mimeType: meta?.mimeType ?? 'application/octet-stream',
+      mimeType,
       extension,
       sizeBytes: bytes.length,
     });
@@ -606,52 +754,202 @@ async function collectReferencedAssets(
  */
 export async function validateReferencedAssets(
   session: OpenGuideSession,
+  evidence: readonly EvidenceRecord[] = [],
 ): Promise<{ missing: string[] }> {
   const snapshot = materializeSnapshot(session.working);
   const missing: string[] = [];
-  const hashes = new Set<string>();
-  for (const step of snapshot.steps) for (const media of step.media) hashes.add(media.assetHash);
-  for (const node of snapshot.scene.nodes) if (node.assetHash) hashes.add(node.assetHash);
+  const hashes = referencedAssetHashes(snapshot, evidence);
   for (const hash of hashes) {
-    if (!(await session.assets.has(hash as ContentHash))) missing.push(hash);
+    if (!(await session.assets.get(hash as ContentHash))) missing.push(hash);
   }
   return { missing };
 }
 
-/** Import a draft `.gforge` package into the library. */
-export async function importDraft(bytes: Uint8Array): Promise<{ guideId: string; title: string }> {
-  const entries = extractZipEntries(bytes);
+export interface ImportDraftResult {
+  guideId: string;
+  title: string;
+  warnings: string[];
+}
+
+function parsePackageJson(bytes: Uint8Array, label: string): unknown {
+  try {
+    return sanitizePackageMetadata(JSON.parse(strFromU8(bytes)));
+  } catch (error) {
+    throw new Error(
+      `import: invalid ${label}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+}
+
+function packageAssetMimeType(extension: string): string {
+  return extension === 'glb'
+    ? 'model/gltf-binary'
+    : extension === 'png' || extension === 'jpg' || extension === 'webp'
+      ? `image/${extension}`
+      : extension === 'mp4' || extension === 'webm'
+        ? `video/${extension}`
+        : 'application/octet-stream';
+}
+
+/** Import a draft or full-backup `.gforge` package into the library. */
+export async function importDraft(bytes: Uint8Array): Promise<ImportDraftResult> {
+  const entries = await extractZipArchive(bytes);
   const manifest = await verifyPackageStructureAsync(entries);
-  const guideEntry = entries.find((e) => e.path === 'guide.json');
+  const entryMap = new Map(entries.map((entry) => [entry.path, entry]));
+  const guideEntry = entryMap.get('guide.json');
   if (!guideEntry) throw new Error('import: missing guide.json');
-  const migrated = migrateToCurrent(JSON.parse(strFromU8(guideEntry.data)));
+  const migrated = migrateToCurrent(parsePackageJson(guideEntry.data, 'guide.json'));
   if (!isGuideSnapshot(migrated)) throw new Error('import: invalid GuideSnapshot');
   const snapshot: GuideSnapshot = migrated;
+  if (manifest.guideId !== snapshot.guideId) {
+    throw new Error('import: manifest guideId does not match guide.json');
+  }
 
-  const guideId = manifest.guideId || snapshot.guideId;
+  const warnings: string[] = [];
+  if (manifest.version === 1) warnings.push('legacy package manifest v1 migrated during restore');
+
+  const evidence: EvidenceRecord[] = [];
+  const runtimeIndexPath = manifest.runtime?.evidenceIndexPath ?? 'runtime/evidence/index.json';
+  const runtimeIndex = entryMap.get(runtimeIndexPath);
+  if (manifest.runtime?.evidenceIncluded) {
+    if (!runtimeIndex) throw new Error('import: manifest requires missing evidence index');
+    const rawEvidence = parsePackageJson(runtimeIndex.data, runtimeIndexPath);
+    if (!Array.isArray(rawEvidence) || !rawEvidence.every(isEvidenceRecord)) {
+      throw new Error('import: invalid runtime evidence index');
+    }
+    for (const record of rawEvidence) {
+      if (record.guideId !== snapshot.guideId) {
+        throw new Error(`import: evidence guideId mismatch for ${record.evidenceId}`);
+      }
+      evidence.push(record);
+    }
+  } else if (runtimeIndex) {
+    throw new Error('import: runtime evidence present without inclusion policy');
+  }
+
+  const packageAssets = entries.flatMap((entry) => {
+    const match = /^assets\/([0-9a-f]{64})\.([a-z0-9]{1,16})$/.exec(entry.path);
+    return match ? [{ entry, hash: match[1]!, extension: match[2]! }] : [];
+  });
+  if (manifest.assetCount !== packageAssets.length) {
+    throw new Error('import: manifest asset count mismatch');
+  }
+  const packageAssetHashes = new Set<string>();
+  for (const { entry, hash } of packageAssets) {
+    const actual = await webSha256(entry.data);
+    if (actual !== hash) throw new Error(`import: asset hash mismatch for ${entry.path}`);
+    packageAssetHashes.add(hash);
+  }
+  for (const hash of referencedAssetHashes(snapshot, evidence)) {
+    if (!packageAssetHashes.has(hash)) {
+      throw new Error(`import: missing referenced asset ${hash}`);
+    }
+  }
+
+  const runtimeFiles = entries.flatMap((entry) => {
+    if (!entry.path.startsWith('runtime/')) return [];
+    if (entry.path === runtimeIndexPath) return [];
+    const match = /^runtime\/evidence\/(.+)\.([a-z0-9]{1,16})$/.exec(entry.path);
+    if (!match) throw new Error(`import: unsupported runtime file ${entry.path}`);
+    return [{ entry, path: match[1]!, extension: match[2]! }];
+  });
+  if (!manifest.runtime?.evidenceIncluded && runtimeFiles.length > 0) {
+    throw new Error('import: runtime files present without inclusion policy');
+  }
+
+  const sourceBytes: { sha256: ContentHash; bytes: Uint8Array }[] = [];
+  if (manifest.sourceCount !== undefined && manifest.sourceCount !== snapshot.sources.length) {
+    throw new Error('import: manifest source count mismatch');
+  }
+  if (manifest.version === 2 && snapshot.sources.length > 0 && !manifest.sources) {
+    throw new Error('import: v2 source inventory missing');
+  }
+  if (manifest.sources && manifest.sources.length !== snapshot.sources.length) {
+    throw new Error('import: source inventory count mismatch');
+  }
+  const snapshotSourceIds = new Set<string>(snapshot.sources.map((source) => source.sourceId));
+  const sourcePaths = new Set<string>();
+  for (const source of manifest.sources ?? []) {
+    if (source.metadataPath !== `sources/${source.sourceId}.json`) {
+      throw new Error(`import: invalid source metadata path ${source.metadataPath}`);
+    }
+    const metadataEntry = entryMap.get(source.metadataPath);
+    if (!metadataEntry) throw new Error(`import: missing source metadata ${source.metadataPath}`);
+    const metadata = parsePackageJson(metadataEntry.data, source.metadataPath);
+    if (!metadata || typeof metadata !== 'object') {
+      throw new Error(`import: invalid source metadata ${source.metadataPath}`);
+    }
+    const sourceRecord = metadata as Record<string, unknown>;
+    if (sourceRecord.sourceId !== source.sourceId || typeof sourceRecord.sha256 !== 'string') {
+      throw new Error(`import: source metadata identity mismatch ${source.metadataPath}`);
+    }
+    if (!snapshotSourceIds.has(source.sourceId)) {
+      throw new Error(`import: source metadata is not present in guide.json ${source.sourceId}`);
+    }
+    const snapshotSource = snapshot.sources.find((item) => item.sourceId === source.sourceId);
+    if (
+      !snapshotSource ||
+      strFromU8(canonicalJson(sourceRecord)) !== strFromU8(canonicalJson(snapshotSource))
+    ) {
+      throw new Error(`import: source metadata does not match guide.json ${source.sourceId}`);
+    }
+    sourcePaths.add(source.metadataPath);
+    if (source.bytesPath) {
+      if (!/^sources\/[0-9a-f]{64}\.[a-z0-9]{1,16}$/.test(source.bytesPath)) {
+        throw new Error(`import: invalid source bytes path ${source.bytesPath}`);
+      }
+      const bytesEntry = entryMap.get(source.bytesPath);
+      if (!bytesEntry) throw new Error(`import: missing source bytes ${source.bytesPath}`);
+      const sha256 = sourceRecord.sha256 as ContentHash;
+      if (!/^[0-9a-f]{64}$/.test(sha256)) {
+        throw new Error(`import: invalid source hash ${source.sourceId}`);
+      }
+      if ((await webSha256(bytesEntry.data)) !== sha256) {
+        throw new Error(`import: source bytes hash mismatch ${source.sourceId}`);
+      }
+      sourceBytes.push({ sha256, bytes: bytesEntry.data });
+    }
+  }
+  for (const entry of entries) {
+    if (
+      entry.path.startsWith('sources/') &&
+      entry.path.endsWith('.json') &&
+      !sourcePaths.has(entry.path)
+    ) {
+      throw new Error(`import: unlisted source metadata ${entry.path}`);
+    }
+  }
+
+  const reportRows = entries
+    .filter((entry) => entry.path.startsWith('reports/') && entry.path.endsWith('.json'))
+    .map((entry) => ({ path: entry.path, report: parsePackageJson(entry.data, entry.path) }));
+  const reportPaths = new Set(manifest.reportPaths ?? []);
+  if (reportPaths.size !== (manifest.reportPaths ?? []).length) {
+    throw new Error('import: duplicate report path');
+  }
+  for (const path of manifest.reportPaths ?? []) {
+    if (!entryMap.has(path)) throw new Error(`import: missing report ${path}`);
+  }
+  for (const row of reportRows) {
+    if (!reportPaths.has(row.path)) throw new Error(`import: unlisted report ${row.path}`);
+  }
+
+  const store = new OpfsAssetStore(db());
+  for (const { entry, hash, extension } of packageAssets) {
+    await store.put(entry.data, packageAssetMimeType(extension), extension);
+    const restored = await store.get(hash as ContentHash);
+    if (!restored || (await webSha256(restored)) !== hash)
+      throw new Error(`import: asset restore failed ${hash}`);
+  }
+  for (const source of sourceBytes) await storeSourceBytes(db(), source.sha256, source.bytes);
+
+  const guideId = snapshot.guideId;
   const working = createEmptyWorkingGuide();
   const persistence = persistWorkingDoc(working.doc, guideId);
   await persistence.synced;
-  seedEmptyWorkingGuide(working, guideId as EntityId, snapshot.title);
+  seedEmptyWorkingGuide(working, guideId, snapshot.title);
   hydrateWorkingGuide(working, snapshot);
-
-  // Restore packaged asset bytes into the content-addressed store so scene
-  // models/media referenced by the snapshot resolve after import.
-  const store = new OpfsAssetStore(db());
-  for (const entry of entries) {
-    const m = /^assets\/([0-9a-f]{64})\.([a-z0-9]+)$/.exec(entry.path);
-    if (!m) continue;
-    const hash = m[1] as ContentHash;
-    if (!(await store.has(hash))) {
-      const mimeType =
-        m[2] === 'glb'
-          ? 'model/gltf-binary'
-          : m[2] === 'png' || m[2] === 'jpg' || m[2] === 'webp'
-            ? `image/${m[2]}`
-            : 'application/octet-stream';
-      await store.put(entry.data, mimeType, m[2]!);
-    }
-  }
 
   await db().guides.put({
     guideId,
@@ -664,25 +962,57 @@ export async function importDraft(bytes: Uint8Array): Promise<{ guideId: string;
     stepCount: snapshot.tasks.reduce((n, t) => n + t.stepIds.length, 0),
     docName: guideId,
   });
-  // Await destroy so pending Yjs updates flush to IndexedDB before the caller
-  // reopens the guide.
+  if (evidence.length > 0) await db().evidence.bulkPut(evidence);
+  if (reportRows.length > 0) {
+    await db().reports.bulkPut([
+      ...reportRows.map(({ path, report }) => ({
+        id: `${guideId}:${path}`,
+        guideId,
+        path,
+        report,
+      })),
+      {
+        id: `${guideId}:reports/restore.json`,
+        guideId,
+        path: 'reports/restore.json',
+        report: {
+          format: 'gforge-restore',
+          manifestVersion: manifest.version,
+          targetSchemaVersion: snapshot.schemaVersion,
+          warnings,
+          restoredAtIso: new Date().toISOString(),
+        },
+      },
+    ]);
+  } else {
+    await db().reports.put({
+      id: `${guideId}:reports/restore.json`,
+      guideId,
+      path: 'reports/restore.json',
+      report: {
+        format: 'gforge-restore',
+        manifestVersion: manifest.version,
+        targetSchemaVersion: snapshot.schemaVersion,
+        warnings,
+        restoredAtIso: new Date().toISOString(),
+      },
+    });
+  }
+  if (runtimeFiles.length > 0) {
+    await db().runtimeBlobs.bulkPut(
+      runtimeFiles.map(({ entry, path, extension }) => ({
+        id: `${guideId}:${path}`,
+        guideId,
+        path,
+        bytes: entry.data.slice(),
+        mimeType: packageAssetMimeType(extension),
+        extension,
+      })),
+    );
+  }
   await persistence.provider.destroy();
   working.doc.destroy();
-  return { guideId, title: snapshot.title };
-}
-
-/** Extract and validate zip entries (bounds-checked preflight before inflation). */
-function extractZipEntries(bytes: Uint8Array): PackageEntry[] {
-  if (bytes.length > 512 * 1024 * 1024) throw new Error('import: package too large');
-  // Bounded preflight of the central directory (metadata only) so hostile
-  // archives are rejected before any decompression allocates memory.
-  preflightZipArchive(bytes);
-  const unzipped = unzipSync(bytes);
-  const entries: PackageEntry[] = [];
-  for (const [path, data] of Object.entries(unzipped)) {
-    entries.push({ path, data });
-  }
-  return entries;
+  return { guideId, title: snapshot.title, warnings };
 }
 
 // ---------------------------------------------------------------------------
@@ -700,6 +1030,10 @@ export async function exportPersonalRelease(
   releaseVersion: string,
 ): Promise<{ bytes: Uint8Array; filename: string; unsigned: true }> {
   const snapshot = materializeSnapshot(session.working);
+  const validation = await validateReferencedAssets(session);
+  if (validation.missing.length > 0) {
+    throw new Error(`release: missing referenced assets: ${validation.missing.join(', ')}`);
+  }
   const assets = await collectReferencedAssets(session, snapshot);
   const bytes = createReleasePackage({
     snapshot,

@@ -1,6 +1,7 @@
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
+import { createPrivateKey, generateKeyPairSync, sign as signPayload } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -97,6 +98,23 @@ function validPassword(value: string): boolean {
 
 function validSecretName(value: string): boolean {
   return /^[a-z][a-z0-9._-]{0,63}$/.test(value);
+}
+
+function validSigningKeyId(value: string): boolean {
+  return /^[A-Za-z0-9_-]{8,64}$/.test(value);
+}
+
+function generateSigningMaterial(): { publicKeyHex: string; privateKeyBase64: string } {
+  const pair = generateKeyPairSync('ed25519');
+  const publicDer = pair.publicKey.export({ format: 'der', type: 'spki' });
+  const privateDer = pair.privateKey.export({ format: 'der', type: 'pkcs8' });
+  if (publicDer.length < 32 || privateDer.length < 32) {
+    throw new Error('generated Ed25519 key material is invalid');
+  }
+  return {
+    publicKeyHex: publicDer.subarray(-32).toString('hex'),
+    privateKeyBase64: privateDer.toString('base64'),
+  };
 }
 
 function clientIp(request: FastifyRequest): string {
@@ -253,6 +271,7 @@ export async function buildServer(
         sqlite: true,
         encryptedProviderSecrets: true,
         pairing: true,
+        signingKeyStore: true,
       },
     };
   });
@@ -358,8 +377,77 @@ export async function buildServer(
       origins: allowedOrigins,
       transport: { secureCookies, host },
       secrets: db.listSecretMetadata(),
+      signingKeys: db.listSigningKeys(),
       passkey: { available: false, seam: 'webauthn-v1' },
     };
+  });
+
+  app.get('/api/signing-keys', (request, reply) => {
+    if (!requireSession(request, reply)) return;
+    return { keys: db.listSigningKeys() };
+  });
+
+  app.post('/api/signing-keys/rotate', (request, reply) => {
+    if (!requireSession(request, reply)) return;
+    const keyId = randomToken(12);
+    const material = generateSigningMaterial();
+    const secretName = `signing-key-${keyId}`;
+    db.retireActiveSigningKeys();
+    db.putSecret({
+      name: secretName,
+      ...secretBox.encrypt(material.privateKeyBase64),
+      updatedAt: Date.now(),
+    });
+    db.putSigningKey({
+      keyId,
+      publicKeyHex: material.publicKeyHex,
+      createdAt: Date.now(),
+      status: 'active',
+      revokedAt: null,
+      reason: null,
+    });
+    return { keyId, publicKeyHex: material.publicKeyHex, status: 'active' };
+  });
+
+  app.post('/api/signing-keys/:keyId/revoke', (request, reply) => {
+    if (!requireSession(request, reply)) return;
+    const { keyId } = request.params as { keyId: string };
+    if (!validSigningKeyId(keyId)) return reply.code(400).send({ error: 'invalid key id' });
+    const key = db.getSigningKey(keyId);
+    if (!key) return reply.code(404).send({ error: 'signing key not found' });
+    const reason =
+      requiredString(bodyRecord(request), 'reason')?.slice(0, 240) ?? 'revoked by owner';
+    if (key.status === 'revoked')
+      return reply.code(409).send({ error: 'signing key already revoked' });
+    db.revokeSigningKey(keyId, reason);
+    db.deleteSecret(`signing-key-${keyId}`);
+    return { ok: true, keyId, status: 'revoked' };
+  });
+
+  app.post('/api/signing-keys/:keyId/sign', (request, reply) => {
+    if (!requireSession(request, reply)) return;
+    const { keyId } = request.params as { keyId: string };
+    const payloadJson = requiredString(bodyRecord(request), 'payloadJson');
+    if (!validSigningKeyId(keyId) || !payloadJson) {
+      return reply.code(400).send({ error: 'key id and payloadJson are required' });
+    }
+    const key = db.getSigningKey(keyId);
+    if (key?.status !== 'active') {
+      return reply.code(409).send({ error: 'signing key is not active' });
+    }
+    const secret = db.getSecret(`signing-key-${keyId}`);
+    if (!secret) return reply.code(503).send({ error: 'signing key material unavailable' });
+    try {
+      const privateDer = Buffer.from(secretBox.decrypt(secret), 'base64');
+      const signature = signPayload(
+        null,
+        Buffer.from(payloadJson, 'utf8'),
+        createPrivateKey({ key: privateDer, format: 'der', type: 'pkcs8' }),
+      );
+      return { keyId, publicKeyHex: key.publicKeyHex, signatureHex: signature.toString('hex') };
+    } catch {
+      return reply.code(500).send({ error: 'signing operation failed' });
+    }
   });
 
   app.put('/api/settings/secrets/:name', async (request, reply) => {

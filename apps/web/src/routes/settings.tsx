@@ -1,5 +1,7 @@
+import type { StorageHealth } from '@guideforge/storage-web';
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useState, type FormEvent } from 'react';
+import { getStorageHealth, requestStoragePersistence } from '../services/guideStore';
 
 export const Route = createFileRoute('/settings')({
   component: SettingsPage,
@@ -24,11 +26,23 @@ interface Settings {
   origins: string[];
   transport: { host: string; secureCookies: boolean };
   secrets: { name: string; updatedAt: number }[];
+  signingKeys: {
+    keyId: string;
+    publicKeyHex: string;
+    createdAt: number;
+    status: 'active' | 'revoked' | 'retired';
+  }[];
   passkey: { available: boolean; seam: string };
 }
 
 const companionBase =
   (import.meta.env.VITE_COMPANION_URL as string | undefined)?.replace(/\/$/, '') ?? '';
+
+function formatBytes(value: number | null): string {
+  if (value === null) return 'Unavailable';
+  if (value < 1024 * 1024) return `${Math.round(value / 1024)} KiB`;
+  return `${(value / (1024 * 1024 * 1024) >= 1 ? value / (1024 * 1024 * 1024) : value / (1024 * 1024)).toFixed(1)} ${value / (1024 * 1024 * 1024) >= 1 ? 'GiB' : 'MiB'}`;
+}
 
 async function companionRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
@@ -59,9 +73,12 @@ async function loadCompanion(): Promise<{
   settings: Settings | null;
 }> {
   const [capabilities, owner] = await Promise.all([
-    companionRequest<Capabilities>('/api/capabilities'),
+    companionRequest<Capabilities | null>('/api/capabilities'),
     companionRequest<OwnerStatus>('/api/owner/status'),
   ]);
+  if (!capabilities || typeof capabilities !== 'object') {
+    throw new Error('Companion returned an invalid capabilities response.');
+  }
   return {
     capabilities,
     owner,
@@ -83,6 +100,18 @@ function SettingsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [storageHealth, setStorageHealth] = useState<StorageHealth | null>(null);
+  const [storageError, setStorageError] = useState<string | null>(null);
+  const [storageBusy, setStorageBusy] = useState(false);
+
+  async function refreshStorage() {
+    try {
+      setStorageHealth(await getStorageHealth());
+      setStorageError(null);
+    } catch (nextError) {
+      setStorageError(errorMessage(nextError));
+    }
+  }
 
   async function refresh() {
     setLoading(true);
@@ -118,6 +147,95 @@ function SettingsPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getStorageHealth()
+      .then((nextHealth) => {
+        if (cancelled) return;
+        setStorageHealth(nextHealth);
+        setStorageError(null);
+      })
+      .catch((nextError: unknown) => {
+        if (!cancelled) setStorageError(errorMessage(nextError));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function requestPersistence() {
+    setStorageBusy(true);
+    try {
+      await requestStoragePersistence();
+      await refreshStorage();
+    } catch (nextError) {
+      setStorageError(errorMessage(nextError));
+    } finally {
+      setStorageBusy(false);
+    }
+  }
+
+  const storageCard = (
+    <article className="shell-card settings-card settings-card--wide">
+      <h2>Local storage</h2>
+      {storageError && (
+        <p role="alert" className="error-text">
+          {storageError}
+        </p>
+      )}
+      {!storageHealth ? (
+        <p>Checking local storage…</p>
+      ) : (
+        <>
+          <p>
+            {storageHealth.opfsSupported
+              ? 'Large assets use the browser file system.'
+              : 'The browser file system is unavailable; assets use the IndexedDB fallback.'}
+          </p>
+          <dl className="settings-meta">
+            <div>
+              <dt>Usage</dt>
+              <dd>
+                {formatBytes(storageHealth.estimatedUsageBytes)} /{' '}
+                {formatBytes(storageHealth.estimatedQuotaBytes)}
+              </dd>
+            </div>
+            <div>
+              <dt>Quota status</dt>
+              <dd>
+                {storageHealth.quotaWarning === 'near-limit'
+                  ? 'Near limit'
+                  : storageHealth.quotaWarning === 'unknown'
+                    ? 'Estimate unavailable'
+                    : 'Healthy'}
+              </dd>
+            </div>
+            <div>
+              <dt>Persistence</dt>
+              <dd>{storageHealth.persistentGranted ? 'Granted' : 'Not granted'}</dd>
+            </div>
+          </dl>
+          {!storageHealth.persistentGranted && (
+            <button
+              type="button"
+              className="button button--ghost"
+              disabled={storageBusy}
+              onClick={() => void requestPersistence()}
+            >
+              {storageBusy ? 'Requesting…' : 'Keep local data on this device'}
+            </button>
+          )}
+          {storageHealth.quotaWarning === 'near-limit' && (
+            <p role="alert" className="error-text">
+              Local storage is near its browser quota. Export a full backup before adding more
+              media.
+            </p>
+          )}
+        </>
+      )}
+    </article>
+  );
 
   async function runAction(path: string, body: Record<string, string>, success: string) {
     setBusy(true);
@@ -170,26 +288,67 @@ function SettingsPage() {
     }
   }
 
+  async function rotateSigningKey() {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await companionRequest<{ keyId: string }>('/api/signing-keys/rotate', {
+        method: 'POST',
+      });
+      setNotice(`Created signing key ${result.keyId}; the private key remains in the companion.`);
+      await refresh();
+    } catch (nextError) {
+      setError(errorMessage(nextError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revokeSigningKey(keyId: string) {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await companionRequest(`/api/signing-keys/${encodeURIComponent(keyId)}/revoke`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: 'revoked by owner' }),
+      });
+      setNotice(`Revoked signing key ${keyId}.`);
+      await refresh();
+    } catch (nextError) {
+      setError(errorMessage(nextError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (loading) {
     return (
-      <section className="shell-card" aria-labelledby="settings-title">
-        <h1 id="settings-title">Companion settings</h1>
-        <p>Checking the local companion…</p>
-      </section>
+      <>
+        <section className="shell-card" aria-labelledby="settings-title">
+          <h1 id="settings-title">Companion settings</h1>
+          <p>Checking the local companion…</p>
+        </section>
+        {storageCard}
+      </>
     );
   }
 
   if (!capabilities || !owner) {
     return (
-      <section className="shell-card" aria-labelledby="settings-title">
-        <h1 id="settings-title">Companion settings</h1>
-        <p role="alert" className="error-text">
-          {error ?? 'The companion is unavailable.'}
-        </p>
-        <button type="button" className="button" onClick={() => void refresh()}>
-          Retry connection
-        </button>
-      </section>
+      <>
+        <section className="shell-card" aria-labelledby="settings-title">
+          <h1 id="settings-title">Companion settings</h1>
+          <p role="alert" className="error-text">
+            {error ?? 'The companion is unavailable.'}
+          </p>
+          <button type="button" className="button" onClick={() => void refresh()}>
+            Retry connection
+          </button>
+        </section>
+        {storageCard}
+      </>
     );
   }
 
@@ -359,8 +518,48 @@ function SettingsPage() {
               {settings?.passkey.available ? 'available' : `seam ${settings?.passkey.seam}`}
             </p>
           </article>
+
+          <article className="shell-card settings-card settings-card--wide">
+            <h2>Release signing keys</h2>
+            <p>
+              Private Ed25519 keys are encrypted by the companion and never returned to this
+              browser.
+            </p>
+            <button
+              type="button"
+              className="button"
+              disabled={busy}
+              onClick={() => void rotateSigningKey()}
+            >
+              Rotate signing key
+            </button>
+            {settings?.signingKeys.length ? (
+              <ul className="settings-key-list">
+                {settings.signingKeys.map((key) => (
+                  <li key={key.keyId}>
+                    <code>{key.keyId}</code>
+                    <span>{key.status}</span>
+                    {key.status !== 'revoked' && (
+                      <button
+                        type="button"
+                        className="button button--ghost"
+                        disabled={busy}
+                        onClick={() => void revokeSigningKey(key.keyId)}
+                      >
+                        Revoke
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No signing keys created.</p>
+            )}
+          </article>
         </div>
       )}
+
+      {storageCard}
     </section>
   );
 }

@@ -45,6 +45,27 @@ export interface AssetMetaRecord {
   location: 'opfs' | 'indexeddb';
 }
 
+export interface SourceBlobRecord {
+  sha256: ContentHash;
+  bytes: Uint8Array | ArrayBuffer | Blob;
+}
+
+export interface PackageReportRecord {
+  id: string;
+  guideId: string;
+  path: string;
+  report: unknown;
+}
+
+export interface RuntimeBlobRecord {
+  id: string;
+  guideId: string;
+  path: string;
+  bytes: Uint8Array | ArrayBuffer | Blob;
+  mimeType: string;
+  extension: string;
+}
+
 /** Execution evidence captured on-device (photo/note/signature). */
 export interface EvidenceRecord {
   evidenceId: string;
@@ -94,6 +115,9 @@ export class GuideForgeDb extends Dexie {
   guides!: Table<LibraryGuideMeta, string>;
   assets!: Table<AssetMetaRecord, string>;
   assetBlobs!: Table<{ hash: string; bytes: Uint8Array | ArrayBuffer | Blob }, string>;
+  sourceBlobs!: Table<SourceBlobRecord, string>;
+  reports!: Table<PackageReportRecord, string>;
+  runtimeBlobs!: Table<RuntimeBlobRecord, string>;
   evidence!: Table<EvidenceRecord, string>;
   proposals!: Table<AiProposalRecord, string>;
   sources!: Table<SourceRecord, string>;
@@ -129,6 +153,40 @@ export class GuideForgeDb extends Dexie {
       proposals: 'proposalId, guideId, status, createdAtIso',
       sources: 'sourceId, guideId, sha256, receivedAtIso',
     });
+    // v5: optional original source bytes for portable backup packages.
+    this.version(5).stores({
+      guides: 'guideId, title, updatedAtIso, lifecycleState',
+      assets: 'hash, mimeType, sizeBytes',
+      assetBlobs: 'hash',
+      sourceBlobs: 'sha256',
+      evidence: 'evidenceId, guideId, stepId, capturedAtIso',
+      proposals: 'proposalId, guideId, status, createdAtIso',
+      sources: 'sourceId, guideId, sha256, receivedAtIso',
+    });
+    // v6: restore reports with the package so migration and validation facts
+    // remain available after the import call returns.
+    this.version(6).stores({
+      guides: 'guideId, title, updatedAtIso, lifecycleState',
+      assets: 'hash, mimeType, sizeBytes',
+      assetBlobs: 'hash',
+      sourceBlobs: 'sha256',
+      evidence: 'evidenceId, guideId, stepId, capturedAtIso',
+      proposals: 'proposalId, guideId, status, createdAtIso',
+      sources: 'sourceId, guideId, sha256, receivedAtIso',
+      reports: 'id, guideId, path',
+    });
+    // v7: preserve optional runtime/evidence files carried by full backups.
+    this.version(7).stores({
+      guides: 'guideId, title, updatedAtIso, lifecycleState',
+      assets: 'hash, mimeType, sizeBytes',
+      assetBlobs: 'hash',
+      sourceBlobs: 'sha256',
+      evidence: 'evidenceId, guideId, stepId, capturedAtIso',
+      proposals: 'proposalId, guideId, status, createdAtIso',
+      sources: 'sourceId, guideId, sha256, receivedAtIso',
+      reports: 'id, guideId, path',
+      runtimeBlobs: 'id, guideId, path',
+    });
   }
 }
 
@@ -143,6 +201,30 @@ export async function migrateDexieSourcesToCanonical(
 ): Promise<GuideSource[]> {
   const rows = await db.sources.where('guideId').equals(guideId).toArray();
   return rows.map(migrateLegacySourceRecord);
+}
+
+export async function storeSourceBytes(
+  db: GuideForgeDb,
+  sha256: ContentHash,
+  bytes: Uint8Array,
+): Promise<void> {
+  const actual = (await sha256Hex(bytes)) as ContentHash;
+  if (actual !== sha256) throw new Error(`source bytes hash mismatch for ${sha256}`);
+  await db.sourceBlobs.put({ sha256, bytes: bytes.slice() });
+}
+
+export async function loadSourceBytes(
+  db: GuideForgeDb,
+  sha256: ContentHash,
+): Promise<Uint8Array | null> {
+  const row = await db.sourceBlobs.get(sha256);
+  if (!row) return null;
+  const bytes = row.bytes;
+  if (typeof bytes === 'object' && bytes !== null && 'length' in bytes) {
+    return Uint8Array.from(bytes as unknown as ArrayLike<number>);
+  }
+  if (bytes instanceof ArrayBuffer) return new Uint8Array(bytes);
+  return new Uint8Array(await bytes.arrayBuffer());
 }
 
 // ---------------------------------------------------------------------------
@@ -175,7 +257,10 @@ export interface AssetStore {
   put(bytes: Uint8Array, mimeType: string, extension: string): Promise<AssetMetaRecord>;
   get(hash: ContentHash): Promise<Uint8Array | null>;
   has(hash: ContentHash): Promise<boolean>;
-  /** Deduplicates: returns existing record if the hash is already present. */
+  list(): Promise<AssetMetaRecord[]>;
+  remove(hash: ContentHash): Promise<void>;
+  /** Remove unreferenced content and return the hashes removed. */
+  garbageCollect(referenced: ReadonlySet<ContentHash>): Promise<ContentHash[]>;
   status(): Promise<StorageHealth>;
 }
 
@@ -184,6 +269,8 @@ export interface StorageHealth {
   persistentGranted: boolean;
   estimatedQuotaBytes: number | null;
   estimatedUsageBytes: number | null;
+  usageRatio: number | null;
+  quotaWarning: 'none' | 'near-limit' | 'unknown';
 }
 
 function sha256Hex(bytes: Uint8Array): Promise<string> {
@@ -243,6 +330,25 @@ class IndexedDbAssetStore {
 
   async has(hash: ContentHash): Promise<boolean> {
     return (await this.db.assets.get(hash)) !== undefined;
+  }
+
+  async list(): Promise<AssetMetaRecord[]> {
+    return this.db.assets.toArray();
+  }
+
+  async remove(hash: ContentHash): Promise<void> {
+    await this.blobs.delete(hash);
+    await this.db.assets.delete(hash);
+  }
+
+  async garbageCollect(referenced: ReadonlySet<ContentHash>): Promise<ContentHash[]> {
+    const removed: ContentHash[] = [];
+    for (const record of await this.list()) {
+      if (referenced.has(record.hash)) continue;
+      await this.remove(record.hash);
+      removed.push(record.hash);
+    }
+    return removed;
   }
 }
 
@@ -320,6 +426,34 @@ export class OpfsAssetStore implements AssetStore {
     return (await this.db.assets.get(hash)) !== undefined;
   }
 
+  async list(): Promise<AssetMetaRecord[]> {
+    return this.db.assets.toArray();
+  }
+
+  async remove(hash: ContentHash): Promise<void> {
+    const record = await this.db.assets.get(hash);
+    if (!record) return;
+    if (record.location === 'indexeddb') {
+      await this.fallback.remove(hash);
+      return;
+    }
+    const root = await this.ensureRoot();
+    if (root) {
+      await root.removeEntry(this.assetFileName(hash));
+    }
+    await this.db.assets.delete(hash);
+  }
+
+  async garbageCollect(referenced: ReadonlySet<ContentHash>): Promise<ContentHash[]> {
+    const removed: ContentHash[] = [];
+    for (const record of await this.list()) {
+      if (referenced.has(record.hash)) continue;
+      await this.remove(record.hash);
+      removed.push(record.hash);
+    }
+    return removed;
+  }
+
   async status(): Promise<StorageHealth> {
     const opfsSupported = isOpfsSupported();
     let persistentGranted = false;
@@ -336,7 +470,18 @@ export class OpfsAssetStore implements AssetStore {
         estimatedUsageBytes = est.usage ?? null;
       }
     }
-    return { opfsSupported, persistentGranted, estimatedQuotaBytes, estimatedUsageBytes };
+    const usageRatio =
+      estimatedQuotaBytes !== null && estimatedUsageBytes !== null && estimatedQuotaBytes > 0
+        ? estimatedUsageBytes / estimatedQuotaBytes
+        : null;
+    return {
+      opfsSupported,
+      persistentGranted,
+      estimatedQuotaBytes,
+      estimatedUsageBytes,
+      usageRatio,
+      quotaWarning: usageRatio === null ? 'unknown' : usageRatio >= 0.8 ? 'near-limit' : 'none',
+    };
   }
 
   /** Request persistent storage; returns whether the grant was issued. */

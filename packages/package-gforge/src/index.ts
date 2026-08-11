@@ -23,7 +23,7 @@
 import type { AssetReference, ContentHash } from '@guideforge/domain';
 import type { GuideSnapshot } from '@guideforge/guide-schema';
 import { GUIDE_SCHEMA_VERSION } from '@guideforge/guide-schema';
-import { strToU8, zipSync, type Zippable } from 'fflate';
+import { AsyncUnzipInflate, strToU8, Unzip, zipSync, type Zippable } from 'fflate';
 
 /** SHA-256 hashing strategy; injected so Node and browser code share one path. */
 export type HashFunction = (bytes: Uint8Array) => string;
@@ -215,6 +215,17 @@ export interface PackageEntry {
 export interface DraftPackageInput {
   snapshot: GuideSnapshot;
   assets: Map<ContentHash, AssetReference & { bytes: Uint8Array }>;
+  packageType?: 'draft' | 'backup';
+  /** Optional original source bytes keyed by the canonical source SHA-256. */
+  sourceBytes?: Map<ContentHash, PackageBinary>;
+  /** JSON reports included under reports/<name>.json. */
+  reports?: Record<string, unknown>;
+  /** Runtime records/files are included only for a backup package. */
+  runtime?: {
+    includeEvidence?: boolean;
+    evidenceRecords?: unknown[];
+    files?: Map<string, PackageBinary>;
+  };
   /** Optional extra manifest fields (e.g. tool version). */
   extraManifest?: Record<string, unknown>;
   /**
@@ -228,15 +239,26 @@ export interface DraftPackageInput {
   >;
 }
 
+export interface PackageBinary {
+  bytes: Uint8Array;
+  extension: string;
+  mimeType?: string;
+}
+
 export interface PackageManifest {
   format: 'gforge';
-  version: 1;
-  packageType: 'draft';
+  version: 1 | 2;
+  packageType: 'draft' | 'backup';
   createdAt: string;
   guideId: string;
   schemaVersion: number;
   entries: { path: string; sha256: string; sizeBytes: number }[];
   assetCount: number;
+  sourceCount?: number;
+  sourceByteCount?: number;
+  sources?: { sourceId: string; metadataPath: string; bytesPath?: string }[];
+  reportPaths?: string[];
+  runtime?: { evidenceIncluded: boolean; evidenceIndexPath?: string };
 }
 
 /** Browser implementation using WebCrypto. */
@@ -295,6 +317,206 @@ function sortKeys(value: unknown): unknown {
   return value;
 }
 
+function assertSha256(value: string, label: string): void {
+  if (!/^[0-9a-f]{64}$/.test(value)) {
+    throw new PackageSafetyError(`${label} must be a lowercase SHA-256 hash`);
+  }
+}
+
+function validateExtension(extension: string): string {
+  if (!/^[a-z0-9]{1,16}$/i.test(extension)) {
+    throw new PackageSafetyError(`invalid package extension: ${extension}`);
+  }
+  return extension.toLowerCase();
+}
+
+/** Return an external URL only when it is inert and network-scoped. */
+export function sanitizeExternalResource(value: string): string | null {
+  const trimmed = value.trim();
+  return /^https?:\/\//i.test(trimmed) ? trimmed : null;
+}
+
+/**
+ * Validate metadata before it is persisted or rendered. Resource-bearing
+ * fields are allowlisted to HTTP(S); active HTML/script payloads are rejected.
+ */
+export function sanitizePackageMetadata<T>(value: T): T {
+  const visit = (input: unknown, key = ''): unknown => {
+    if (typeof input === 'string') {
+      if (/(?:<script\b|<iframe\b|<object\b|<embed\b)/i.test(input)) {
+        throw new PackageSafetyError('active content rejected in package metadata');
+      }
+      if (/^(?:url|uri|href|src|action|externalurl)$/i.test(key)) {
+        const safe = sanitizeExternalResource(input);
+        if (!safe) throw new PackageSafetyError(`unsafe external resource: ${input}`);
+        return safe;
+      }
+      return input;
+    }
+    if (Array.isArray(input)) return input.map((item) => visit(item, key));
+    if (input !== null && typeof input === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const [childKey, child] of Object.entries(input)) {
+        out[childKey] = visit(child, childKey);
+      }
+      return out;
+    }
+    return input;
+  };
+  return visit(value) as T;
+}
+
+function buildSourceEntries(
+  input: DraftPackageInput,
+  hash: (bytes: Uint8Array) => string,
+): {
+  entries: PackageEntry[];
+  sources: NonNullable<PackageManifest['sources']>;
+  sourceByteCount: number;
+} {
+  const entries: PackageEntry[] = [];
+  const sources: NonNullable<PackageManifest['sources']> = [];
+  const sourceBytes = input.sourceBytes ?? new Map<ContentHash, PackageBinary>();
+  const seenSourceIds = new Set<string>();
+  const seenBytes = new Map<string, string>();
+  let sourceByteCount = 0;
+
+  for (const source of input.snapshot.sources) {
+    if (seenSourceIds.has(source.sourceId)) {
+      throw new PackageSafetyError(`duplicate source id: ${source.sourceId}`);
+    }
+    seenSourceIds.add(source.sourceId);
+    assertSha256(source.sha256, `source ${source.sourceId}`);
+    const metadataPath = validatePackagePath(`sources/${source.sourceId}.json`);
+    entries.push({ path: metadataPath, data: canonicalJson(sanitizePackageMetadata(source)) });
+    const bytes = sourceBytes.get(source.sha256);
+    let bytesPath: string | undefined;
+    if (bytes) {
+      const extension = validateExtension(bytes.extension);
+      const actual = hash(bytes.bytes);
+      if (actual !== source.sha256) {
+        throw new PackageSafetyError(`source hash mismatch for ${source.sourceId}`);
+      }
+      bytesPath = validatePackagePath(`sources/${source.sha256}.${extension}`);
+      const existingPath = seenBytes.get(source.sha256);
+      if (!existingPath) {
+        seenBytes.set(source.sha256, bytesPath);
+        entries.push({ path: bytesPath, data: bytes.bytes });
+        sourceByteCount += 1;
+      } else {
+        bytesPath = existingPath;
+      }
+    }
+    sources.push({ sourceId: source.sourceId, metadataPath, ...(bytesPath ? { bytesPath } : {}) });
+  }
+
+  for (const hashValue of sourceBytes.keys()) {
+    if (!input.snapshot.sources.some((source) => source.sha256 === hashValue)) {
+      throw new PackageSafetyError(`source bytes supplied for unknown source: ${hashValue}`);
+    }
+  }
+  return { entries, sources, sourceByteCount };
+}
+
+async function buildSourceEntriesAsync(
+  input: DraftPackageInput,
+  hash: (bytes: Uint8Array) => Promise<string>,
+): Promise<{
+  entries: PackageEntry[];
+  sources: NonNullable<PackageManifest['sources']>;
+  sourceByteCount: number;
+}> {
+  const entries: PackageEntry[] = [];
+  const sources: NonNullable<PackageManifest['sources']> = [];
+  const sourceBytes = input.sourceBytes ?? new Map<ContentHash, PackageBinary>();
+  const seenSourceIds = new Set<string>();
+  const seenBytes = new Map<string, string>();
+  let sourceByteCount = 0;
+
+  for (const source of input.snapshot.sources) {
+    if (seenSourceIds.has(source.sourceId)) {
+      throw new PackageSafetyError(`duplicate source id: ${source.sourceId}`);
+    }
+    seenSourceIds.add(source.sourceId);
+    assertSha256(source.sha256, `source ${source.sourceId}`);
+    const metadataPath = validatePackagePath(`sources/${source.sourceId}.json`);
+    entries.push({ path: metadataPath, data: canonicalJson(sanitizePackageMetadata(source)) });
+    const bytes = sourceBytes.get(source.sha256);
+    let bytesPath: string | undefined;
+    if (bytes) {
+      const extension = validateExtension(bytes.extension);
+      const actual = await hash(bytes.bytes);
+      if (actual !== source.sha256) {
+        throw new PackageSafetyError(`source hash mismatch for ${source.sourceId}`);
+      }
+      bytesPath = validatePackagePath(`sources/${source.sha256}.${extension}`);
+      const existingPath = seenBytes.get(source.sha256);
+      if (!existingPath) {
+        seenBytes.set(source.sha256, bytesPath);
+        entries.push({ path: bytesPath, data: bytes.bytes });
+        sourceByteCount += 1;
+      } else {
+        bytesPath = existingPath;
+      }
+    }
+    sources.push({ sourceId: source.sourceId, metadataPath, ...(bytesPath ? { bytesPath } : {}) });
+  }
+
+  for (const hashValue of sourceBytes.keys()) {
+    if (!input.snapshot.sources.some((source) => source.sha256 === hashValue)) {
+      throw new PackageSafetyError(`source bytes supplied for unknown source: ${hashValue}`);
+    }
+  }
+  return { entries, sources, sourceByteCount };
+}
+
+function buildReportEntries(input: DraftPackageInput): {
+  entries: PackageEntry[];
+  paths: string[];
+} {
+  const entries: PackageEntry[] = [];
+  const paths: string[] = [];
+  for (const [name, report] of Object.entries(input.reports ?? {})) {
+    const path = validatePackagePath(`reports/${name}.json`);
+    entries.push({ path, data: canonicalJson(sanitizePackageMetadata(report)) });
+    paths.push(path);
+  }
+  if (input.attributions && input.attributions.size > 0) {
+    const path = 'reports/asset-licenses.json';
+    entries.push({ path, data: canonicalJson(attributionReport(input.attributions)) });
+    paths.push(path);
+  }
+  return { entries, paths: paths.sort() };
+}
+
+function buildRuntimeEntries(input: DraftPackageInput): {
+  entries: PackageEntry[];
+  evidenceIncluded: boolean;
+} {
+  const runtime = input.runtime;
+  const evidenceIncluded = runtime?.includeEvidence ?? input.packageType === 'backup';
+  if (!runtime || !evidenceIncluded) {
+    if (runtime?.evidenceRecords?.length || runtime?.files?.size) {
+      throw new PackageSafetyError('runtime evidence requires backup inclusion policy');
+    }
+    return { entries: [], evidenceIncluded: false };
+  }
+  const entries: PackageEntry[] = [];
+  if (runtime.evidenceRecords) {
+    entries.push({
+      path: 'runtime/evidence/index.json',
+      data: canonicalJson(sanitizePackageMetadata(runtime.evidenceRecords)),
+    });
+  }
+  for (const [name, file] of runtime.files ?? []) {
+    const path = validatePackagePath(
+      `runtime/evidence/${name}.${validateExtension(file.extension)}`,
+    );
+    entries.push({ path, data: file.bytes });
+  }
+  return { entries, evidenceIncluded: true };
+}
+
 /** Build the draft package entry list (sorted, validated). */
 export function buildDraftEntries(input: DraftPackageInput): PackageEntry[] {
   if (input.snapshot.schemaVersion !== GUIDE_SCHEMA_VERSION) {
@@ -329,11 +551,20 @@ export function buildDraftEntries(input: DraftPackageInput): PackageEntry[] {
     entries.push({ path: entry.path, data: entry.data });
   }
 
-  // manifest.json (contains per-entry hashes; must be computed after entries)
+  const sourceResult = buildSourceEntries(input, hashBytes);
+  entries.push(...sourceResult.entries);
+  const reportResult = buildReportEntries(input);
+  entries.push(...reportResult.entries);
+  const runtimeResult = buildRuntimeEntries(input);
+  entries.push(...runtimeResult.entries);
+
+  // manifest.json (contains per-entry hashes; must be computed after all
+  // content/report/runtime entries have been added)
   const manifest: PackageManifest = {
+    ...(input.extraManifest ?? {}),
     format: 'gforge',
-    version: 1,
-    packageType: 'draft',
+    version: 2,
+    packageType: input.packageType ?? 'draft',
     createdAt: FIXED_TIMESTAMP,
     guideId: input.snapshot.guideId,
     schemaVersion: input.snapshot.schemaVersion,
@@ -343,17 +574,18 @@ export function buildDraftEntries(input: DraftPackageInput): PackageEntry[] {
       sizeBytes: e.data.length,
     })),
     assetCount: assetEntries.length,
-    ...(input.extraManifest ?? {}),
+    sourceCount: input.snapshot.sources.length,
+    sourceByteCount: sourceResult.sourceByteCount,
+    sources: sourceResult.sources,
+    reportPaths: reportResult.paths,
+    runtime: {
+      evidenceIncluded: runtimeResult.evidenceIncluded,
+      ...(runtimeResult.evidenceIncluded && input.runtime?.evidenceRecords
+        ? { evidenceIndexPath: 'runtime/evidence/index.json' }
+        : {}),
+    },
   };
   entries.push({ path: 'manifest.json', data: canonicalJson(manifest) });
-
-  // Asset license/attribution report (Phase 04).
-  if (input.attributions && input.attributions.size > 0) {
-    entries.push({
-      path: 'reports/asset-licenses.json',
-      data: canonicalJson(attributionReport(input.attributions)),
-    });
-  }
 
   // Lexicographic order across the whole archive.
   entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
@@ -394,10 +626,16 @@ export function createDraftPackage(input: DraftPackageInput): Uint8Array {
 export function verifyPackageStructure(entries: PackageEntry[]): PackageManifest {
   const manifestEntry = entries.find((e) => e.path === 'manifest.json');
   if (!manifestEntry) throw new PackageSafetyError('missing manifest.json');
-  const manifest = JSON.parse(new TextDecoder().decode(manifestEntry.data)) as PackageManifest;
+  const manifest = parsePackageManifest(manifestEntry.data);
 
   const entryMap = new Map(entries.map((e) => [e.path, e]));
+  const declaredPaths = new Set<string>();
   for (const declared of manifest.entries) {
+    validatePackagePath(declared.path);
+    if (declared.path === 'manifest.json' || declaredPaths.has(declared.path)) {
+      throw new PackageSafetyError(`invalid duplicate manifest entry: ${declared.path}`);
+    }
+    declaredPaths.add(declared.path);
     const entry = entryMap.get(declared.path);
     if (!entry) throw new PackageSafetyError(`missing declared entry ${declared.path}`);
     const actual = sha256(entry.data);
@@ -408,6 +646,29 @@ export function verifyPackageStructure(entries: PackageEntry[]): PackageManifest
       throw new PackageSafetyError(`size mismatch for ${declared.path}`);
     }
   }
+  for (const entry of entries) {
+    if (entry.path !== 'manifest.json' && !declaredPaths.has(entry.path)) {
+      throw new PackageSafetyError(`unlisted package entry: ${entry.path}`);
+    }
+  }
+  return manifest;
+}
+
+function parsePackageManifest(data: Uint8Array): PackageManifest {
+  let manifest: PackageManifest;
+  try {
+    manifest = JSON.parse(new TextDecoder().decode(data)) as PackageManifest;
+  } catch {
+    throw new PackageSafetyError('invalid manifest.json');
+  }
+  if (
+    manifest.format !== 'gforge' ||
+    (manifest.version !== 1 && manifest.version !== 2) ||
+    (manifest.packageType !== 'draft' && manifest.packageType !== 'backup') ||
+    !Array.isArray(manifest.entries)
+  ) {
+    throw new PackageSafetyError('unsupported package manifest');
+  }
   return manifest;
 }
 
@@ -417,10 +678,16 @@ export async function verifyPackageStructureAsync(
 ): Promise<PackageManifest> {
   const manifestEntry = entries.find((e) => e.path === 'manifest.json');
   if (!manifestEntry) throw new PackageSafetyError('missing manifest.json');
-  const manifest = JSON.parse(new TextDecoder().decode(manifestEntry.data)) as PackageManifest;
+  const manifest = parsePackageManifest(manifestEntry.data);
 
   const entryMap = new Map(entries.map((e) => [e.path, e]));
+  const declaredPaths = new Set<string>();
   for (const declared of manifest.entries) {
+    validatePackagePath(declared.path);
+    if (declared.path === 'manifest.json' || declaredPaths.has(declared.path)) {
+      throw new PackageSafetyError(`invalid duplicate manifest entry: ${declared.path}`);
+    }
+    declaredPaths.add(declared.path);
     const entry = entryMap.get(declared.path);
     if (!entry) throw new PackageSafetyError(`missing declared entry ${declared.path}`);
     const actual = await webSha256(entry.data);
@@ -431,7 +698,103 @@ export async function verifyPackageStructureAsync(
       throw new PackageSafetyError(`size mismatch for ${declared.path}`);
     }
   }
+  for (const entry of entries) {
+    if (entry.path !== 'manifest.json' && !declaredPaths.has(entry.path)) {
+      throw new PackageSafetyError(`unlisted package entry: ${entry.path}`);
+    }
+  }
   return manifest;
+}
+
+/**
+ * Preflight then stream ZIP files through fflate's async decoder. The caller
+ * receives complete entries, but inflation is bounded per file and per archive
+ * while the decoder is running; unsafe paths are rejected before `start()`.
+ */
+export function extractZipArchive(bytes: Uint8Array): Promise<PackageEntry[]> {
+  const preflight = preflightZipArchive(bytes);
+  return new Promise((resolve, reject) => {
+    const entries: PackageEntry[] = [];
+    const seen = new Set<string>();
+    let discovered = 0;
+    let finished = 0;
+    let totalInflated = 0;
+    let pushedFinal = false;
+    let settled = false;
+
+    const fail = (error: unknown): void => {
+      if (settled) return;
+      settled = true;
+      reject(error instanceof Error ? error : new PackageSafetyError(String(error)));
+    };
+    const maybeResolve = (): void => {
+      if (!settled && pushedFinal && finished === discovered) {
+        settled = true;
+        entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+        resolve(entries);
+      }
+    };
+
+    const unzipper = new Unzip((file) => {
+      discovered += 1;
+      try {
+        const path = validatePackagePath(file.name);
+        if (seen.has(path)) throw new PackageSafetyError(`duplicate entry path: ${path}`);
+        seen.add(path);
+        if (file.originalSize !== undefined && file.originalSize > MAX_SINGLE_FILE_BYTES) {
+          throw new PackageSafetyError(`entry too large after inflation: ${path}`);
+        }
+        const chunks: Uint8Array[] = [];
+        let size = 0;
+        file.ondata = (error, chunk, final) => {
+          if (error) return fail(error);
+          size += chunk.length;
+          totalInflated += chunk.length;
+          if (size > MAX_SINGLE_FILE_BYTES || totalInflated > MAX_TOTAL_BYTES) {
+            file.terminate();
+            return fail(
+              new PackageSafetyError(
+                size > MAX_SINGLE_FILE_BYTES
+                  ? `entry too large after inflation: ${path}`
+                  : 'archive expands beyond total size budget',
+              ),
+            );
+          }
+          chunks.push(chunk);
+          if (final) {
+            finished += 1;
+            entries.push({ path, data: concatChunks(chunks, size) });
+            maybeResolve();
+          }
+        };
+        file.start();
+      } catch (error) {
+        file.terminate();
+        fail(error);
+      }
+    });
+    unzipper.register(AsyncUnzipInflate);
+    try {
+      unzipper.push(bytes, true);
+      pushedFinal = true;
+      if (discovered !== 0 && preflight.entryCount !== discovered) {
+        fail(new PackageSafetyError('archive entry count changed during extraction'));
+      }
+      maybeResolve();
+    } catch (error) {
+      fail(error);
+    }
+  });
+}
+
+function concatChunks(chunks: Uint8Array[], size: number): Uint8Array {
+  const out = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return out;
 }
 
 /**
@@ -481,10 +844,18 @@ export async function buildDraftEntriesWithHash(
     entries.push({ path: entry.path, data: entry.data });
   }
 
+  const sourceResult = await buildSourceEntriesAsync(input, hash);
+  entries.push(...sourceResult.entries);
+  const reportResult = buildReportEntries(input);
+  entries.push(...reportResult.entries);
+  const runtimeResult = buildRuntimeEntries(input);
+  entries.push(...runtimeResult.entries);
+
   const manifest: PackageManifest = {
+    ...(input.extraManifest ?? {}),
     format: 'gforge',
-    version: 1,
-    packageType: 'draft',
+    version: 2,
+    packageType: input.packageType ?? 'draft',
     createdAt: FIXED_TIMESTAMP,
     guideId: input.snapshot.guideId,
     schemaVersion: input.snapshot.schemaVersion,
@@ -496,19 +867,18 @@ export async function buildDraftEntriesWithHash(
       })),
     ),
     assetCount: assetEntries.length,
-    ...(input.extraManifest ?? {}),
+    sourceCount: input.snapshot.sources.length,
+    sourceByteCount: sourceResult.sourceByteCount,
+    sources: sourceResult.sources,
+    reportPaths: reportResult.paths,
+    runtime: {
+      evidenceIncluded: runtimeResult.evidenceIncluded,
+      ...(runtimeResult.evidenceIncluded && input.runtime?.evidenceRecords
+        ? { evidenceIndexPath: 'runtime/evidence/index.json' }
+        : {}),
+    },
   };
   entries.push({ path: 'manifest.json', data: canonicalJson(manifest) });
-
-  // Asset license/attribution report (Phase 04): every attributed asset is
-  // listed with its license + attribution so the package is redistributable
-  // with credit. Skipped when no attributions are provided.
-  if (input.attributions && input.attributions.size > 0) {
-    entries.push({
-      path: 'reports/asset-licenses.json',
-      data: canonicalJson(attributionReport(input.attributions)),
-    });
-  }
 
   entries.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 

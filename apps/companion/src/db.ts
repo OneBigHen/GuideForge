@@ -28,6 +28,15 @@ export interface EncryptedSecretRecord extends SecretMetadata {
   tag: string;
 }
 
+export interface SigningKeyRecord {
+  keyId: string;
+  publicKeyHex: string;
+  createdAt: number;
+  status: 'active' | 'revoked' | 'retired';
+  revokedAt: number | null;
+  reason: string | null;
+}
+
 interface OwnerRow {
   display_name: string;
   password_hash: string;
@@ -59,6 +68,15 @@ interface PairingRow {
   created_at: number;
   expires_at: number;
   used_at: number | null;
+}
+
+interface SigningKeyRow {
+  key_id: string;
+  public_key_hex: string;
+  created_at: number;
+  status: 'active' | 'revoked' | 'retired';
+  revoked_at: number | null;
+  reason: string | null;
 }
 
 const MIGRATIONS = [
@@ -98,6 +116,17 @@ const MIGRATIONS = [
       used_at INTEGER
     ) STRICT;
     CREATE INDEX pairings_active_idx ON pairings (token_hash, expires_at, used_at);
+  `,
+  `
+    CREATE TABLE signing_keys (
+      key_id TEXT PRIMARY KEY,
+      public_key_hex TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('active', 'revoked', 'retired')),
+      revoked_at INTEGER,
+      reason TEXT
+    ) STRICT;
+    CREATE INDEX signing_keys_status_idx ON signing_keys (status, created_at);
   `,
 ] as const;
 
@@ -224,6 +253,57 @@ export class CompanionDatabase {
     this.database.prepare('DELETE FROM secrets WHERE name = ?').run(name);
   }
 
+  putSigningKey(record: SigningKeyRecord): void {
+    this.database
+      .prepare(
+        `INSERT INTO signing_keys (key_id, public_key_hex, created_at, status, revoked_at, reason)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(key_id) DO UPDATE SET public_key_hex = excluded.public_key_hex,
+           status = excluded.status, revoked_at = excluded.revoked_at, reason = excluded.reason`,
+      )
+      .run(
+        record.keyId,
+        record.publicKeyHex,
+        record.createdAt,
+        record.status,
+        record.revokedAt,
+        record.reason,
+      );
+  }
+
+  getSigningKey(keyId: string): SigningKeyRecord | undefined {
+    const row = this.database
+      .prepare(
+        'SELECT key_id, public_key_hex, created_at, status, revoked_at, reason FROM signing_keys WHERE key_id = ?',
+      )
+      .get(keyId) as SigningKeyRow | undefined;
+    return row ? signingKeyFromRow(row) : undefined;
+  }
+
+  listSigningKeys(): SigningKeyRecord[] {
+    const rows = this.database
+      .prepare(
+        'SELECT key_id, public_key_hex, created_at, status, revoked_at, reason FROM signing_keys ORDER BY created_at DESC',
+      )
+      .all() as SigningKeyRow[];
+    return rows.map(signingKeyFromRow);
+  }
+
+  retireActiveSigningKeys(): void {
+    this.database
+      .prepare("UPDATE signing_keys SET status = 'retired' WHERE status = 'active'")
+      .run();
+  }
+
+  revokeSigningKey(keyId: string, reason: string, now = Date.now()): boolean {
+    const result = this.database
+      .prepare(
+        "UPDATE signing_keys SET status = 'revoked', revoked_at = ?, reason = ? WHERE key_id = ? AND status != 'revoked'",
+      )
+      .run(now, reason, keyId);
+    return result.changes > 0;
+  }
+
   createPairing(
     id: string,
     label: string,
@@ -277,4 +357,15 @@ export class CompanionDatabase {
       }
     }
   }
+}
+
+function signingKeyFromRow(row: SigningKeyRow): SigningKeyRecord {
+  return {
+    keyId: row.key_id,
+    publicKeyHex: row.public_key_hex,
+    createdAt: row.created_at,
+    status: row.status,
+    revokedAt: row.revoked_at,
+    reason: row.reason,
+  };
 }

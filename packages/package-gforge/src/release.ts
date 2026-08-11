@@ -77,6 +77,9 @@ export function buildReleaseEntries(input: ReleaseInput): PackageEntry[] {
   // assets/<sha256>.<ext> sorted
   const assetEntries: { path: string; data: Uint8Array; sha256: string }[] = [];
   for (const [hash, asset] of input.assets) {
+    if (!/^[0-9a-f]{64}$/.test(hash) || hashBytes(asset.bytes) !== hash) {
+      throw new PackageSafetyError(`asset hash mismatch for ${hash}`);
+    }
     if (asset.bytes.length > MAX_SINGLE_FILE_BYTES) {
       throw new PackageSafetyError(`asset too large: ${asset.bytes.length}`);
     }
@@ -198,7 +201,14 @@ export function verifyReleasePackage(bytes: Uint8Array): ReleaseVerificationResu
         signed?: boolean;
       };
       declaredSigned = manifestObj.signed === true;
+      const declaredPaths = new Set<string>();
       for (const declared of manifestObj.entries ?? []) {
+        validatePackagePath(declared.path);
+        if (declaredPaths.has(declared.path)) {
+          issues.push(`duplicate declared entry ${declared.path}`);
+          continue;
+        }
+        declaredPaths.add(declared.path);
         const entry = byPath.get(declared.path);
         if (!entry) {
           issues.push(`missing declared entry ${declared.path}`);
@@ -206,6 +216,18 @@ export function verifyReleasePackage(bytes: Uint8Array): ReleaseVerificationResu
         }
         if (hashBytes(entry.data) !== declared.sha256) {
           issues.push(`hash mismatch for ${declared.path}`);
+        }
+        if (entry.data.length !== declared.sizeBytes) {
+          issues.push(`size mismatch for ${declared.path}`);
+        }
+      }
+      for (const entry of entries) {
+        if (
+          entry.path !== 'manifest.json' &&
+          entry.path !== 'signatures/release-signature.json' &&
+          !declaredPaths.has(entry.path)
+        ) {
+          issues.push(`unlisted package entry ${entry.path}`);
         }
       }
     } catch {

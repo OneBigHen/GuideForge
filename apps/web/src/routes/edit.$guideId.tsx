@@ -12,6 +12,7 @@ import {
   closeGuide,
   dispatchCommand,
   exportDraft,
+  exportFullBackup,
   exportPersonalRelease,
   generateFakeProposals,
   openGuide,
@@ -154,6 +155,26 @@ function EditPage() {
     }
   }
 
+  async function handleExportBackup() {
+    if (!session) return;
+    try {
+      const { bytes, filename } = await exportFullBackup(session);
+      const blob = new Blob([bytes as BlobPart], { type: 'application/zip' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      setReleaseInfo(
+        'Exported a full backup with sources, reports, assets, and execution evidence.',
+      );
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   const task = currentTask();
   const step = currentStep();
 
@@ -184,6 +205,14 @@ function EditPage() {
             onClick={() => void handleExportDraft()}
           >
             Export .gforge
+          </button>
+          <button
+            type="button"
+            className="button button--ghost"
+            onClick={() => void handleExportBackup()}
+            title="Export a complete restorable project backup"
+          >
+            Export full backup
           </button>
           <button
             type="button"

@@ -23,8 +23,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), 3000);
     fetch('/api/health', { signal: controller.signal, credentials: 'include' })
-      .then((res) => {
-        if (!cancelled) setCompanion(res.ok ? 'online' : 'offline');
+      .then(async (res) => {
+        const body: unknown = await res.json().catch(() => null);
+        const isCompanion =
+          body !== null &&
+          typeof body === 'object' &&
+          'companion' in body &&
+          body.companion === true;
+        if (!cancelled) setCompanion(res.ok && isCompanion ? 'online' : 'offline');
       })
       .catch(() => {
         if (!cancelled) setCompanion('offline');

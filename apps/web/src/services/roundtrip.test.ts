@@ -80,11 +80,16 @@ describe('canonical spatial guide round trip (Phase 02)', () => {
 
     // 2. Build a scene: place a model node, add a camera, add an annotation.
     const sceneState = createSceneState();
+    const modelBytes = new Uint8Array([1, 2, 3, 4]);
+    const modelHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', modelBytes)))
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('');
+    await session.assets.put(modelBytes, 'model/gltf-binary', 'glb');
     const modelNode = {
       nodeId: crypto.randomUUID() as EntityId,
       name: 'Pipette',
       parentId: null as EntityId | null,
-      assetHash: 'a'.repeat(64) as EntityId & string,
+      assetHash: modelHash as EntityId & string,
       transform: {
         position: { x: 0, y: 1, z: 0 },
         rotation: { x: 0, y: 0, z: 0, w: 1 },

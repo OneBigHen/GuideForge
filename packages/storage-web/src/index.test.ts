@@ -127,8 +127,20 @@ describe('storage-web OPFS asset store (IndexedDB fallback path)', () => {
     expect(count).toBe(1);
   });
 
+  it('lists assets and removes only unreferenced content', async () => {
+    const keep = await store.put(new Uint8Array([1, 2]), 'application/octet-stream', 'bin');
+    const drop = await store.put(new Uint8Array([3, 4]), 'application/octet-stream', 'bin');
+    expect((await store.list()).some((record) => record.hash === keep.hash)).toBe(true);
+
+    const removed = await store.garbageCollect(new Set([keep.hash]));
+    expect(removed).toContain(drop.hash);
+    expect(await store.has(keep.hash)).toBe(true);
+    expect(await store.has(drop.hash)).toBe(false);
+  });
+
   it('reports storage health without OPFS', async () => {
     const health = await store.status();
     expect(health.opfsSupported).toBe(false);
+    expect(health.quotaWarning).toBe('unknown');
   });
 });

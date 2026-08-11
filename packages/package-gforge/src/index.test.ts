@@ -7,9 +7,12 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDraftEntries,
   createDraftPackage,
+  extractZipArchive,
   FIXED_TIMESTAMP,
   PackageSafetyError,
   preflightZipArchive,
+  sanitizeExternalResource,
+  sanitizePackageMetadata,
   validatePackagePath,
   verifyPackageStructure,
 } from './index.js';
@@ -190,6 +193,12 @@ describe('package-gforge verification', () => {
     target!.data = tampered;
     expect(() => verifyPackageStructure(entries)).toThrow(/hash mismatch for guide.json/);
   });
+
+  it('rejects entries that are not bound by the manifest', () => {
+    const entries = buildDraftEntries({ snapshot: snapshot('Bound'), assets: new Map() });
+    entries.push({ path: 'rogue.json', data: new Uint8Array([1]) });
+    expect(() => verifyPackageStructure(entries)).toThrow(/unlisted package entry/);
+  });
 });
 
 describe('package-gforge bounded archive preflight', () => {
@@ -211,6 +220,7 @@ describe('package-gforge bounded archive preflight', () => {
   it('rejects unsafe entry paths during preflight (no extraction)', () => {
     const evil = zipSync({ '../escape.txt': new Uint8Array([1]) });
     expect(() => preflightZipArchive(evil)).toThrow(/unsafe entry path rejected/);
+    expect(() => extractZipArchive(evil)).toThrow(/unsafe entry path rejected/);
   });
 
   it('rejects non-zip input', () => {
@@ -247,5 +257,82 @@ describe('package-gforge attribution report (Phase 04)', () => {
   it('omits the report when no attributions are provided', () => {
     const entries = buildDraftEntries({ snapshot: snapshot('NoAttrib'), assets: new Map() });
     expect(entries.some((e) => e.path === 'reports/asset-licenses.json')).toBe(false);
+  });
+});
+
+describe('package-gforge v2 portability', () => {
+  it('stores source metadata, optional source bytes, reports, and backup evidence', async () => {
+    const sourceHash = realHash(new Uint8Array([4, 5, 6]));
+    const source = {
+      sourceId: '123e4567-e89b-42d3-a456-426614174001' as GuideSnapshot['guideId'],
+      sha256: sourceHash,
+      originalName: 'procedure.txt',
+      mediaType: 'text/plain',
+      kind: 'text' as const,
+      sizeBytes: 3,
+      pageCount: 1,
+      durationMs: null,
+      receivedAtIso: FIXED_TIMESTAMP,
+      pipeline: 'text-source',
+      pipelineVersion: '1',
+      status: 'ready' as const,
+      regions: [],
+      provenanceReceipt: {},
+    };
+    const entries = buildDraftEntries({
+      snapshot: { ...snapshot('Portable'), sources: [source] },
+      assets: new Map(),
+      packageType: 'backup',
+      sourceBytes: new Map([[sourceHash, { bytes: new Uint8Array([4, 5, 6]), extension: 'txt' }]]),
+      reports: {
+        generation: { runId: 'run-1', status: 'complete' },
+        validation: { missingAssets: [] },
+        cost: { inputTokens: 3 },
+      },
+      runtime: {
+        evidenceRecords: [{ evidenceId: 'e-1', stepId: 'step-1', kind: 'note' }],
+      },
+    });
+
+    const manifest = verifyPackageStructure(entries);
+    expect(manifest.version).toBe(2);
+    expect(manifest.packageType).toBe('backup');
+    expect(entries.map((entry) => entry.path)).toEqual([
+      'guide.json',
+      'manifest.json',
+      'reports/cost.json',
+      'reports/generation.json',
+      'reports/validation.json',
+      'runtime/evidence/index.json',
+      'sources/123e4567-e89b-42d3-a456-426614174001.json',
+      `sources/${sourceHash}.txt`,
+    ]);
+
+    const extracted = await extractZipArchive(
+      createDraftPackage({
+        snapshot: { ...snapshot('Portable'), sources: [source] },
+        assets: new Map(),
+        packageType: 'backup',
+        sourceBytes: new Map([
+          [sourceHash, { bytes: new Uint8Array([4, 5, 6]), extension: 'txt' }],
+        ]),
+      }),
+    );
+    expect(extracted.some((entry) => entry.path.endsWith('.txt'))).toBe(true);
+  });
+
+  it('sanitizes active and external resource values before metadata use', () => {
+    expect(sanitizeExternalResource('https://example.test/source')).toBe(
+      'https://example.test/source',
+    );
+    expect(sanitizeExternalResource('javascript:alert(1)')).toBeNull();
+    expect(sanitizeExternalResource('data:text/html,<script>alert(1)</script>')).toBeNull();
+    expect(() => sanitizePackageMetadata({ href: 'javascript:alert(1)' })).toThrow(
+      /unsafe external resource/,
+    );
+    expect(sanitizePackageMetadata({ title: 'plain text', count: 2 })).toEqual({
+      title: 'plain text',
+      count: 2,
+    });
   });
 });
