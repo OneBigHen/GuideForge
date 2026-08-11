@@ -3,7 +3,8 @@
 ## Outcome
 
 Phase 03 is verified on implementation commit
-`3f70f67e8c72662bb8a383162d41325df6721a00`. GuideForge now has a deterministic
+`3f70f67e8c72662bb8a383162d41325df6721a00`; the follow-up TLS test stability
+fix is `64bc8671073e88f765ff68fa52ee11c805688cc3`. GuideForge now has a deterministic
 `.gforge` v2 portability boundary, bounded archive restore, local-first
 storage health and garbage collection, full evidence backup, and companion
 signing-key custody with rotation and revocation.
@@ -51,6 +52,7 @@ by this phase.
 | GitHub check `93920393867`                                              | passed in 5m17s                                                                              |
 | GitHub Playwright `93921864628`                                         | passed in 2m58s                                                                              |
 | GitHub run `31533935448`                                                | passed for the implementation SHA                                                            |
+| GitHub run `31535994450`                                                | passed for the TLS test stability fix; check and Playwright both passed                      |
 | `pnpm boundary`, `pnpm dep-check`, policy, secret, audit, license, SBOM | passed; local secret scan used regex fallback, SBOM exited 0 with known npm tree diagnostics |
 
 ## Known limits

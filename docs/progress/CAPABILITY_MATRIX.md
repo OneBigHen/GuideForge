@@ -137,9 +137,10 @@ is verified on implementation commit
 `2158d5123fca96e088aaf2bf1010ec83523036ba` by GitHub run `31525700447`
 (`check` and Playwright desktop/iPad/iPhone passed), with the clean-profile
 source round-trip passing locally. Phase 03 is verified on implementation
-commit `3f70f67e8c72662bb8a383162d41325df6721a00` by GitHub run `31533935448`:
-check `93920393867` passed in 5m17s and Playwright `93921864628` passed in
-2m58s. The Phase 03 gate is verified in clean test storage and emulated
+commit `3f70f67e8c72662bb8a383162d41325df6721a00`, with follow-up TLS test
+stability fix `64bc8671073e88f765ff68fa52ee11c805688cc3`; GitHub run
+`31533935448` passed on the implementation and `31535994450` passed the fix
+(check and Playwright). The Phase 03 gate is verified in clean test storage and emulated
 browsers; physical devices, native OS keychains, and live providers remain
 unproven. Phase 04–17 remain uncertified; historical reports do not change
 their status.
