@@ -5,6 +5,8 @@ packages:
 
 # Native postinstall scripts required for vite/tsx/libxmljs builds (pnpm 10).
 onlyBuiltDependencies:
+  - argon2
+  - better-sqlite3
   - esbuild
   - libxmljs2
 
@@ -42,6 +44,9 @@ catalog:
   '@react-three/xr': 6.6.30
 
   # Server
+  argon2: 0.45.1
+  better-sqlite3: 13.0.3
+  '@types/better-sqlite3': 9.6.0
   fastify: 5.11.2
   drizzle-orm: 0.45.2
   postgres: 3.4.9

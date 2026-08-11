@@ -134,3 +134,43 @@ features (Phase 01 gate).
   releases become available without weakening the browser guarantee.
 - WebCrypto Ed25519 support stabilizes: a non-extractable key path could
   become an option for device-local signing.
+
+## Production Readiness Pack addendum — 2026-08-11
+
+The production pack audit at `abefa7475d52931957721b571df828c364c7e924`
+found that the earlier API hardening was not a real credentialed companion
+runtime. The following decisions supersede the old identity claim for the
+companion path.
+
+1. `apps/companion` owns the single local owner record in SQLite. First-run
+   setup hashes the password and recovery code with Argon2id. Login never
+   treats a caller-supplied user ID as authentication.
+2. Sessions are opaque random cookie values; only SHA-256 token hashes are
+   stored. Login and rotation revoke the previous session. Logout,
+   revoke-all, and recovery invalidate sessions. Cookie-authenticated writes
+   require an exact configured Origin.
+3. The service binds to loopback by default. Any non-loopback host requires a
+   TLS key and certificate; the entrypoint rejects private-key files readable
+   by group or other users. The web client uses a same-site companion host so
+   `SameSite=Strict` remains effective.
+4. Provider and signing values use AES-256-GCM at rest. The data directory,
+   SQLite file, master key, and session material are owner-readable; HTTP
+   settings routes expose metadata only.
+5. Pairing is a one-time, short-lived hashed token. Passkeys are represented
+   as an explicit unavailable WebAuthn seam rather than a password bypass.
+6. The web settings route is the user-facing setup/pairing surface. It covers
+   loading, unavailable companion, owner setup, sign-in, authenticated
+   settings, encrypted secret entry, pairing, and sign-out on narrow layouts.
+
+The existing `apps/api` BFF remains a compatibility surface for proposal and
+review routes. It is not the owner-auth authority for the new companion path,
+and the new companion primary flows do not import its org/workspace/RBAC
+model.
+
+### Current evidence
+
+`apps/companion/src/server.test.ts` has 10 tests covering unknown/wrong
+credentials, brute force, CSRF/Origin, rotation/revoke/recovery,
+loopback/LAN HTTPS, capabilities, encrypted secrets, pairing, migrations, and
+Argon2id. The real listener test authenticates a separate HTTPS client and
+the rendered web flow completes desktop setup/pairing plus iPhone 13 login.

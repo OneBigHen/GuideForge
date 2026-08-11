@@ -24,15 +24,15 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 ## Single-owner security and control plane
 
-| Requirement                                                   | Current source signal                                                    | Status  |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------ | ------- |
-| Real owner credential with Argon2id/current equivalent        | No companion owner-auth path                                             | missing |
-| Loopback-default companion and secure LAN mode                | `apps/companion` is absent                                               | missing |
-| HTTPS required for non-loopback mode                          | No network owner runtime                                                 | missing |
-| Secure HttpOnly cookie, CSRF/origin, rotation/revoke/recovery | Enterprise-era API path; no complete single-owner session                | missing |
-| Provider and signing secrets protected from browser storage   | Provider path is server-side, but signing/browser legacy findings remain | partial |
-| No primary org/RBAC dependency                                | Current API still contains organization/workspace heritage               | partial |
-| Rate/resource limits and cancellation                         | Some converter timeout/size checks; no complete owner job policy         | partial |
+| Requirement                                                   | Current source signal                                                                                                  | Status            |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Real owner credential with Argon2id/current equivalent        | `apps/companion/src/server.test.ts`: owner setup, dummy unknown-owner path, wrong password, Argon2id hash verification | verified locally  |
+| Loopback-default companion and secure LAN mode                | `apps/companion`: `127.0.0.1` default; non-loopback requires TLS; real HTTPS listener/client test                      | verified locally  |
+| HTTPS required for non-loopback mode                          | `assertTransportConfig` rejects missing key/cert; generated-cert network test receives Secure cookie                   | verified locally  |
+| Secure HttpOnly cookie, CSRF/origin, rotation/revoke/recovery | 10 companion tests cover flags, Origin allowlist, rotation, logout, revoke-all, recovery, expiry                       | verified locally  |
+| Provider and signing secrets protected from browser storage   | AES-256-GCM `SecretBox`, `0600` storage, metadata-only settings API and settings UX                                    | verified locally  |
+| No primary org/RBAC dependency                                | Companion owner/pairing/settings path uses SQLite owner record, not legacy org/workspace/RBAC                          | verified narrowly |
+| Rate/resource limits and cancellation                         | Login/request/body/secret limits are tested; durable job cancellation remains a later phase concern                    | partial           |
 
 ## Canonical project and package
 
@@ -116,7 +116,7 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 ## Phase certification
 
-No Phase 01–17 is certified by this matrix. The prior reports remain useful as
-implementation history only and are marked as such in their files. Each phase
-must replace its rows with current implementation, provider, package, device,
-and release evidence before its ledger status changes to `verified`.
+Phase 01 is verified locally from the current tree but awaits its current-SHA
+GitHub status and Playwright E2E readback. Physical iPad/iPhone hardware and
+trusted LAN certificate installation remain explicitly unproven. Phase 02–17
+remain uncertified; historical reports do not change their status.

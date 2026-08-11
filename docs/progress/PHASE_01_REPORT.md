@@ -1,122 +1,80 @@
-# Phase 01 Report — Single-User Architecture and Correctness Repairs
+# Phase 01 Report — Production Companion and Owner Security
 
-> Historical note (2026-08-11): this report predates the Production Readiness
-> Pack audit at `abefa7475d52931957721b571df828c364c7e924`. Its claims are
-> retained as historical implementation evidence only, not current phase
-> certification. See the current capability matrix and execution ledger.
+Date: 2026-08-11
+Authority: `GuideForge_Production_Readiness_Pack_abefa747`
+Baseline audited: `abefa7475d52931957721b571df828c364c7e924`
 
-## Outcome
+## Status
 
-The enterprise-shaped control plane is now an honest single-owner companion:
-roles can no longer be self-assigned from the request body, audit context is a
-stable single-owner constant, approval invalidation is real, every claimed
-content hash is real SHA-256, adapters honor their constructor keys, model
-output is deeply validated and zero-citation output is rejected, proposals
-retain citations + provider receipts, provider/fallback is explicit in the UI,
-signing keys never enter the browser, archive extraction is bounded before
-inflation, and the API has CSRF/rate-limit/loopback-default hardening.
+The Phase 01 implementation is complete and verified locally. The phase
+commit still requires the current-SHA GitHub check and Playwright E2E readback
+before its ledger status becomes `verified`.
 
-## User-visible vertical slices
+The physical iPad/iPhone path is not executed in this environment. The
+network gate is covered by a real HTTPS listener and a separate HTTPS client,
+and the responsive settings path is exercised in an iPhone 13 emulation.
 
-- **Proposals panel** now labels each proposal's producing provider
-  ("DeepSeek (live)" vs "offline deterministic") and shows citation counts —
-  the user always knows whether a real provider ran.
-- **"Export .gforge"** (draft) now actually downloads a file (previously
-  discarded).
-- **"Export personal release"** is explicitly unsigned with an honest note —
-  no more fake demo signing keys in localStorage.
-- **Footer status** probes the companion and reports "Browser-only mode — no
-  companion" / "Companion connected" truthfully.
-- **Hierarchy row actions** (hide/show) act on the correct row (stale-selection
-  bug fixed).
+## Delivered path
 
-## Commits
-
-- (this commit) feat: Phase 01 single-user repairs — owner session, SHA-256,
-  validation, provenance, bounded unzip, unsigned releases
-
-## Exact commands and results
-
-| Command                                                  | Result                                                                                                          |
-| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `pnpm --filter @guideforge/api test`                     | 17/17 (7 new: body-roles ignored, owner enforcement, stable audit org, approval invalidation, CSRF, rate limit) |
-| `pnpm --filter @guideforge/model-gateway test`           | 13/13 (constructor-key retention ×2, zero-citation rejection, no-credential ×3)                                 |
-| `pnpm --filter @guideforge/package-gforge test`          | 32/32 (unsigned release, preflight zip-bomb/traversal/EOCD)                                                     |
-| `pnpm --filter @guideforge/domain test`                  | 7/7 (SHA-256 FIPS vectors)                                                                                      |
-| `pnpm --filter @guideforge/ai-contracts test`            | 17/17 (deep extraction validation)                                                                              |
-| `pnpm --filter @guideforge/web test`                     | 8/8 (proposal provenance retention)                                                                             |
-| `pnpm check --force`                                     | 100/100 tasks pass (fresh)                                                                                      |
-| `pnpm --filter @guideforge/web test:e2e`                 | 37 passed / 2 skipped (WebKit offline)                                                                          |
-| `pnpm dep-check` / `pnpm boundary` / `pnpm format:check` | pass                                                                                                            |
+- Added `apps/companion`, a loopback-default Fastify service with SQLite
+  migrations and no organization/workspace/RBAC dependency in its primary
+  owner path.
+- Added first-run owner setup, Argon2id password and recovery hashes, opaque
+  rotating session cookies, logout/revoke/recovery, exact Origin allowlisting,
+  request/body/login limits, and a WebAuthn seam.
+- Required TLS for non-loopback hosts; the entrypoint also rejects permissive
+  private-key file modes. SQLite and generated key material are restricted to
+  the owner (`0600` files, `0700` data directory).
+- Added AES-256-GCM provider/signing secret storage. Settings APIs expose only
+  metadata; secret values never return to the browser.
+- Added one-time device pairing and the web `/settings` setup, sign-in,
+  pairing, secret, and sign-out UX. The web build must use a same-site
+  `VITE_COMPANION_URL` (for example `http://localhost:4317`) because the
+  session cookie is `SameSite=Strict`.
 
 ## Acceptance evidence
 
-Gate items from `prompts/phases/PHASE_01_SINGLE_USER_REPAIRS.md`:
+| Requirement                             | Current evidence                                                                                                                                                                                                |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unknown owner and wrong password        | `apps/companion/src/server.test.ts`: dummy-hash unknown-owner path and invalid-password path return 401                                                                                                         |
+| User ID alone cannot authenticate       | Login accepts only the password; the test supplies an ignored user ID and verifies the real owner password is required                                                                                          |
+| Brute force                             | Per-IP login bucket returns 429 after the configured threshold                                                                                                                                                  |
+| CSRF and bad Origin                     | Cookie-authenticated secret writes without Origin or with `https://evil.example` return 403; the configured Origin passes                                                                                       |
+| Session rotation/revoke/recovery/expiry | Rotation invalidates the old cookie; logout/revoke-all/recovery invalidate sessions; expiry and revoked records fail closed                                                                                     |
+| Loopback and LAN HTTPS                  | Loopback defaults to HTTP for local use; non-loopback config without TLS throws; generated-cert listener/client test authenticates over HTTPS and receives `Secure` cookie                                      |
+| Capabilities                            | `/api/capabilities` reports Argon2id, opaque rotating cookies, SQLite, encrypted secrets, pairing, and the passkey seam                                                                                         |
+| Secret boundary                         | Provider value is decrypted only inside the injected `SecretBox`; HTTP reads return configured metadata, never plaintext                                                                                        |
+| Pairing                                 | Authenticated owner creates a one-time code; a second client consumes it once and reuse returns 401                                                                                                             |
+| Settings UX                             | Playwright flow completes owner setup, sign-in, pairing on desktop and sign-in on iPhone 13 emulation; screenshots reviewed at `/tmp/guideforge-settings-desktop.png` and `/tmp/guideforge-settings-iphone.png` |
 
-| Gate                                                | Evidence                                                                               |
-| --------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| No caller can grant privileges through request body | body-supplied-role regression test; `GET /api/session` shows server-derived owner role |
-| Network companion is not usable anonymously         | `ownerId` enforcement test (non-owner 403)                                             |
-| All claimed hashes are SHA-256                      | domain FIPS vectors; FNV removed from api/interop/gateway/package/web                  |
-| Invalid/uncited model output is rejected            | deep `isExtractionOutput`; zero-citation step rejection test                           |
-| Package import is bounded                           | `preflightZipArchive` (entry count, sizes, ratio) before inflation                     |
-| Signing keys are protected                          | unsigned personal releases; no localStorage key anywhere                               |
-| Known audit findings have regression tests          | 7 new api tests + gateway/package/web tests above                                      |
+## Exact verification
 
-## AI/provider evidence
+| Command                                                        | Result                                                                            |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `pnpm --filter @guideforge/companion test`                     | 10/10                                                                             |
+| companion typecheck, lint, format, `git diff --check`          | pass                                                                              |
+| `pnpm --filter @guideforge/web test`                           | 23/23                                                                             |
+| web typecheck, lint, build                                     | pass                                                                              |
+| rendered settings flow with real companion + Playwright        | desktop setup/login/pairing and iPhone 13 login pass; no console/request failures |
+| `pnpm check --force`                                           | 120/120 tasks, 4m55.228s, fresh/no cache                                          |
+| `pnpm security:audit`                                          | pass; reviewed esbuild SUPPLY-0001 remains documented                             |
+| `pnpm security:licenses`                                       | pass                                                                              |
+| `pnpm security:sbom`                                           | pass; CycloneDX 1.6 JSON generated to ignored `sbom.xml`                          |
+| `pnpm security:secret-scan`                                    | pass (regex fallback; gitleaks unavailable locally)                               |
+| `pnpm security:policy-test`, `pnpm boundary`, `pnpm dep-check` | pass                                                                              |
 
-- Real SHA-256 source hashes, citations, confidence, and full provider receipt
-  now flow server → proposal → persisted record → UI.
-- No-credential behavior proven (gateway reports explicit unavailability).
+## Deliberate boundaries
 
-## Device evidence
+- Passkeys are an explicit `501` WebAuthn seam, not a fake login path.
+- Rate buckets are per-process; a shared limiter belongs with a later durable
+  job/runtime phase.
+- `apps/api` remains a compatibility BFF for existing proposal/review routes.
+  The new companion owner authentication, pairing, and secret paths do not
+  accept or depend on its legacy JWT/org/RBAC identity model.
+- Physical Safari/iPad/iPhone hardware, certificate trust installation, and
+  end-user LAN discovery remain unproven here.
 
-- E2E desktop/iPad/iPhone emulation: 37 passed / 2 skipped (WebKit offline).
-- Real-device remains an external blocker.
+## Next phase readiness
 
-## Accessibility evidence
-
-- Axe scans still pass in E2E; provider badge + citations are text content.
-
-## Security/privacy/license impact
-
-- CSRF Origin check + rate limits + loopback default (server.ts).
-- No signing secret in browser storage; unsigned releases verify as
-  untrusted with a visible warning.
-- `@noble/hashes` 2.2.0 (MIT) added to catalog for real SHA-256.
-
-## Persisted schema/migrations
-
-- Dexie `guideforge` DB: version 3 adds `citations` + `receipt` to proposals
-  (additive, same indexes).
-
-## Package round-trip impact
-
-- Release manifest now carries `signed: false` for unsigned personal
-  releases; verification accepts them (valid but untrusted).
-
-## Performance and cost
-
-- Preflight is metadata-only; no measurable cost.
-
-## Known limitations
-
-- Rate limits are in-memory (per-process); a multi-instance deployment would
-  need a shared store. Single-user companion is fine.
-- Signed releases still require the companion key store (Phase 07+); browser
-  path is unsigned by design.
-- Zip extraction is still synchronous after preflight; worker-based
-  extraction remains a Phase 02/05 hardening item.
-
-## External blockers
-
-- Real-device (Safari/Pencil/camera) testing cannot run in this sandbox.
-
-## Next-phase readiness
-
-Phase 02 (canonical spatial guide + complete `.gforge`) can start: scene and
-training are still outside the canonical Yjs/snapshot, assets are still passed
-as empty maps, and Dexie remains authoritative for scenes — all Phase 02
-targets.
-
-**Gate:** PASS
+Phase 02 can proceed after the current phase commit receives required GitHub
+status and Playwright E2E evidence. No prior Phase 01 PASS claim is reused.

@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LibraryRouteImport } from './routes/library'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as EditGuideIdRouteImport } from './routes/edit.$guideId'
 import { Route as RunGuideIdRouteImport } from './routes/run.$guideId'
 import { Route as SceneGuideIdRouteImport } from './routes/scene.$guideId'
@@ -24,6 +25,11 @@ const IndexRoute = IndexRouteImport.update({
 const LibraryRoute = LibraryRouteImport.update({
   id: '/library',
   path: '/library',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EditGuideIdRoute = EditGuideIdRouteImport.update({
@@ -50,6 +56,7 @@ const SourcesGuideIdRoute = SourcesGuideIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/library': typeof LibraryRoute
+  '/settings': typeof SettingsRoute
   '/edit/$guideId': typeof EditGuideIdRoute
   '/run/$guideId': typeof RunGuideIdRoute
   '/scene/$guideId': typeof SceneGuideIdRoute
@@ -58,6 +65,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/library': typeof LibraryRoute
+  '/settings': typeof SettingsRoute
   '/edit/$guideId': typeof EditGuideIdRoute
   '/run/$guideId': typeof RunGuideIdRoute
   '/scene/$guideId': typeof SceneGuideIdRoute
@@ -67,6 +75,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/library': typeof LibraryRoute
+  '/settings': typeof SettingsRoute
   '/edit/$guideId': typeof EditGuideIdRoute
   '/run/$guideId': typeof RunGuideIdRoute
   '/scene/$guideId': typeof SceneGuideIdRoute
@@ -77,6 +86,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/library'
+    | '/settings'
     | '/edit/$guideId'
     | '/run/$guideId'
     | '/scene/$guideId'
@@ -85,6 +95,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/library'
+    | '/settings'
     | '/edit/$guideId'
     | '/run/$guideId'
     | '/scene/$guideId'
@@ -93,6 +104,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/library'
+    | '/settings'
     | '/edit/$guideId'
     | '/run/$guideId'
     | '/scene/$guideId'
@@ -102,6 +114,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LibraryRoute: typeof LibraryRoute
+  SettingsRoute: typeof SettingsRoute
   EditGuideIdRoute: typeof EditGuideIdRoute
   RunGuideIdRoute: typeof RunGuideIdRoute
   SceneGuideIdRoute: typeof SceneGuideIdRoute
@@ -122,6 +135,13 @@ declare module '@tanstack/react-router' {
       path: '/library'
       fullPath: '/library'
       preLoaderRoute: typeof LibraryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/edit/$guideId': {
@@ -158,6 +178,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LibraryRoute: LibraryRoute,
+  SettingsRoute: SettingsRoute,
   EditGuideIdRoute: EditGuideIdRoute,
   RunGuideIdRoute: RunGuideIdRoute,
   SceneGuideIdRoute: SceneGuideIdRoute,
