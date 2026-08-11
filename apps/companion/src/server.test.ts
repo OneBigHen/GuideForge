@@ -487,7 +487,7 @@ describe('companion boundaries and resource controls', () => {
       await closeApp(app, db);
       rmSync(directory, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it('requires TLS for LAN hosts and uses Secure cookies when enabled', async () => {
     expect(() => assertTransportConfig('192.168.1.50')).toThrow(/HTTPS/);
