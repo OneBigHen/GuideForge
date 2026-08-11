@@ -16,7 +16,7 @@ current status.
 | P00-8 | 00    | Current SHA has external CI evidence                               | verified         | PR #1 required check and E2E passed for `8b97360`; GitGuardian remains pending as third-party advisory                                                    | monitor external advisory              |
 | P01   | 01    | Single-owner companion auth and secret boundary                    | verified         | `b6ec6b8` pushed; GitHub run `31498373276` passed `check` and Playwright desktop/iPad/iPhone; local 10/10 security tests                                  | proceed to Phase 02                    |
 | P02   | 02    | Canonical GuideSnapshot v4 and source round-trip                   | verified         | `2158d51` pushed; local 120/120 gate plus GitHub run `31525700447` passed `check` and Playwright desktop/iPad/iPhone; clean-profile source round-trip 2/2 | proceed to Phase 03                    |
-| P03   | 03    | Package v2, bounded archive, storage/recovery                      | planned          | local package drills do not prove full production recovery                                                                                                | implement and drill                    |
+| P03   | 03    | Package v2, bounded archive, storage/recovery                      | verified         | `3f70f67` pushed; local 120/120 forced check; package 38/38, storage 7/7, web 24/24, companion 11/11; GitHub run `31533935448` check + Playwright passed  | proceed to Phase 04                    |
 | P04   | 04    | Real multimodal ingestion providers                                | planned          | deterministic seams only                                                                                                                                  | prove Docling/OCR/tables/figures/media |
 | P05   | 05    | Real DeepSeek synthesis with explicit offline fallback             | planned          | rules path tested; live provider absent                                                                                                                   | implement provider/budgets/receipts    |
 | P06   | 06    | Training authoring studio                                          | planned          | no current production certification                                                                                                                       | implement vertical slice               |
@@ -32,6 +32,8 @@ current status.
 | P16   | 16    | Golden micropipette/pump/filter certification                      | planned          | no current golden run                                                                                                                                     | execute all three                      |
 | P17   | 17    | Production 1.0 release                                             | planned          | blocked by all unverified phases                                                                                                                          | release only after full matrix         |
 
-Phase 00 and Phase 01 are verified from current implementation evidence and
-current-SHA GitHub readback. The run continues in order; no later phase may
-inherit a `verified` status from the historical ledger.
+Phase 00 through Phase 03 are verified from current implementation evidence
+and current-SHA GitHub readback. Phase 03's browser evidence is emulated
+desktop/iPad/iPhone coverage; physical devices, native keychains, and provider
+execution remain explicitly unproven. The run continues in order; no later
+phase may inherit a `verified` status from the historical ledger.

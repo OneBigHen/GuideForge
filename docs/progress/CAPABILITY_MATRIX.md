@@ -18,7 +18,7 @@ not implemented; `blocked` means external hardware/provider access is needed.
 | Clean frozen install            | 24 workspaces / 930 packages from zero                                     | verified locally       |
 | Browser E2E                     | 43 passed / 2 expected skips with bounded workers                          | verified locally       |
 | Postgres integration            | API test file: 17/17 with live `guideforge-pg`                             | verified locally       |
-| Package fuzz/drills             | package-gforge: 35/35                                                      | verified locally       |
+| Package fuzz/drills             | package-gforge: 38/38                                                      | verified locally       |
 | Supply-chain gates              | audit, licenses, SBOM, secret scan, policy, boundary, dep-check            | verified locally       |
 | Current SHA GitHub status       | PR #1 `check` and Playwright E2E passed for `8b97360`; GitGuardian pending | verified (required CI) |
 
@@ -36,15 +36,28 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 ## Canonical project and package
 
-| Requirement                                           | Current source/test evidence                                                                                        | Status            |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| Canonical source records materialize/hydrate          | `materializeSnapshot` source map plus Dexie legacy promotion; `roundtrip.test.ts` clears Dexie before import        | verified          |
-| Scene/training/assets canonical round-trip            | `roundtrip.test.ts`: 2/2; GitHub Playwright and repository check passed                                             | verified narrowly |
-| Claims/citations/generation records                   | v4 schema/domain/Yjs mapping and collaboration hydration coverage; non-live provider generation remains later       | verified narrowly |
-| SHA-256 source-region integrity                       | Legacy mapper and ingestion adapter hash regions; round-trip asserts canonical region hashes                        | verified narrowly |
-| v1/v2/v3 to canonical v4 migration                    | Pure contiguous migration tests plus legacy Dexie source mapper                                                     | verified locally  |
-| Complete `.gforge` package with all referenced assets | Clean-profile package round-trip restores scene assets and canonical sources; provider-produced assets remain later | verified narrowly |
-| Signed release binding and restore                    | package-gforge drills: 35/35                                                                                        | verified narrowly |
+| Requirement                                           | Current source/test evidence                                                                                                                                          | Status            |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Canonical source records materialize/hydrate          | `materializeSnapshot` source map plus Dexie legacy promotion; `roundtrip.test.ts` clears Dexie before import                                                          | verified          |
+| Scene/training/assets canonical round-trip            | `roundtrip.test.ts`: 2/2; GitHub Playwright and repository check passed                                                                                               | verified narrowly |
+| Claims/citations/generation records                   | v4 schema/domain/Yjs mapping and collaboration hydration coverage; non-live provider generation remains later                                                         | verified narrowly |
+| SHA-256 source-region integrity                       | Legacy mapper and ingestion adapter hash regions; round-trip asserts canonical region hashes                                                                          | verified narrowly |
+| v1/v2/v3 to canonical v4 migration                    | Pure contiguous migration tests plus legacy Dexie source mapper                                                                                                       | verified locally  |
+| Complete `.gforge` package with all referenced assets | v2 draft/backup package round-trip binds scene assets, canonical sources, optional source bytes, reports, and runtime evidence; provider-produced assets remain later | verified narrowly |
+| Signed release binding and restore                    | package-gforge drills: 38/38                                                                                                                                          | verified narrowly |
+
+## Phase 03 package, storage, backup, and recovery
+
+| Requirement                                       | Current source/test evidence                                                                                        | Status            |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| `.gforge` v2 manifest/layout                      | `PackageManifest.schema.json`; deterministic guide/assets/sources/reports/runtime entries and manifest-bound hashes | verified narrowly |
+| Source metadata and optional source bytes         | source inventory binding, SHA-256 verification, Dexie `sourceBlobs`, and package tests                              | verified narrowly |
+| Generation/validation/cost/license reports        | backup report emission plus asset-license attribution report                                                        | verified narrowly |
+| Runtime/evidence inclusion policy                 | evidence index and runtime files are backup-only and rejected when policy is absent                                 | verified narrowly |
+| Hostile archive handling                          | central-directory preflight, async fflate extraction, path/size/ratio/total limits, active-content sanitization     | verified narrowly |
+| Storage persistence/quota and blob GC             | OPFS with IndexedDB fallback, quota/persistence health, list/remove/garbage collection tests                        | verified narrowly |
+| Project export/full backup/restore                | web 4-test suite restores assets, evidence, runtime bytes, reports, and a restore/migration report                  | verified narrowly |
+| Companion signing key custody/rotation/revocation | encrypted Ed25519 companion key store, public-key-only web UX, 11 companion tests                                   | verified narrowly |
 
 ## Real multimodal ingestion
 
@@ -119,5 +132,14 @@ not implemented; `blocked` means external hardware/provider access is needed.
 Phase 01 is verified on implementation commit `b6ec6b8` by GitHub run
 `31498373276` (`check` and Playwright desktop/iPad/iPhone passed), in addition
 to the local evidence recorded in its report. Physical iPad/iPhone hardware
-and trusted LAN certificate installation remain explicitly unproven. Phase
-Phase 02 is verified on implementation commit `2158d5123fca96e088aaf2bf1010ec83523036ba` by GitHub run `31525700447` (`check` and Playwright desktop/iPad/iPhone passed), with the clean-profile source round-trip passing locally. Phase 03–17 remain uncertified; historical reports do not change their status.
+and trusted LAN certificate installation remain explicitly unproven. Phase 02
+is verified on implementation commit
+`2158d5123fca96e088aaf2bf1010ec83523036ba` by GitHub run `31525700447`
+(`check` and Playwright desktop/iPad/iPhone passed), with the clean-profile
+source round-trip passing locally. Phase 03 is verified on implementation
+commit `3f70f67e8c72662bb8a383162d41325df6721a00` by GitHub run `31533935448`:
+check `93920393867` passed in 5m17s and Playwright `93921864628` passed in
+2m58s. The Phase 03 gate is verified in clean test storage and emulated
+browsers; physical devices, native OS keychains, and live providers remain
+unproven. Phase 04–17 remain uncertified; historical reports do not change
+their status.
