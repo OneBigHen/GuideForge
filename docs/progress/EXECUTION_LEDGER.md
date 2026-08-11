@@ -13,7 +13,7 @@ current status.
 | P00-5 | 00    | Browser suite deterministic across emulated device profiles        | verified locally | 43 passed / 2 skips; worker cap fixed WebGL actionability flake                                              | GitHub E2E                             |
 | P00-6 | 00    | Supply-chain and repository policy gates are blocking              | verified locally | audit, license, SBOM, secret, policy, boundary, dependency checks pass                                       | GitHub job                             |
 | P00-7 | 00    | Capability matrix and ledger reflect current truth                 | verified         | current matrix/ledger rewritten; Phase 01–08 reports marked historical                                       | update after CI                        |
-| P00-8 | 00    | Current SHA has external CI evidence                               | active           | PR #1 exposed pnpm store, Turbo env, gitleaks permission, and shallow history; fixes pending CI              | read back replacement-SHA checks       |
+| P00-8 | 00    | Current SHA has external CI evidence                               | verified         | PR #1 required check and E2E passed for `8b97360`; GitGuardian remains pending as third-party advisory       | monitor external advisory              |
 | P01   | 01    | Single-owner companion auth and secret boundary                    | planned          | old report superseded; current matrix marks missing/partial                                                  | implement real owner path              |
 | P02   | 02    | Canonical GuideSnapshot v4 and source round-trip                   | planned          | `sources: []` remains in materialization                                                                     | implement migration/materialization    |
 | P03   | 03    | Package v2, bounded archive, storage/recovery                      | planned          | local package drills do not prove full production recovery                                                   | implement and drill                    |
@@ -32,6 +32,6 @@ current status.
 | P16   | 16    | Golden micropipette/pump/filter certification                      | planned          | no current golden run                                                                                        | execute all three                      |
 | P17   | 17    | Production 1.0 release                                             | planned          | blocked by all unverified phases                                                                             | release only after full matrix         |
 
-Phase 00 overall status is pending the current-SHA GitHub status. The run
-continues in order; no later phase may inherit a `verified` status from the
+Phase 00 required status is verified from the current-SHA GitHub readback. The
+run continues in order; no later phase may inherit a `verified` status from the
 historical ledger.

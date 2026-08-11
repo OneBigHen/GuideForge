@@ -2,15 +2,17 @@
 
 ## Gate status
 
-Local Phase 00 evidence is complete. Overall certification remains **pending**
-until GitHub runs the workflow against the pushed certification commit; no old
-phase report is used as proof.
+Local Phase 00 evidence is complete. The required Phase 00 gate is **verified**
+for certification SHA `8b97360f551af5e09a43b954b35994c22b2dd6ac`; no old phase
+report is used as proof. GitGuardian's separate third-party status remains
+pending and is not a required item in the pack acceptance matrix.
 
 ## Audit boundary
 
 - Repository: `/root/Vibe/GuideForge`
 - Branch: `feat/single-user-ai-studio`
 - Audited parent SHA: `abefa7475d52931957721b571df828c364c7e924`
+- Certified workflow SHA: `8b97360f551af5e09a43b954b35994c22b2dd6ac`
 - Pack: `GuideForge_Production_Readiness_Pack_abefa747/`
 - Runtime: Node `22.21.0`, pnpm `10.33.2`, PostgreSQL `17` in `guideforge-pg`
 - Audit date: 2026-08-11
@@ -59,7 +61,8 @@ the pull request because the workflow granted only `contents: read`; its regex
 fallback passed. The workflow now grants `pull-requests: read`, and another
 fresh run then reached gitleaks, which could not resolve the PR base commit
 from the shallow checkout. The check job now fetches full history for that
-scan, and another fresh run is pending.
+scan. GitHub run `31492608175` then passed both required jobs for the exact
+certification SHA: repository `check` and Playwright E2E.
 
 ## Explicit pack-required probes
 
@@ -92,10 +95,12 @@ were added to Git. The local install backup used during the clean-install
 probe is outside the repository at
 `/tmp/guideforge-node-modules-before-clean-20260811`.
 
-## Remaining gate item
+## External status note
 
-Read back a passing GitHub combined status for the replacement commit on PR
-#1, targeting `main`, at the exact pushed SHA. Until that readback exists,
-Phase 00 is not marked PASS.
+PR #1 targets `main`; local and remote branch readback matched the certified
+SHA, and `gh pr view` matched it as `headRefOid`. The required GitHub `check`
+and `e2e (Playwright, desktop + iPad + iPhone)` statuses both passed. CodeRabbit
+also reported pass; GitGuardian remained pending as an external advisory
+integration.
 
-**Gate: PENDING — GitHub current-SHA evidence**
+**Gate: PASS — required GitHub current-SHA evidence**

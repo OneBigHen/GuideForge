@@ -12,15 +12,15 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 ## Phase 00 baseline
 
-| Requirement                     | Current evidence                                                | Status           |
-| ------------------------------- | --------------------------------------------------------------- | ---------------- |
-| Exact current-tree forced check | `pnpm check --force`: 115/115 after Postgres readiness          | verified locally |
-| Clean frozen install            | 24 workspaces / 930 packages from zero                          | verified locally |
-| Browser E2E                     | 43 passed / 2 expected skips with bounded workers               | verified locally |
-| Postgres integration            | API test file: 17/17 with live `guideforge-pg`                  | verified locally |
-| Package fuzz/drills             | package-gforge: 35/35                                           | verified locally |
-| Supply-chain gates              | audit, licenses, SBOM, secret scan, policy, boundary, dep-check | verified locally |
-| Current SHA GitHub status       | No PR/status existed at audit start                             | pending          |
+| Requirement                     | Current evidence                                                           | Status                 |
+| ------------------------------- | -------------------------------------------------------------------------- | ---------------------- |
+| Exact current-tree forced check | `pnpm check --force`: 115/115 after Postgres readiness                     | verified locally       |
+| Clean frozen install            | 24 workspaces / 930 packages from zero                                     | verified locally       |
+| Browser E2E                     | 43 passed / 2 expected skips with bounded workers                          | verified locally       |
+| Postgres integration            | API test file: 17/17 with live `guideforge-pg`                             | verified locally       |
+| Package fuzz/drills             | package-gforge: 35/35                                                      | verified locally       |
+| Supply-chain gates              | audit, licenses, SBOM, secret scan, policy, boundary, dep-check            | verified locally       |
+| Current SHA GitHub status       | PR #1 `check` and Playwright E2E passed for `8b97360`; GitGuardian pending | verified (required CI) |
 
 ## Single-owner security and control plane
 
