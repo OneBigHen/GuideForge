@@ -1,102 +1,56 @@
-# ADR 0011 — Canonical Spatial Guide and Complete Package (Phase 02)
+# ADR 0011 — Canonical Project v4 and Complete Package (Phase 02)
 
-**Status:** Accepted
-**Date:** 2026-08-05
-**Phase:** 02 (canonical spatial guide + complete `.gforge`)
+**Status:** Accepted and re-audited 2026-08-11
+**Phase:** 02 (canonical project v4)
 
 ## Context
 
-The audit found the scene authoritative in a separate Dexie database
-(`guideforge-scenes`), training absent from the canonical model, and packages
-exported with empty asset maps. The single-user pack requires one canonical
-project: guide + spatial scene + training + sources + assets, portable as a
-complete `.gforge` that round-trips with identical semantics.
+The production re-audit found that source records were still authoritative in
+Dexie, `materializeSnapshot()` emitted `sources: []`, and the persisted guide
+did not have first-class claims, citations, generation receipts, durable scene
+anchors, or training lessons. A package could therefore appear complete while
+losing source provenance on export/import.
 
 ## Decision
 
-1. **GuideSnapshot v2**: the canonical snapshot now carries `scene`
-   (`GuideScene`), `training` (`TrainingState`), and `sources`
-   (`GuideSource[]`). All are JSON-safe (arrays, no `Map`) so they serialize
-   deterministically. `isGuideSnapshot` requires them; `createEmptyScene` /
-   `createEmptyTraining` provide the empty defaults.
-2. **Migration v1→v2**: pure migration adds empty scene/training/sources.
-   `freshGuideState` and importers build v2 snapshots. The JSON Schema
-   (`schemas/GuideSnapshot.schema.json`) is updated to v2 with full scene,
-   training, and source definitions.
-3. **Yjs canonical scene**: the working document gains `scene` and `training`
-   Y.Maps holding canonical JSON. `materializeScene`/`setWorkingScene` and
-   `materializeTraining`/`setWorkingTraining` bridge snapshot ↔ doc;
-   `applyCommandToWorkingGuide` syncs scene+training after every command.
-   The scene page now opens a guide session and reads/writes the scene from
-   the working document — **no separate authoritative Dexie DB**. Dexie is
-   only a cache/index.
-4. **Scene converters** (`collaboration/scene-converters.ts`): pure
-   conversions between scene-core's Map-based `SceneState` (editor runtime)
-   and the canonical `GuideScene`.
-5. **Complete packaging**: `collectReferencedAssets` walks step media + scene
-   node asset hashes and packages every referenced byte (no empty asset
-   maps). `importDraft` restores packaged asset bytes into the
-   content-addressed store.
-6. **Semantic comparison**: `compareSnapshots`/`snapshotsSemanticallyEqual`
-   compare all text, ordering, citations, scene, training, and sources —
-   proving round-trip identity.
-7. **Training commands**: `training/add-objective` and
-   `training/add-assessment-item` flow through the command bus; the reducer
-   deep-clones scene+training (no aliasing).
-
-## Current official documentation
-
-- Library/product: JSON Schema (2020-12 draft) — unchanged contract
-- Library/product: yjs (Y.Map/Y.Array) — unchanged, catalog-pinned
-- Verified date: 2026-08-05
-
-## Alternatives
-
-- Keep the scene in Dexie and copy into the package at export: rejected — the
-  pack requires the scene to be canonical in the snapshot/Yjs, collaborative,
-  and imported with the guide.
-- Store scene as Map in the snapshot: rejected — must be JSON-safe for
-  deterministic packaging.
-- Maintain parallel training store: rejected — training is first-class
-  canonical content.
+1. `@guideforge/domain` owns the shared `SourceKind`, `SourceLocator`,
+   `CanonicalSourceRegion`, and `CanonicalSource` types. Regions carry the
+   source SHA-256, locator, structural path, content, and a SHA-256 content
+   hash.
+2. `GuideSnapshot` is v4. Its checked-in JSON Schema requires canonical
+   sources, claims, citations, generation runs, scene anchors, training
+   lessons, and step claim references. Citation records carry both
+   `sourceHash` and `contentHash`.
+3. The Yjs working document owns the canonical source map and source order.
+   Claims, citations, and generation runs are collaborative project data in
+   the document rather than Dexie-only metadata. Scene and training remain in
+   the same working document.
+4. The pure v1→v2→v3→v4 migration chain adds the v4 structures. Legacy Dexie
+   source rows are promoted by one shared pure mapper; existing rows are an
+   input to migration, not a second source of truth.
+5. `openGuide()` promotes legacy source rows into Yjs when needed. Package
+   import migrates and validates `guide.json`, waits for Yjs persistence
+   synchronization, then hydrates the canonical document. The Phase 02
+   round-trip test clears Dexie before import to prove the package carries the
+   sources.
+6. Scene editor conversion preserves existing durable anchors when scene
+   commands write the Map-based editor state. Semantic comparison includes all
+   v4 structures and is insensitive to JSON object-key order.
 
 ## Consequences
 
-### Data and migration
+- Source provenance survives clean-profile package export/import and is
+  available to later ingestion, synthesis, training, and spatial phases.
+- Existing Dexie rows can be read and promoted without a destructive database
+  migration; after promotion, the Yjs project is authoritative.
+- v4 is a persisted-format boundary. v3 snapshots remain importable through
+  the tested pure migration chain.
+- Real external ingestion providers, DeepSeek generation, physical device
+  behavior, and production backup/restore are later phase gates; this phase
+  does not claim those capabilities.
 
-- GuideSnapshot v2 is a breaking persisted-format change; v1→v2 migration is
-  pure and tested. Dexie scenes DB is no longer authoritative (existing rows
-  become stale cache until overwritten by the working doc).
-- Dexie `guideforge` DB unchanged (scene no longer lives there).
+## Verification
 
-### Security/privacy
-
-- Assets are content-addressed and validated; missing referenced assets are
-  reported (no silent empty maps).
-
-### Browser/device
-
-- The scene editor works fully offline against the canonical working doc.
-
-### Cost/performance
-
-- JSON stringify of scene on each command is negligible at editor scale.
-
-### Licensing
-
-- None.
-
-## Acceptance evidence
-
-- `packages/guide-schema`: 6 tests (v2 validation, migration, chain).
-- `packages/commands`: 6 tests (training commands, no aliasing, idempotence).
-- `apps/web`: 10 tests including the Phase 02 vertical slice: create guide →
-  task/step → place model → camera → annotation → objective + question →
-  close/reopen → export → import → verify identical scene/training + exported
-  guide.json carries the scene.
-- `pnpm check --force` green; E2E passes (see Phase 02 report).
-
-## Revisit trigger
-
-- Scene step-states and animation intents become interactive (Phase 03/10) —
-  the `GuideScene.stepStates` shape may grow.
+The implementation and evidence are recorded in
+[`docs/progress/PHASE_02_REPORT.md`](../progress/PHASE_02_REPORT.md). The
+implementation SHA and exact GitHub run are recorded there after CI readback.

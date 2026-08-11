@@ -36,15 +36,15 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 ## Canonical project and package
 
-| Requirement                                           | Current source/test evidence                                                         | Status            |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------ | ----------------- |
-| Canonical source records materialize/hydrate          | `materializeSnapshot` returns `sources: []`; Dexie owns Source Studio records        | missing           |
-| Scene/training/assets canonical round-trip            | `roundtrip.test.ts`: 2/2                                                             | partial           |
-| Multi-source citations round-trip                     | Citations are tested in proposals/roundtrip fixtures, not complete source hydration  | partial           |
-| SHA-256 source-region integrity                       | Storage/package paths use hashes; end-to-end source region binding is incomplete     | partial           |
-| v1/v2/v3 to canonical v4 migration                    | No current complete migration gate                                                   | missing           |
-| Complete `.gforge` package with all referenced assets | Current round-trip covers a local fixture; source/package completeness is not proven | partial           |
-| Signed release binding and restore                    | package-gforge drills: 35/35                                                         | verified narrowly |
+| Requirement                                           | Current source/test evidence                                                                                        | Status            |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Canonical source records materialize/hydrate          | `materializeSnapshot` source map plus Dexie legacy promotion; `roundtrip.test.ts` clears Dexie before import        | verified          |
+| Scene/training/assets canonical round-trip            | `roundtrip.test.ts`: 2/2; GitHub Playwright and repository check passed                                             | verified narrowly |
+| Claims/citations/generation records                   | v4 schema/domain/Yjs mapping and collaboration hydration coverage; non-live provider generation remains later       | verified narrowly |
+| SHA-256 source-region integrity                       | Legacy mapper and ingestion adapter hash regions; round-trip asserts canonical region hashes                        | verified narrowly |
+| v1/v2/v3 to canonical v4 migration                    | Pure contiguous migration tests plus legacy Dexie source mapper                                                     | verified locally  |
+| Complete `.gforge` package with all referenced assets | Clean-profile package round-trip restores scene assets and canonical sources; provider-produced assets remain later | verified narrowly |
+| Signed release binding and restore                    | package-gforge drills: 35/35                                                                                        | verified narrowly |
 
 ## Real multimodal ingestion
 
@@ -97,12 +97,12 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 ## Spatial intelligence
 
-| Requirement                                | Current source/test evidence                                   | Status  |
-| ------------------------------------------ | -------------------------------------------------------------- | ------- |
-| Durable surface anchors                    | No canonical anchor persistence path                           | missing |
-| Arrows/callouts/measurements/step-state UI | Basic scene annotations exist; durable semantic runtime absent | partial |
-| Semantic AI spatial compiler               | No complete planner/compiler/critic gate                       | missing |
-| Deterministic transforms and cameras       | Scene-core/editor tests cover local transforms/cameras         | partial |
+| Requirement                                | Current source/test evidence                                                              | Status            |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------- | ----------------- |
+| Durable surface anchors                    | v4 `SceneAnchor`, checked-in schema, Yjs scene persistence, and editor-write preservation | verified narrowly |
+| Arrows/callouts/measurements/step-state UI | Basic scene annotations exist; durable semantic runtime absent                            | partial           |
+| Semantic AI spatial compiler               | No complete planner/compiler/critic gate                                                  | missing           |
+| Deterministic transforms and cameras       | Scene-core/editor tests cover local transforms/cameras                                    | partial           |
 
 ## Devices, storage, release, reliability
 
@@ -120,4 +120,4 @@ Phase 01 is verified on implementation commit `b6ec6b8` by GitHub run
 `31498373276` (`check` and Playwright desktop/iPad/iPhone passed), in addition
 to the local evidence recorded in its report. Physical iPad/iPhone hardware
 and trusted LAN certificate installation remain explicitly unproven. Phase
-02–17 remain uncertified; historical reports do not change their status.
+Phase 02 is verified on implementation commit `2158d5123fca96e088aaf2bf1010ec83523036ba` by GitHub run `31525700447` (`check` and Playwright desktop/iPad/iPhone passed), with the clean-profile source round-trip passing locally. Phase 03–17 remain uncertified; historical reports do not change their status.
