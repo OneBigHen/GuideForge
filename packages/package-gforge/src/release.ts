@@ -12,6 +12,7 @@
 import type { AssetReference, ContentHash } from '@guideforge/domain';
 import { sha256Hex } from '@guideforge/domain';
 import type { GuideSnapshot } from '@guideforge/guide-schema';
+import { GUIDE_SCHEMA_VERSION } from '@guideforge/guide-schema';
 import { strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import {
   FIXED_TIMESTAMP,
@@ -59,7 +60,7 @@ export interface ReleaseSignatureManifest {
 }
 
 export function buildReleaseEntries(input: ReleaseInput): PackageEntry[] {
-  if (input.snapshot.schemaVersion !== 2) {
+  if (input.snapshot.schemaVersion !== GUIDE_SCHEMA_VERSION) {
     const version = String(input.snapshot.schemaVersion);
     throw new PackageSafetyError(`unsupported schema version ${version}`);
   }

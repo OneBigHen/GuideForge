@@ -15,7 +15,7 @@ const FIXED = '2026-01-01T00:00:00.000Z';
 
 function snapshot(title: string): GuideSnapshot {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     guideId: GUIDE_ID as GuideSnapshot['guideId'],
     title,
     description: '',

@@ -168,4 +168,87 @@ describe('training commands (Phase 02 canonical training)', () => {
     const twice = applyGuideCommand(once, addObjectiveCmd);
     expect(twice).toBe(once); // no-op returns same reference
   });
+
+  it('adds and removes values, conditions, and verification on a step (Phase 06)', () => {
+    const base = freshGuideState(GUIDE_ID, 'g');
+    const TASK_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' as EntityId;
+    const STEP_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' as EntityId;
+    const VALUE_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' as EntityId;
+    const COND_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd' as EntityId;
+    const VERIFY_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' as EntityId;
+
+    const withStep = applyGuideCommand(
+      base,
+      cmd(GUIDE_COMMAND_TYPES.addTask, { taskId: TASK_ID, title: 'Task' }),
+    );
+    const stepState = applyGuideCommand(
+      withStep,
+      cmd(GUIDE_COMMAND_TYPES.addStep, {
+        taskId: TASK_ID,
+        stepId: STEP_ID,
+        title: 'Tighten to spec',
+      }),
+    );
+    const step0 = stepState.steps.find((s) => s.stepId === STEP_ID)!;
+    expect(step0.values).toEqual([]);
+    expect(step0.conditions).toEqual([]);
+    expect(step0.verification).toEqual([]);
+
+    const withValue = applyGuideCommand(
+      stepState,
+      cmd(GUIDE_COMMAND_TYPES.addValue, {
+        stepId: STEP_ID,
+        valueId: VALUE_ID,
+        label: '5 nm',
+        value: '5',
+        unit: 'nm',
+      }),
+    );
+    expect(withValue.steps.find((s) => s.stepId === STEP_ID)!.values).toEqual([
+      { valueId: VALUE_ID, label: '5 nm', value: '5', unit: 'nm' },
+    ]);
+
+    const withCondition = applyGuideCommand(
+      withValue,
+      cmd(GUIDE_COMMAND_TYPES.addCondition, {
+        stepId: STEP_ID,
+        conditionId: COND_ID,
+        text: 'if the cover is off',
+      }),
+    );
+    expect(withCondition.steps.find((s) => s.stepId === STEP_ID)!.conditions).toHaveLength(1);
+
+    const withVerification = applyGuideCommand(
+      withCondition,
+      cmd(GUIDE_COMMAND_TYPES.addVerification, {
+        stepId: STEP_ID,
+        verificationId: VERIFY_ID,
+        text: 'confirm the seal fits',
+      }),
+    );
+    const full = withVerification.steps.find((s) => s.stepId === STEP_ID)!;
+    expect(full.verification).toHaveLength(1);
+    expect(full.values).toHaveLength(1);
+    expect(full.conditions).toHaveLength(1);
+
+    const removed = applyGuideCommand(
+      withVerification,
+      cmd(GUIDE_COMMAND_TYPES.removeValue, { stepId: STEP_ID, valueId: VALUE_ID }),
+    );
+    expect(removed.steps.find((s) => s.stepId === STEP_ID)!.values).toHaveLength(0);
+
+    const afterCondRemoval = applyGuideCommand(
+      removed,
+      cmd(GUIDE_COMMAND_TYPES.removeCondition, { stepId: STEP_ID, conditionId: COND_ID }),
+    );
+    expect(afterCondRemoval.steps.find((s) => s.stepId === STEP_ID)!.conditions).toHaveLength(0);
+
+    const afterVerifyRemoval = applyGuideCommand(
+      afterCondRemoval,
+      cmd(GUIDE_COMMAND_TYPES.removeVerification, { stepId: STEP_ID, verificationId: VERIFY_ID }),
+    );
+    expect(afterVerifyRemoval.steps.find((s) => s.stepId === STEP_ID)!.verification).toHaveLength(
+      0,
+    );
+  });
 });

@@ -1,0 +1,26 @@
+{
+  "name": "@guideforge/synthesis",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "format:check": "prettier --check src"
+  },
+  "dependencies": {
+    "@guideforge/ai-contracts": "workspace:*",
+    "@guideforge/domain": "workspace:*",
+    "@guideforge/ingestion": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "fast-check": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

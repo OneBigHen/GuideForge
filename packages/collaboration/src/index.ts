@@ -126,12 +126,17 @@ export function materializeSnapshot(working: WorkingGuide): GuideSnapshot {
         []) as GuideStep['warnings'],
       tools: ((yStep.get('tools') as Y.Array<unknown>)?.toArray() ?? []) as GuideStep['tools'],
       parts: ((yStep.get('parts') as Y.Array<unknown>)?.toArray() ?? []) as GuideStep['parts'],
+      values: ((yStep.get('values') as Y.Array<unknown>)?.toArray() ?? []) as GuideStep['values'],
+      conditions: ((yStep.get('conditions') as Y.Array<unknown>)?.toArray() ??
+        []) as GuideStep['conditions'],
+      verification: ((yStep.get('verification') as Y.Array<unknown>)?.toArray() ??
+        []) as GuideStep['verification'],
       media: ((yStep.get('media') as Y.Array<unknown>)?.toArray() ?? []) as GuideStep['media'],
     });
   }
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     guideId: guideId as EntityId,
     title,
     description,
@@ -247,6 +252,15 @@ export function hydrateWorkingGuide(working: WorkingGuide, snapshot: GuideSnapsh
       const yParts = new Y.Array<unknown>();
       yParts.insert(0, step.parts);
       yStep.set('parts', yParts);
+      const yValues = new Y.Array<unknown>();
+      yValues.insert(0, step.values);
+      yStep.set('values', yValues);
+      const yConditions = new Y.Array<unknown>();
+      yConditions.insert(0, step.conditions);
+      yStep.set('conditions', yConditions);
+      const yVerification = new Y.Array<unknown>();
+      yVerification.insert(0, step.verification);
+      yStep.set('verification', yVerification);
       const yMedia = new Y.Array<unknown>();
       yMedia.insert(0, step.media);
       yStep.set('media', yMedia);
@@ -319,6 +333,9 @@ export function applyCommandToWorkingGuide(working: WorkingGuide, command: Guide
       setYArray(yStep, 'warnings', step.warnings);
       setYArray(yStep, 'tools', step.tools);
       setYArray(yStep, 'parts', step.parts);
+      setYArray(yStep, 'values', step.values);
+      setYArray(yStep, 'conditions', step.conditions);
+      setYArray(yStep, 'verification', step.verification);
       setYArray(yStep, 'media', step.media);
       existingSteps.delete(step.stepId);
     }

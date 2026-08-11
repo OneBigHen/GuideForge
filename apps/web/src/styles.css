@@ -534,6 +534,12 @@ body {
   font-size: 0.8125rem;
 }
 
+.proposal-card__detail {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted, #555);
+}
+
 .proposal-card__actions {
   display: flex;
   gap: var(--space-2);
@@ -924,6 +930,18 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+.synthesis-summary {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 0.9rem;
 }
 
 .source-card {

@@ -39,6 +39,29 @@ registerMigration({
 });
 
 /**
+ * v2 -> v3: GuideStep gains values, conditions, and verification arrays
+ * (Phase 06 source-grounded procedure synthesis). Existing steps start empty.
+ */
+registerMigration({
+  fromVersion: 2,
+  toVersion: 3,
+  migrate: (input) => {
+    const next = { ...input, schemaVersion: 3 } as Record<string, unknown>;
+    if (Array.isArray(next.steps)) {
+      next.steps = (next.steps as unknown[]).map((step: unknown) => {
+        if (typeof step !== 'object' || step === null) return step;
+        const s = { ...step } as Record<string, unknown>;
+        if (!Array.isArray(s.values)) s.values = [];
+        if (!Array.isArray(s.conditions)) s.conditions = [];
+        if (!Array.isArray(s.verification)) s.verification = [];
+        return s;
+      });
+    }
+    return next;
+  },
+});
+
+/**
  * Register a migration. The canonical list is derived from this module; tests
  * assert the chain is contiguous and ends at GUIDE_SCHEMA_VERSION.
  */

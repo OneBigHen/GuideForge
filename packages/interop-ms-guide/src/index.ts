@@ -166,6 +166,9 @@ export function importMsGuide(bytes: Uint8Array, source: string): ImportedGuide 
     warnings: [],
     tools: [],
     parts: [],
+    values: [],
+    conditions: [],
+    verification: [],
     media: [],
   }));
   // Wire stepIds per task from step.taskId.
@@ -185,7 +188,7 @@ export function importMsGuide(bytes: Uint8Array, source: string): ImportedGuide 
   const guideId = crypto.randomUUID() as EntityId;
   const now = new Date().toISOString();
   const snapshot: GuideSnapshot = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     guideId,
     title: source.replace(/\.guide$/i, ''),
     description: '',

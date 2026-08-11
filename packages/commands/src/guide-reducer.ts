@@ -39,6 +39,9 @@ function cloneSnapshot(s: GuideSnapshot): GuideSnapshot {
       warnings: st.warnings.map((w) => ({ ...w })),
       tools: st.tools.map((t) => ({ ...t })),
       parts: st.parts.map((p) => ({ ...p })),
+      values: st.values.map((v) => ({ ...v })),
+      conditions: st.conditions.map((c) => ({ ...c })),
+      verification: st.verification.map((v) => ({ ...v })),
       media: st.media.map((m) => ({ ...m })),
     })),
     // Deep-clone the canonical scene + training so reducer mutations never
@@ -107,6 +110,9 @@ export function applyGuideCommand(state: GuideSnapshot, command: GuideCommand): 
         warnings: [],
         tools: [],
         parts: [],
+        values: [],
+        conditions: [],
+        verification: [],
         media: [],
       });
       return next;
@@ -189,6 +195,68 @@ export function applyGuideCommand(state: GuideSnapshot, command: GuideCommand): 
       step.parts = step.parts.filter((pt) => pt.partId !== p.partId);
       return next;
     }
+    case GUIDE_COMMAND_TYPES.addValue: {
+      const p = command.payload as {
+        stepId: EntityId;
+        valueId: EntityId;
+        label: string;
+        value: string;
+        unit?: string;
+      };
+      const next = cloneSnapshot(state);
+      const step = next.steps.find((s) => s.stepId === p.stepId);
+      if (!step) return state;
+      if (step.values.some((v) => v.valueId === p.valueId)) return state;
+      step.values.push({
+        valueId: p.valueId,
+        label: p.label,
+        value: p.value,
+        ...(p.unit ? { unit: p.unit } : {}),
+      });
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.removeValue: {
+      const p = command.payload as { stepId: EntityId; valueId: EntityId };
+      const next = cloneSnapshot(state);
+      const step = next.steps.find((s) => s.stepId === p.stepId);
+      if (!step) return state;
+      step.values = step.values.filter((v) => v.valueId !== p.valueId);
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.addCondition: {
+      const p = command.payload as { stepId: EntityId; conditionId: EntityId; text: string };
+      const next = cloneSnapshot(state);
+      const step = next.steps.find((s) => s.stepId === p.stepId);
+      if (!step) return state;
+      if (step.conditions.some((c) => c.conditionId === p.conditionId)) return state;
+      step.conditions.push({ conditionId: p.conditionId, text: p.text });
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.removeCondition: {
+      const p = command.payload as { stepId: EntityId; conditionId: EntityId };
+      const next = cloneSnapshot(state);
+      const step = next.steps.find((s) => s.stepId === p.stepId);
+      if (!step) return state;
+      step.conditions = step.conditions.filter((c) => c.conditionId !== p.conditionId);
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.addVerification: {
+      const p = command.payload as { stepId: EntityId; verificationId: EntityId; text: string };
+      const next = cloneSnapshot(state);
+      const step = next.steps.find((s) => s.stepId === p.stepId);
+      if (!step) return state;
+      if (step.verification.some((v) => v.verificationId === p.verificationId)) return state;
+      step.verification.push({ verificationId: p.verificationId, text: p.text });
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.removeVerification: {
+      const p = command.payload as { stepId: EntityId; verificationId: EntityId };
+      const next = cloneSnapshot(state);
+      const step = next.steps.find((s) => s.stepId === p.stepId);
+      if (!step) return state;
+      step.verification = step.verification.filter((v) => v.verificationId !== p.verificationId);
+      return next;
+    }
     case GUIDE_COMMAND_TYPES.addObjective: {
       const p = command.payload as AddObjectivePayload;
       if (state.training.objectives.some((o) => o.objectiveId === p.objectiveId)) return state;
@@ -242,7 +310,7 @@ export function applyCommands(
 export function freshGuideState(guideId: EntityId, title: string): GuideSnapshot {
   const now = new Date(0).toISOString(); // deterministic epoch for tests
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     guideId,
     title,
     description: '',

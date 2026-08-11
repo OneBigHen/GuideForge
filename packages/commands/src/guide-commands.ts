@@ -58,13 +58,54 @@ export interface AddAssessmentItemPayload {
   criticality: 'core' | 'important' | 'supporting';
 }
 
+export interface AddValuePayload {
+  stepId: EntityId;
+  valueId: EntityId;
+  label: string;
+  value: string;
+  unit?: string;
+}
+
+export interface RemoveValuePayload {
+  stepId: EntityId;
+  valueId: EntityId;
+}
+
+export interface AddConditionPayload {
+  stepId: EntityId;
+  conditionId: EntityId;
+  text: string;
+}
+
+export interface RemoveConditionPayload {
+  stepId: EntityId;
+  conditionId: EntityId;
+}
+
+export interface AddVerificationPayload {
+  stepId: EntityId;
+  verificationId: EntityId;
+  text: string;
+}
+
+export interface RemoveVerificationPayload {
+  stepId: EntityId;
+  verificationId: EntityId;
+}
+
 export type GuideCommandPayloads =
   | AddTaskPayload
   | RenameTaskPayload
   | RemoveTaskPayload
   | ReorderTasksPayload
   | AddStepPayload
-  | RemoveStepPayload;
+  | RemoveStepPayload
+  | AddValuePayload
+  | RemoveValuePayload
+  | AddConditionPayload
+  | RemoveConditionPayload
+  | AddVerificationPayload
+  | RemoveVerificationPayload;
 
 export type GuideCommandOf<P> = GuideCommand<P>;
 
@@ -83,6 +124,12 @@ export const GUIDE_COMMAND_TYPES = {
   removeTool: 'guide/remove-tool',
   addPart: 'guide/add-part',
   removePart: 'guide/remove-part',
+  addValue: 'guide/add-value',
+  removeValue: 'guide/remove-value',
+  addCondition: 'guide/add-condition',
+  removeCondition: 'guide/remove-condition',
+  addVerification: 'guide/add-verification',
+  removeVerification: 'guide/remove-verification',
   addObjective: 'training/add-objective',
   addAssessmentItem: 'training/add-assessment-item',
 } as const;

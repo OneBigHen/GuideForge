@@ -55,13 +55,13 @@ audio/video are routed to ASR with an explicit `asr-pending` status.
 
 ## Acceptance evidence
 
-| Gate | Evidence |
-| --- | --- |
-| Golden fixtures produce stable regions | ingestion tests: buildRegions deterministic region IDs; worker test converts fixture text deterministically |
-| Page/timestamp navigation | MediaSegment carries stable `segmentId` and media route; text sources expose pageCount + per-page regions |
-| Tables/figures | serializeTable + TableRegion/FigureRegion round-trip in ingestion tests (22/22) |
-| Safe failure on adversarial input | isolation tests (prompt-injection blocked + flagged), conflict tests (dup + near-dup), cancellation tests (partial result returned) |
-| Cancellation + partial results | createCancellationToken test: cancelled run returns completed regions and cancelledReason |
+| Gate                                   | Evidence                                                                                                                            |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Golden fixtures produce stable regions | ingestion tests: buildRegions deterministic region IDs; worker test converts fixture text deterministically                         |
+| Page/timestamp navigation              | MediaSegment carries stable `segmentId` and media route; text sources expose pageCount + per-page regions                           |
+| Tables/figures                         | serializeTable + TableRegion/FigureRegion round-trip in ingestion tests (22/22)                                                     |
+| Safe failure on adversarial input      | isolation tests (prompt-injection blocked + flagged), conflict tests (dup + near-dup), cancellation tests (partial result returned) |
+| Cancellation + partial results         | createCancellationToken test: cancelled run returns completed regions and cancelledReason                                           |
 
 ## Test results
 

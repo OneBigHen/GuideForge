@@ -22,6 +22,7 @@
  */
 import type { AssetReference, ContentHash } from '@guideforge/domain';
 import type { GuideSnapshot } from '@guideforge/guide-schema';
+import { GUIDE_SCHEMA_VERSION } from '@guideforge/guide-schema';
 import { strToU8, zipSync, type Zippable } from 'fflate';
 
 /** SHA-256 hashing strategy; injected so Node and browser code share one path. */
@@ -296,7 +297,7 @@ function sortKeys(value: unknown): unknown {
 
 /** Build the draft package entry list (sorted, validated). */
 export function buildDraftEntries(input: DraftPackageInput): PackageEntry[] {
-  if (input.snapshot.schemaVersion !== 2) {
+  if (input.snapshot.schemaVersion !== GUIDE_SCHEMA_VERSION) {
     const version = String(input.snapshot.schemaVersion);
     throw new PackageSafetyError(`unsupported schema version ${version}`);
   }
@@ -451,7 +452,7 @@ export async function buildDraftEntriesWithHash(
   input: DraftPackageInput,
   hash: (bytes: Uint8Array) => Promise<string>,
 ): Promise<PackageEntry[]> {
-  if (input.snapshot.schemaVersion !== 2) {
+  if (input.snapshot.schemaVersion !== GUIDE_SCHEMA_VERSION) {
     const version = String(input.snapshot.schemaVersion);
     throw new PackageSafetyError(`unsupported schema version ${version}`);
   }

@@ -362,6 +362,9 @@ importers:
       '@guideforge/storage-web':
         specifier: workspace:*
         version: link:../../packages/storage-web
+      '@guideforge/synthesis':
+        specifier: workspace:*
+        version: link:../../packages/synthesis
       '@guideforge/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry
@@ -808,6 +811,31 @@ importers:
       fake-indexeddb:
         specifier: 'catalog:'
         version: 6.2.5
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@types/node@26.1.2)(jsdom@27.2.0)(vite@8.2.0(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.1)(tsx@4.23.5)(yaml@2.9.0))
+
+  packages/synthesis:
+    dependencies:
+      '@guideforge/ai-contracts':
+        specifier: workspace:*
+        version: link:../ai-contracts
+      '@guideforge/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@guideforge/ingestion':
+        specifier: workspace:*
+        version: link:../ingestion
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.2
+      fast-check:
+        specifier: 'catalog:'
+        version: 4.9.0
       typescript:
         specifier: 'catalog:'
         version: 6.0.3

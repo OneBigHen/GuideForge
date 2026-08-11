@@ -10,7 +10,7 @@ const GUIDE_ID = '123e4567-e89b-42d3-a456-426614174000';
 
 function snapshot(): GuideSnapshot {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     guideId: GUIDE_ID as GuideSnapshot['guideId'],
     title: 'XR release',
     description: '',

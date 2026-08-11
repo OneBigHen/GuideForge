@@ -10,6 +10,7 @@ import {
   removeSource,
   type SourceStudio,
 } from '../services/sourceStudio';
+import { synthesizeFromSources, type SynthesisRunResult } from '../services/sourceSynthesis';
 
 export const Route = createFileRoute('/sources/$guideId')({
   component: SourcesPage,
@@ -42,6 +43,8 @@ function SourcesPage() {
   const [progress, setProgress] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [selectedHash, setSelectedHash] = useState<string | null>(null);
+  const [synthesis, setSynthesis] = useState<SynthesisRunResult | null>(null);
+  const [synthesizing, setSynthesizing] = useState(false);
   const tokenRef = useRef<CancellationToken | null>(null);
 
   const refresh = async () => {
@@ -59,7 +62,6 @@ function SourcesPage() {
       cancelled = true;
       tokenRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [guideId, studio]);
 
   async function handleFiles(files: FileList | File[]) {
@@ -97,6 +99,20 @@ function SourcesPage() {
   async function handleRemove(sourceId: string) {
     await removeSource(studio, sourceId);
     await refresh();
+  }
+
+  async function handleSynthesize() {
+    if (synthesizing || sources.length === 0) return;
+    setSynthesizing(true);
+    setError(null);
+    try {
+      const result = await synthesizeFromSources({ guideId }, studio);
+      setSynthesis(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSynthesizing(false);
+    }
   }
 
   const toggle = (id: string) => setExpanded((m) => ({ ...m, [id]: !m[id] }));
@@ -141,6 +157,50 @@ function SourcesPage() {
           <p role="alert" className="error-text">
             {error}
           </p>
+        )}
+      </section>
+
+      <section className="scene-panel" aria-label="Synthesize procedure">
+        <h2>Procedure synthesis</h2>
+        <p className="empty-hint">
+          Turn ingested sources into a source-grounded procedure: tasks, steps, hazards, tools,
+          parts, values, conditions, and verification — every actionable claim cites a source
+          region. Results land in the editor as reviewable AI proposals.
+        </p>
+        <div className="field-row">
+          <button
+            type="button"
+            className="button"
+            onClick={() => void handleSynthesize()}
+            disabled={synthesizing || sources.length === 0}
+          >
+            {synthesizing ? 'Synthesizing…' : 'Synthesize procedure'}
+          </button>
+          {sources.length === 0 && <span className="empty-hint">Upload a source first.</span>}
+        </div>
+        {synthesis && (
+          <div className="synthesis-summary" aria-label="Synthesis result">
+            <p>
+              <strong>{synthesis.proposalsCreated}</strong> proposals ·{' '}
+              <strong>{synthesis.taskCount}</strong> task
+              {synthesis.taskCount === 1 ? '' : 's'} · <strong>{synthesis.stepCount}</strong> step
+              {synthesis.stepCount === 1 ? '' : 's'}
+            </p>
+            <p className="empty-hint">
+              Source coverage <strong>{Math.round(synthesis.coverageRatio * 100)}%</strong> (
+              {synthesis.citedRegions} regions cited) · {synthesis.ambiguities} ambiguity note
+              {synthesis.ambiguities === 1 ? '' : 's'}
+            </p>
+            {synthesis.repairs.length > 0 && (
+              <p className="empty-hint">Bounded repair: {synthesis.repairs.join('; ')}</p>
+            )}
+            {synthesis.issues.length > 0 && (
+              <p className="error-text">Issues: {synthesis.issues.join('; ')}</p>
+            )}
+            <p className="status-line">
+              Review and accept proposals in the editor — nothing is applied automatically.
+            </p>
+          </div>
         )}
       </section>
 

@@ -156,7 +156,7 @@ describe('canonical spatial guide round trip (Phase 02)', () => {
       scene?: { cameras: unknown[]; nodes: unknown[] };
       schemaVersion: number;
     };
-    expect(guideJson.schemaVersion).toBe(2);
+    expect(guideJson.schemaVersion).toBe(3);
     expect(guideJson.scene).toBeDefined();
     expect(guideJson.scene!.cameras.length).toBeGreaterThan(0);
     expect(guideJson.scene!.nodes.length).toBeGreaterThan(0);
@@ -180,7 +180,7 @@ describe('canonical spatial guide round trip (Phase 02)', () => {
 
   it('semantic comparator detects real differences (not just hash noise)', () => {
     const a = {
-      schemaVersion: 2 as const,
+      schemaVersion: 3 as const,
       guideId: '11111111-1111-4111-8111-111111111111' as EntityId,
       title: 'Same',
       description: '',

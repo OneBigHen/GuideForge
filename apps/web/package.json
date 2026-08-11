@@ -26,6 +26,7 @@
     "@guideforge/scene-core": "workspace:*",
     "@guideforge/scene-react": "workspace:*",
     "@guideforge/storage-web": "workspace:*",
+    "@guideforge/synthesis": "workspace:*",
     "@guideforge/telemetry": "workspace:*",
     "@guideforge/ui": "workspace:*",
     "@tanstack/react-query": "catalog:",

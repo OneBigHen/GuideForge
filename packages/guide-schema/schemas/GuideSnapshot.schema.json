@@ -59,7 +59,18 @@
     "GuideStep": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["stepId", "taskId", "instructionText", "warnings", "tools", "parts", "media"],
+      "required": [
+        "stepId",
+        "taskId",
+        "instructionText",
+        "warnings",
+        "tools",
+        "parts",
+        "values",
+        "conditions",
+        "verification",
+        "media"
+      ],
       "properties": {
         "stepId": {
           "type": "string",
@@ -73,6 +84,9 @@
         "warnings": { "type": "array", "items": { "$ref": "#/$defs/GuideWarning" } },
         "tools": { "type": "array", "items": { "$ref": "#/$defs/GuideTool" } },
         "parts": { "type": "array", "items": { "$ref": "#/$defs/GuidePart" } },
+        "values": { "type": "array", "items": { "$ref": "#/$defs/GuideValue" } },
+        "conditions": { "type": "array", "items": { "$ref": "#/$defs/GuideCondition" } },
+        "verification": { "type": "array", "items": { "$ref": "#/$defs/GuideVerification" } },
         "media": { "type": "array", "items": { "$ref": "#/$defs/MediaReference" } }
       }
     },
@@ -103,6 +117,35 @@
         "partId": { "type": "string" },
         "name": { "type": "string", "minLength": 1 },
         "quantity": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "GuideValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["valueId", "label", "value"],
+      "properties": {
+        "valueId": { "type": "string" },
+        "label": { "type": "string", "minLength": 1 },
+        "value": { "type": "string", "minLength": 1 },
+        "unit": { "type": "string" }
+      }
+    },
+    "GuideCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conditionId", "text"],
+      "properties": {
+        "conditionId": { "type": "string" },
+        "text": { "type": "string", "minLength": 1 }
+      }
+    },
+    "GuideVerification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verificationId", "text"],
+      "properties": {
+        "verificationId": { "type": "string" },
+        "text": { "type": "string", "minLength": 1 }
       }
     },
     "MediaReference": {

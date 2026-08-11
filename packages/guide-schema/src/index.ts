@@ -8,7 +8,7 @@
 
 import type { EntityId, GuideLifecycleState } from '@guideforge/domain';
 
-export const GUIDE_SCHEMA_VERSION = 2;
+export const GUIDE_SCHEMA_VERSION = 3;
 
 export interface GuideWarning {
   warningId: EntityId;
@@ -25,6 +25,23 @@ export interface GuidePart {
   partId: EntityId;
   name: string;
   quantity: number;
+}
+
+export interface GuideValue {
+  valueId: EntityId;
+  label: string;
+  value: string;
+  unit?: string;
+}
+
+export interface GuideCondition {
+  conditionId: EntityId;
+  text: string;
+}
+
+export interface GuideVerification {
+  verificationId: EntityId;
+  text: string;
 }
 
 export interface MediaReference {
@@ -44,6 +61,12 @@ export interface GuideStep {
   warnings: GuideWarning[];
   tools: GuideTool[];
   parts: GuidePart[];
+  /** Named values with units, grounded in cited source regions (Phase 06). */
+  values: GuideValue[];
+  /** Branching conditions for the step (Phase 06). */
+  conditions: GuideCondition[];
+  /** Verification checks that confirm the step was done correctly (Phase 06). */
+  verification: GuideVerification[];
   media: MediaReference[];
 }
 
@@ -229,7 +252,7 @@ export interface GuideSource {
 }
 
 export interface GuideSnapshot {
-  schemaVersion: 2;
+  schemaVersion: 3;
   guideId: EntityId;
   title: string;
   description: string;
@@ -307,6 +330,9 @@ export function isGuideStep(value: unknown): value is GuideStep {
     Array.isArray(v.warnings) &&
     Array.isArray(v.tools) &&
     Array.isArray(v.parts) &&
+    Array.isArray(v.values) &&
+    Array.isArray(v.conditions) &&
+    Array.isArray(v.verification) &&
     Array.isArray(v.media)
   );
 }

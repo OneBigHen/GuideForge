@@ -91,11 +91,17 @@ export function isGuideCommand(value: unknown): value is GuideCommand {
 
 export { findTask, GUIDE_COMMAND_TYPES } from './guide-commands.js';
 export type {
+  AddConditionPayload,
   AddStepPayload,
   AddTaskPayload,
+  AddValuePayload,
+  AddVerificationPayload,
   GuideCommandPayloads,
+  RemoveConditionPayload,
   RemoveStepPayload,
   RemoveTaskPayload,
+  RemoveValuePayload,
+  RemoveVerificationPayload,
   RenameTaskPayload,
   ReorderTasksPayload,
 } from './guide-commands.js';

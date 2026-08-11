@@ -4,12 +4,12 @@ import { migrateToCurrent, migrationChainComplete } from './migrations.js';
 
 describe('guide-schema', () => {
   it('exposes the schema version', () => {
-    expect(GUIDE_SCHEMA_VERSION).toBe(2);
+    expect(GUIDE_SCHEMA_VERSION).toBe(3);
   });
 
-  it('validates a minimal v2 snapshot', () => {
+  it('validates a minimal v3 snapshot', () => {
     const snapshot = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       guideId: '123e4567-e89b-42d3-a456-426614174000',
       title: 'Test',
       description: '',
@@ -54,13 +54,13 @@ describe('guide-schema', () => {
         lifecycleState: 'draft',
         createdAtIso: '2026-01-01T00:00:00Z',
         updatedAtIso: '2026-01-01T00:00:00Z',
-        tasks: [],
-        steps: [],
+        tasks: [] as unknown[],
+        steps: [] as unknown[],
       }),
     ).toBe(false);
   });
 
-  it('migrates v1 input to v2 with empty scene/training/sources', () => {
+  it('migrates v1 input to current version with empty structures', () => {
     const v1 = {
       schemaVersion: 1,
       guideId: '123e4567-e89b-42d3-a456-426614174000',
@@ -73,13 +73,59 @@ describe('guide-schema', () => {
       steps: [],
     };
     const out = migrateToCurrent(v1);
-    expect(out.schemaVersion).toBe(2);
+    expect(out.schemaVersion).toBe(3);
     expect(out.title).toBe('T');
     expect(out.scene.nodes).toEqual([]);
     expect(out.scene.layers).toHaveLength(1);
     expect(out.training.objectives).toEqual([]);
     expect(out.sources).toEqual([]);
-    // Migrated output must itself validate as a v2 snapshot.
+    // Migrated output must itself validate as a current snapshot.
+    expect(isGuideSnapshot(out)).toBe(true);
+  });
+
+  it('migrates v2 steps to v3 with empty values/conditions/verification', () => {
+    const v2 = {
+      schemaVersion: 2,
+      guideId: '123e4567-e89b-42d3-a456-426614174000',
+      title: 'T',
+      description: '',
+      lifecycleState: 'draft',
+      createdAtIso: '2026-01-01T00:00:00Z',
+      updatedAtIso: '2026-01-01T00:00:00Z',
+      tasks: [],
+      steps: [
+        {
+          stepId: '123e4567-e89b-42d3-a456-426614174001',
+          taskId: '123e4567-e89b-42d3-a456-426614174002',
+          instructionText: 'Tighten the bolt.',
+          warnings: [],
+          tools: [],
+          parts: [],
+          media: [],
+        },
+      ],
+      scene: {
+        nodes: [],
+        rootOrder: [],
+        layers: [],
+        cameras: [],
+        measurements: [],
+        annotations: [],
+        stepStates: {},
+      },
+      training: {
+        objectives: [],
+        assessmentItems: [],
+        modules: [],
+        mastery: { requiredCriticalItems: 0, passThreshold: 0.8, maxAttempts: 3 },
+      },
+      sources: [],
+    };
+    const out = migrateToCurrent(v2);
+    expect(out.schemaVersion).toBe(3);
+    expect(out.steps[0]!.values).toEqual([]);
+    expect(out.steps[0]!.conditions).toEqual([]);
+    expect(out.steps[0]!.verification).toEqual([]);
     expect(isGuideSnapshot(out)).toBe(true);
   });
 
