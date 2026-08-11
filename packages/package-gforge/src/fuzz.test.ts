@@ -14,7 +14,7 @@ import {
 const GUIDE_ID = '123e4567-e89b-42d3-a456-426614174000';
 function snapshot(): GuideSnapshot {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     guideId: GUIDE_ID as GuideSnapshot['guideId'],
     title: 'Fuzz',
     description: '',
@@ -32,15 +32,20 @@ function snapshot(): GuideSnapshot {
       cameras: [],
       measurements: [],
       annotations: [],
+      anchors: [],
       stepStates: {},
     },
     training: {
       objectives: [],
       assessmentItems: [],
       modules: [],
+      lessons: [],
       mastery: { requiredCriticalItems: 0, passThreshold: 0.8, maxAttempts: 3 },
     },
     sources: [],
+    claims: [],
+    citations: [],
+    generationRuns: [],
   };
 }
 

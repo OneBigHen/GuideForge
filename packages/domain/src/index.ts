@@ -102,3 +102,54 @@ export interface GuideMetadata {
   createdAtIso: string;
   updatedAtIso: string;
 }
+
+/** Multimodal source kinds shared by ingestion, storage, and project state. */
+export type SourceKind =
+  | 'pdf'
+  | 'docx'
+  | 'pptx'
+  | 'xlsx'
+  | 'csv'
+  | 'html'
+  | 'text'
+  | 'image'
+  | 'audio'
+  | 'video'
+  | 'unknown';
+
+/** Stable source location used by citations and source regions. */
+export type SourceLocator =
+  | { kind: 'page'; pageIndex: number; bbox?: [number, number, number, number] }
+  | { kind: 'time'; startMs: number; endMs: number }
+  | { kind: 'sheet'; sheet: string; range: string }
+  | { kind: 'slide'; slideIndex: number; bbox?: [number, number, number, number] };
+
+/** Canonical source region; contentHash is SHA-256 of the region content. */
+export interface CanonicalSourceRegion {
+  regionId: string;
+  sourceHash: ContentHash;
+  locator: SourceLocator;
+  structuralPath: string;
+  type: string;
+  text?: string;
+  contentHash: ContentHash;
+  confidence: number;
+}
+
+/** Source provenance owned by the canonical project, not browser metadata. */
+export interface CanonicalSource {
+  sourceId: EntityId;
+  sha256: ContentHash;
+  originalName: string;
+  mediaType: string;
+  kind: SourceKind;
+  sizeBytes: number;
+  pageCount: number | null;
+  durationMs: number | null;
+  receivedAtIso: string;
+  pipeline: string;
+  pipelineVersion: string;
+  status: 'pending' | 'processing' | 'ready' | 'partial' | 'cancelled' | 'failed';
+  regions: CanonicalSourceRegion[];
+  provenanceReceipt: Record<string, unknown>;
+}

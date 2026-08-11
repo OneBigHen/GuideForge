@@ -104,7 +104,10 @@ export function guideSceneToSceneState(scene: GuideScene): SceneState {
 }
 
 /** Editor SceneState -> canonical GuideScene. */
-export function sceneStateToGuideScene(state: SceneState): GuideScene {
+export function sceneStateToGuideScene(
+  state: SceneState,
+  anchors: GuideScene['anchors'] = [],
+): GuideScene {
   return {
     nodes: Array.from(state.nodes.values()).map((n) => ({
       nodeId: n.nodeId,
@@ -152,6 +155,11 @@ export function sceneStateToGuideScene(state: SceneState): GuideScene {
       targetPoint: a.targetPoint ? { ...a.targetPoint } : null,
       offset: a.offset ? { ...a.offset } : null,
       color: a.color,
+    })),
+    anchors: anchors.map((anchor) => ({
+      ...anchor,
+      localPoint: { ...anchor.localPoint },
+      normal: anchor.normal ? { ...anchor.normal } : null,
     })),
     stepStates: {},
   };

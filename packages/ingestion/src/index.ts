@@ -20,25 +20,36 @@ import {
   type ChunkedRegion,
   type SourceRegion,
 } from '@guideforge/ai-contracts';
-import type { ContentHash } from '@guideforge/domain';
+import {
+  sha256Hex,
+  type CanonicalSourceRegion,
+  type ContentHash,
+  type SourceKind,
+} from '@guideforge/domain';
+export type {
+  CanonicalSource,
+  CanonicalSourceRegion,
+  SourceKind,
+  SourceLocator,
+} from '@guideforge/domain';
+
+/** Promote an extracted page region into the canonical project citation shape. */
+export function toCanonicalSourceRegion(region: SourceRegion): CanonicalSourceRegion {
+  return {
+    regionId: region.regionId,
+    sourceHash: region.sourceHash,
+    locator: { kind: 'page', pageIndex: region.pageIndex },
+    structuralPath: region.structuralPath,
+    type: region.kind,
+    text: region.excerpt,
+    contentHash: sha256Hex(new TextEncoder().encode(region.excerpt)) as ContentHash,
+    confidence: 1,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Format detection
 // ---------------------------------------------------------------------------
-
-/** Canonical source media kinds (multimodal). */
-export type SourceKind =
-  | 'pdf'
-  | 'docx'
-  | 'pptx'
-  | 'xlsx'
-  | 'csv'
-  | 'html'
-  | 'text'
-  | 'image'
-  | 'audio'
-  | 'video'
-  | 'unknown';
 
 export interface SourceFormat {
   kind: SourceKind;

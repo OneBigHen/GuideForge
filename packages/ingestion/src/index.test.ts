@@ -14,6 +14,7 @@ import {
   segmentId,
   serializeTable,
   tableRegionId,
+  toCanonicalSourceRegion,
   type ConvertedSource,
 } from './index.js';
 
@@ -162,6 +163,23 @@ describe('table and segment regions', () => {
     // Whitespace-insensitive within cells.
     const s3 = serializeTable(['A', 'B'], [[' 1 ', '2']]);
     expect(s1).toBe(s3);
+  });
+});
+
+describe('canonical source mapping', () => {
+  it('maps extracted page regions to hashed project provenance', () => {
+    const region = toCanonicalSourceRegion({
+      regionId: 'region-1',
+      sourceHash: HASH,
+      pageIndex: 2,
+      structuralPath: 'heading:1/paragraph:2',
+      excerpt: 'Disconnect power first.',
+      kind: 'paragraph',
+    });
+    expect(region.locator).toEqual({ kind: 'page', pageIndex: 2 });
+    expect(region.text).toBe('Disconnect power first.');
+    expect(region.contentHash).toHaveLength(64);
+    expect(region.confidence).toBe(1);
   });
 });
 

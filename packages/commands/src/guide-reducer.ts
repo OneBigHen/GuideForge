@@ -43,11 +43,16 @@ function cloneSnapshot(s: GuideSnapshot): GuideSnapshot {
       conditions: st.conditions.map((c) => ({ ...c })),
       verification: st.verification.map((v) => ({ ...v })),
       media: st.media.map((m) => ({ ...m })),
+      claimIds: [...st.claimIds],
     })),
     // Deep-clone the canonical scene + training so reducer mutations never
     // alias the previous state (Phase 02 canonical structures).
     scene: JSON.parse(JSON.stringify(s.scene)) as GuideSnapshot['scene'],
     training: JSON.parse(JSON.stringify(s.training)) as GuideSnapshot['training'],
+    sources: JSON.parse(JSON.stringify(s.sources)) as GuideSnapshot['sources'],
+    claims: JSON.parse(JSON.stringify(s.claims)) as GuideSnapshot['claims'],
+    citations: JSON.parse(JSON.stringify(s.citations)) as GuideSnapshot['citations'],
+    generationRuns: JSON.parse(JSON.stringify(s.generationRuns)) as GuideSnapshot['generationRuns'],
   };
 }
 
@@ -114,6 +119,7 @@ export function applyGuideCommand(state: GuideSnapshot, command: GuideCommand): 
         conditions: [],
         verification: [],
         media: [],
+        claimIds: [],
       });
       return next;
     }
@@ -310,7 +316,7 @@ export function applyCommands(
 export function freshGuideState(guideId: EntityId, title: string): GuideSnapshot {
   const now = new Date(0).toISOString(); // deterministic epoch for tests
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     guideId,
     title,
     description: '',
@@ -322,5 +328,8 @@ export function freshGuideState(guideId: EntityId, title: string): GuideSnapshot
     scene: createEmptyScene(),
     training: createEmptyTraining(),
     sources: [],
+    claims: [],
+    citations: [],
+    generationRuns: [],
   };
 }

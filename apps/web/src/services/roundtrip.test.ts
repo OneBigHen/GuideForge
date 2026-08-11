@@ -1,8 +1,9 @@
-import { materializeTraining } from '@guideforge/collaboration';
+import { materializeSnapshot, materializeTraining } from '@guideforge/collaboration';
 import type { GuideCommand } from '@guideforge/commands';
 import type { EntityId } from '@guideforge/domain';
 import { snapshotsSemanticallyEqual } from '@guideforge/guide-schema';
 import { applySceneCommand, createSceneState, SCENE_COMMAND_TYPES } from '@guideforge/scene-core';
+import type { SourceRecord } from '@guideforge/storage-web';
 import 'fake-indexeddb/auto';
 import { webcrypto } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
@@ -46,6 +47,34 @@ describe('canonical spatial guide round trip (Phase 02)', () => {
   it('scene + training + assets survive export/import with identical semantics', async () => {
     // 1. Create a guide with procedure content.
     const session = await createGuide('Micropipette calibration');
+    await session.db.sources.clear();
+    const sourceRow: SourceRecord = {
+      sourceId: crypto.randomUUID(),
+      guideId: session.guideId,
+      originalFilename: 'calibration.md',
+      detectedType: 'text/markdown',
+      kind: 'text',
+      sha256: 'b'.repeat(64),
+      sizeBytes: 24,
+      pageCount: 1,
+      receivedAtIso: '2026-01-01T00:00:00.000Z',
+      ocrRoute: 'text-layer',
+      status: 'complete',
+      receipt: null,
+      regions: [
+        {
+          regionId: 'source-region-1',
+          pageIndex: 0,
+          kind: 'paragraph',
+          excerpt: 'Set the balance to zero.',
+          structuralPath: 'block:1',
+        },
+      ],
+      conflicts: [],
+      tables: [],
+      mediaSegments: [],
+    };
+    await session.db.sources.put(sourceRow);
     const taskId = await addTask(session, 'Calibrate');
     await addStep(session, taskId, 'Disconnect power before opening the housing.');
 
@@ -142,6 +171,9 @@ describe('canonical spatial guide round trip (Phase 02)', () => {
     const trainingAfterReopen = materializeTraining(reopened.working);
     expect(trainingAfterReopen.objectives).toHaveLength(1);
     expect(trainingAfterReopen.assessmentItems).toHaveLength(1);
+    const sourceSnapshot = materializeSnapshot(reopened.working);
+    expect(sourceSnapshot.sources).toHaveLength(1);
+    expect(sourceSnapshot.sources[0]?.regions[0]?.contentHash).toHaveLength(64);
 
     // 5. Export a complete draft package (assets must NOT be empty).
     const { bytes, filename } = await exportDraft(reopened);
@@ -156,11 +188,15 @@ describe('canonical spatial guide round trip (Phase 02)', () => {
       scene?: { cameras: unknown[]; nodes: unknown[] };
       schemaVersion: number;
     };
-    expect(guideJson.schemaVersion).toBe(3);
+    expect(guideJson.schemaVersion).toBe(4);
     expect(guideJson.scene).toBeDefined();
     expect(guideJson.scene!.cameras.length).toBeGreaterThan(0);
     expect(guideJson.scene!.nodes.length).toBeGreaterThan(0);
     await closeGuide(reopened);
+
+    // Import must restore canonical sources from guide.json/Yjs, not stale
+    // Dexie-only metadata left by the source intake path.
+    await session.db.sources.clear();
 
     // 6. Import into a "clean" profile (fresh Dexie + y-indexeddb state).
     const imported = await importDraft(bytes);
@@ -175,12 +211,13 @@ describe('canonical spatial guide round trip (Phase 02)', () => {
       'Pipette',
     );
     expect(importedSession.working.guide.get('title')).toBe('Micropipette calibration');
+    expect(materializeSnapshot(importedSession.working).sources).toEqual(sourceSnapshot.sources);
     await closeGuide(importedSession);
   });
 
   it('semantic comparator detects real differences (not just hash noise)', () => {
     const a = {
-      schemaVersion: 3 as const,
+      schemaVersion: 4 as const,
       guideId: '11111111-1111-4111-8111-111111111111' as EntityId,
       title: 'Same',
       description: '',
@@ -198,15 +235,20 @@ describe('canonical spatial guide round trip (Phase 02)', () => {
         cameras: [],
         measurements: [],
         annotations: [],
+        anchors: [],
         stepStates: {},
       },
       training: {
         objectives: [],
         assessmentItems: [],
         modules: [],
+        lessons: [],
         mastery: { requiredCriticalItems: 0, passThreshold: 0.8, maxAttempts: 3 },
       },
       sources: [],
+      claims: [],
+      citations: [],
+      generationRuns: [],
     };
     const b = { ...a, title: 'Different' };
     const c = { ...a };

@@ -6,9 +6,16 @@
  * Framework-independent: no React/Node/db imports.
  */
 
-import type { EntityId, GuideLifecycleState } from '@guideforge/domain';
+import type {
+  CanonicalSource,
+  CanonicalSourceRegion,
+  ContentHash,
+  EntityId,
+  GuideLifecycleState,
+  SourceKind,
+} from '@guideforge/domain';
 
-export const GUIDE_SCHEMA_VERSION = 3;
+export const GUIDE_SCHEMA_VERSION = 4;
 
 export interface GuideWarning {
   warningId: EntityId;
@@ -68,6 +75,8 @@ export interface GuideStep {
   /** Verification checks that confirm the step was done correctly (Phase 06). */
   verification: GuideVerification[];
   media: MediaReference[];
+  /** First-class claims grounded in the canonical source/citation graph. */
+  claimIds: EntityId[];
 }
 
 export interface GuideTask {
@@ -136,6 +145,16 @@ export interface SceneAnnotation {
   color: string;
 }
 
+/** Durable mesh-local anchor referenced by annotations and future planners. */
+export interface SceneAnchor {
+  anchorId: EntityId;
+  nodeId: EntityId;
+  label: string;
+  localPoint: { x: number; y: number; z: number };
+  normal: { x: number; y: number; z: number } | null;
+  confidence: number;
+}
+
 /** Canonical scene graph — the authoritative scene inside the guide. */
 export interface GuideScene {
   nodes: SceneNode[];
@@ -144,6 +163,7 @@ export interface GuideScene {
   cameras: SceneCamera[];
   measurements: SceneMeasurement[];
   annotations: SceneAnnotation[];
+  anchors: SceneAnchor[];
   /** Scene-state per step (visibility/camera/animation intent). */
   stepStates: Record<string, { visibleNodeIds: EntityId[]; cameraId: EntityId | null }>;
 }
@@ -158,6 +178,7 @@ export function createEmptyScene(): GuideScene {
     cameras: [],
     measurements: [],
     annotations: [],
+    anchors: [],
     stepStates: {},
   };
 }
@@ -200,10 +221,19 @@ export interface TrainingModule {
   lessonIds: EntityId[];
 }
 
+export interface TrainingLesson {
+  lessonId: EntityId;
+  title: string;
+  stepIds: EntityId[];
+  objectiveIds: EntityId[];
+  citations: { sourceHash: ContentHash; regionId: string }[];
+}
+
 export interface TrainingState {
   objectives: LearningObjective[];
   assessmentItems: AssessmentItem[];
   modules: TrainingModule[];
+  lessons: TrainingLesson[];
   mastery: { requiredCriticalItems: number; passThreshold: number; maxAttempts: number };
 }
 
@@ -212,47 +242,96 @@ export function createEmptyTraining(): TrainingState {
     objectives: [],
     assessmentItems: [],
     modules: [],
+    lessons: [],
     mastery: { requiredCriticalItems: 0, passThreshold: 0.8, maxAttempts: 3 },
   };
+}
+
+export interface GuideClaim {
+  claimId: EntityId;
+  text: string;
+  kind: 'fact' | 'procedure' | 'warning' | 'value' | 'observation';
+  citationIds: EntityId[];
+  confidence: number;
+  reviewState: 'draft' | 'reviewed' | 'rejected';
+}
+
+export interface GuideCitation {
+  citationId: EntityId;
+  claimId: EntityId;
+  sourceHash: ContentHash;
+  regionId: string;
+  contentHash: ContentHash;
+}
+
+export interface GenerationRun {
+  runId: EntityId;
+  provider: string;
+  model: string;
+  promptVersion: string;
+  schemaVersion: string;
+  sourceHashes: ContentHash[];
+  outputClaimIds: EntityId[];
+  status: 'running' | 'complete' | 'partial' | 'failed';
+  startedAtIso: string;
+  finishedAtIso: string | null;
+  receipt: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
 // Sources and provenance
 // ---------------------------------------------------------------------------
 
-export interface SourceRegion {
-  regionId: string;
-  sourceHash: string;
-  locator:
-    | { kind: 'page'; pageIndex: number; bbox?: [number, number, number, number] }
-    | { kind: 'time'; startMs: number; endMs: number }
-    | { kind: 'sheet'; sheet: string; range: string }
-    | { kind: 'slide'; slideIndex: number; bbox?: [number, number, number, number] };
-  structuralPath: string;
-  type: string;
-  text?: string;
-  contentHash: string;
-  confidence: number;
-}
+export type SourceRegion = CanonicalSourceRegion;
+export type GuideSource = CanonicalSource;
+export type { SourceKind };
 
-export interface GuideSource {
-  sourceId: EntityId;
-  /** SHA-256 of the original source bytes. */
+/** v3 Dexie source row retained only as an input to the v3 -> v4 migration. */
+export interface LegacySourceRecord {
+  sourceId: string;
+  guideId: string;
+  originalFilename: string;
+  detectedType: string;
+  kind: SourceKind;
   sha256: string;
-  originalName: string;
-  mediaType: string;
   sizeBytes: number;
-  pageCount: number | null;
-  durationMs: number | null;
-  pipeline: string;
-  pipelineVersion: string;
-  status: 'pending' | 'processing' | 'ready' | 'failed';
-  regions: SourceRegion[];
-  provenanceReceipt: Record<string, unknown>;
+  pageCount: number;
+  receivedAtIso: string;
+  ocrRoute: string;
+  status: 'complete' | 'partial' | 'cancelled' | 'failed' | 'asr-pending';
+  receipt: {
+    receiptId: string;
+    converter: string;
+    converterVersion: string;
+    pipelineVersion: string;
+    durationMs: number;
+    regionCount: number;
+    tableCount: number;
+    figureCount: number;
+    mediaSegmentCount: number;
+    notes: string[];
+    status: string;
+  } | null;
+  regions: {
+    regionId: string;
+    pageIndex: number;
+    kind: string;
+    excerpt: string;
+    structuralPath: string;
+  }[];
+  conflicts: { kind: string; canonicalHash: string; otherHash: string; similarity: number }[];
+  tables: { regionId: string; pageIndex: number; header: string[]; rows: string[][] }[];
+  mediaSegments: {
+    segmentId: string;
+    startSec: number;
+    endSec: number;
+    kind: string;
+    transcript?: string;
+  }[];
 }
 
 export interface GuideSnapshot {
-  schemaVersion: 3;
+  schemaVersion: 4;
   guideId: EntityId;
   title: string;
   description: string;
@@ -264,6 +343,9 @@ export interface GuideSnapshot {
   scene: GuideScene;
   training: TrainingState;
   sources: GuideSource[];
+  claims: GuideClaim[];
+  citations: GuideCitation[];
+  generationRuns: GenerationRun[];
 }
 
 export function isGuideSnapshot(value: unknown): value is GuideSnapshot {
@@ -283,7 +365,10 @@ export function isGuideSnapshot(value: unknown): value is GuideSnapshot {
     v.scene !== null &&
     typeof v.training === 'object' &&
     v.training !== null &&
-    Array.isArray(v.sources)
+    Array.isArray(v.sources) &&
+    Array.isArray(v.claims) &&
+    Array.isArray(v.citations) &&
+    Array.isArray(v.generationRuns)
   );
 }
 
@@ -297,6 +382,7 @@ export function isGuideScene(value: unknown): value is GuideScene {
     Array.isArray(v.cameras) &&
     Array.isArray(v.measurements) &&
     Array.isArray(v.annotations) &&
+    Array.isArray(v.anchors) &&
     typeof v.stepStates === 'object' &&
     v.stepStates !== null
   );
@@ -309,6 +395,7 @@ export function isTrainingState(value: unknown): value is TrainingState {
     Array.isArray(v.objectives) &&
     Array.isArray(v.assessmentItems) &&
     Array.isArray(v.modules) &&
+    Array.isArray(v.lessons) &&
     typeof v.mastery === 'object' &&
     v.mastery !== null
   );
@@ -333,11 +420,17 @@ export function isGuideStep(value: unknown): value is GuideStep {
     Array.isArray(v.values) &&
     Array.isArray(v.conditions) &&
     Array.isArray(v.verification) &&
-    Array.isArray(v.media)
+    Array.isArray(v.media) &&
+    Array.isArray(v.claimIds)
   );
 }
 
-export { migrateToCurrent, migrationChainComplete, registerMigration } from './migrations.js';
+export {
+  migrateLegacySourceRecord,
+  migrateToCurrent,
+  migrationChainComplete,
+  registerMigration,
+} from './migrations.js';
 export type { SchemaMigration } from './migrations.js';
 
 export { compareSnapshots, snapshotsSemanticallyEqual } from './comparison.js';

@@ -19,7 +19,7 @@ import {
 import type { GuideCommand } from '@guideforge/commands';
 import { GUIDE_COMMAND_TYPES } from '@guideforge/commands';
 import type { AssetReference, ContentHash, EntityId } from '@guideforge/domain';
-import type { GuideSnapshot } from '@guideforge/guide-schema';
+import { isGuideSnapshot, migrateToCurrent, type GuideSnapshot } from '@guideforge/guide-schema';
 import { importMsGuide as msImport } from '@guideforge/interop-ms-guide';
 import {
   createDraftPackageAsync,
@@ -30,6 +30,7 @@ import {
 } from '@guideforge/package-gforge';
 import {
   OpfsAssetStore,
+  migrateDexieSourcesToCanonical,
   openDb,
   persistWorkingDoc,
   type AiProposalRecord,
@@ -110,7 +111,14 @@ export async function openGuide(guideId: string): Promise<OpenGuideSession> {
   seedEmptyWorkingGuide(working, guideId as EntityId, '');
 
   const meta = await db().guides.get(guideId);
-  const snap = materializeSnapshot(working);
+  let snap = materializeSnapshot(working);
+  if (snap.sources.length === 0) {
+    const legacySources = await migrateDexieSourcesToCanonical(db(), guideId);
+    if (legacySources.length > 0) {
+      hydrateWorkingGuide(working, { ...snap, sources: legacySources });
+      snap = materializeSnapshot(working);
+    }
+  }
   // If we have no metadata yet (fresh open), backfill from the doc.
   if (!meta) {
     await db().guides.put({
@@ -616,13 +624,16 @@ export async function importDraft(bytes: Uint8Array): Promise<{ guideId: string;
   const manifest = await verifyPackageStructureAsync(entries);
   const guideEntry = entries.find((e) => e.path === 'guide.json');
   if (!guideEntry) throw new Error('import: missing guide.json');
-  const snapshot = JSON.parse(strFromU8(guideEntry.data)) as GuideSnapshot;
+  const migrated = migrateToCurrent(JSON.parse(strFromU8(guideEntry.data)));
+  if (!isGuideSnapshot(migrated)) throw new Error('import: invalid GuideSnapshot');
+  const snapshot: GuideSnapshot = migrated;
 
   const guideId = manifest.guideId || snapshot.guideId;
-  const working = createWorkingGuide(guideId as EntityId, snapshot.title);
-  hydrateWorkingGuide(working, snapshot);
+  const working = createEmptyWorkingGuide();
   const persistence = persistWorkingDoc(working.doc, guideId);
   await persistence.synced;
+  seedEmptyWorkingGuide(working, guideId as EntityId, snapshot.title);
+  hydrateWorkingGuide(working, snapshot);
 
   // Restore packaged asset bytes into the content-addressed store so scene
   // models/media referenced by the snapshot resolve after import.

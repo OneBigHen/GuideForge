@@ -10,6 +10,11 @@
  * Browser-only package (imports `indexedDB`, `navigator.storage`).
  */
 import type { ContentHash } from '@guideforge/domain';
+import {
+  migrateLegacySourceRecord,
+  type GuideSource,
+  type LegacySourceRecord,
+} from '@guideforge/guide-schema';
 import Dexie, { type Table } from 'dexie';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import type * as Y from 'yjs';
@@ -82,57 +87,8 @@ export interface AiProposalRecord {
   status: 'pending' | 'accepted' | 'rejected';
 }
 
-/** Ingested multimodal source document (Phase 05 Source Studio). */
-export interface SourceRecord {
-  sourceId: string;
-  guideId: string;
-  originalFilename: string;
-  detectedType: string;
-  /** content kind: pdf/docx/pptx/xlsx/csv/html/text/image/audio/video. */
-  kind: string;
-  sha256: string;
-  sizeBytes: number;
-  pageCount: number;
-  receivedAtIso: string;
-  /** Deterministic OCR/vision route decision. */
-  ocrRoute: string;
-  /** Status of the intake run. */
-  status: 'complete' | 'partial' | 'cancelled' | 'failed' | 'asr-pending';
-  /** Versioned conversion receipt (content-addressed id). */
-  receipt: {
-    receiptId: string;
-    converter: string;
-    converterVersion: string;
-    pipelineVersion: string;
-    durationMs: number;
-    regionCount: number;
-    tableCount: number;
-    figureCount: number;
-    mediaSegmentCount: number;
-    notes: string[];
-    status: string;
-  } | null;
-  /** Stable regions (regionId, page, kind, excerpt, structuralPath). */
-  regions: {
-    regionId: string;
-    pageIndex: number;
-    kind: string;
-    excerpt: string;
-    structuralPath: string;
-  }[];
-  /** Detected conflicts against other sources in the same guide. */
-  conflicts: { kind: string; canonicalHash: string; otherHash: string; similarity: number }[];
-  /** Tables extracted from this source (deterministic). */
-  tables: { regionId: string; pageIndex: number; header: string[]; rows: string[][] }[];
-  /** Media segments (audio/video) with timestamps. */
-  mediaSegments: {
-    segmentId: string;
-    startSec: number;
-    endSec: number;
-    kind: string;
-    transcript?: string;
-  }[];
-}
+/** Legacy Dexie row retained for v3 -> v4 source migration. */
+export type SourceRecord = LegacySourceRecord;
 
 export class GuideForgeDb extends Dexie {
   guides!: Table<LibraryGuideMeta, string>;
@@ -178,6 +134,15 @@ export class GuideForgeDb extends Dexie {
 
 export function openDb(): GuideForgeDb {
   return new GuideForgeDb();
+}
+
+/** Read legacy Dexie source rows once and convert them to project provenance. */
+export async function migrateDexieSourcesToCanonical(
+  db: GuideForgeDb,
+  guideId: string,
+): Promise<GuideSource[]> {
+  const rows = await db.sources.where('guideId').equals(guideId).toArray();
+  return rows.map(migrateLegacySourceRecord);
 }
 
 // ---------------------------------------------------------------------------

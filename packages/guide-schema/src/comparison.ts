@@ -15,9 +15,21 @@ export interface ComparisonDiff {
   differences: string[];
 }
 
-/** Deep-equal on JSON-safe values (arrays/objects/strings/numbers/booleans/null). */
+/** Deep-equal on JSON-safe values without depending on object key order. */
 function jsonEquals(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  return stableJson(a) === stableJson(b);
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (typeof value === 'object' && value !== null) {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'undefined';
 }
 
 /** Compare two snapshots semantically. Order of keys does not matter. */
@@ -29,6 +41,8 @@ export function compareSnapshots(a: GuideSnapshot, b: GuideSnapshot): Comparison
   if (a.title !== b.title) differences.push('title');
   if (a.description !== b.description) differences.push('description');
   if (a.lifecycleState !== b.lifecycleState) differences.push('lifecycleState');
+  if (a.createdAtIso !== b.createdAtIso) differences.push('createdAtIso');
+  if (a.updatedAtIso !== b.updatedAtIso) differences.push('updatedAtIso');
 
   // Tasks: same set and order.
   const aTaskIds = a.tasks.map((t) => t.taskId);
@@ -41,7 +55,7 @@ export function compareSnapshots(a: GuideSnapshot, b: GuideSnapshot): Comparison
     if (!jsonEquals(ta.stepIds, tb.stepIds)) differences.push(`task ${ta.taskId} stepIds`);
   }
 
-  // Steps: all text, warnings/tools/parts/media, and citations by id.
+  // Steps: all structured procedure content and claim references.
   for (const sa of a.steps) {
     const sb = b.steps.find((s) => s.stepId === sa.stepId);
     if (!sb) {
@@ -53,7 +67,19 @@ export function compareSnapshots(a: GuideSnapshot, b: GuideSnapshot): Comparison
     if (!jsonEquals(sa.warnings, sb.warnings)) differences.push(`step ${sa.stepId} warnings`);
     if (!jsonEquals(sa.tools, sb.tools)) differences.push(`step ${sa.stepId} tools`);
     if (!jsonEquals(sa.parts, sb.parts)) differences.push(`step ${sa.stepId} parts`);
+    if (!jsonEquals(sa.values, sb.values)) differences.push(`step ${sa.stepId} values`);
+    if (!jsonEquals(sa.conditions, sb.conditions)) differences.push(`step ${sa.stepId} conditions`);
+    if (!jsonEquals(sa.verification, sb.verification)) {
+      differences.push(`step ${sa.stepId} verification`);
+    }
     if (!jsonEquals(sa.media, sb.media)) differences.push(`step ${sa.stepId} media`);
+    if (!jsonEquals(sa.claimIds, sb.claimIds)) differences.push(`step ${sa.stepId} claimIds`);
+  }
+  const aStepIds = a.steps.map((s) => s.stepId);
+  const bStepIds = b.steps.map((s) => s.stepId);
+  if (!jsonEquals(aStepIds, bStepIds)) differences.push('step ids/order');
+  for (const sb of b.steps) {
+    if (!a.steps.some((sa) => sa.stepId === sb.stepId)) differences.push(`extra step ${sb.stepId}`);
   }
 
   // Scene: full canonical scene (nodes, transforms, cameras, annotations).
@@ -61,7 +87,7 @@ export function compareSnapshots(a: GuideSnapshot, b: GuideSnapshot): Comparison
     differences.push('scene (nodes/transforms/cameras/annotations)');
   }
 
-  // Training: objectives, assessments, modules, mastery.
+  // Training: objectives, assessments, modules, lessons, mastery.
   if (!jsonEquals(a.training, b.training)) {
     differences.push('training (objectives/assessments/modules/mastery)');
   }
@@ -70,6 +96,10 @@ export function compareSnapshots(a: GuideSnapshot, b: GuideSnapshot): Comparison
   if (!jsonEquals(a.sources, b.sources)) {
     differences.push('sources/regions/provenance');
   }
+
+  if (!jsonEquals(a.claims, b.claims)) differences.push('claims');
+  if (!jsonEquals(a.citations, b.citations)) differences.push('citations');
+  if (!jsonEquals(a.generationRuns, b.generationRuns)) differences.push('generationRuns');
 
   return { differences };
 }

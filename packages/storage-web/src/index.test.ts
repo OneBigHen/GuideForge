@@ -2,8 +2,13 @@ import type { EntityId } from '@guideforge/domain';
 import 'fake-indexeddb/auto';
 import { beforeAll, describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
-import type { GuideForgeDb } from './index.js';
-import { OpfsAssetStore, openDb, persistWorkingDoc } from './index.js';
+import type { GuideForgeDb, SourceRecord } from './index.js';
+import {
+  migrateDexieSourcesToCanonical,
+  openDb,
+  OpfsAssetStore,
+  persistWorkingDoc,
+} from './index.js';
 
 // fake-indexeddb ships its own structuredClone + IDB; Node's webcrypto is the
 // crypto global in vitest's node environment.
@@ -39,6 +44,41 @@ describe('storage-web Dexie metadata', () => {
     });
     const meta = await db.guides.get(GUIDE_ID);
     expect(meta?.title).toBe('Demo');
+  });
+
+  it('migrates legacy source rows for a guide into canonical sources', async () => {
+    const row: SourceRecord = {
+      sourceId: '123e4567-e89b-42d3-a456-426614174005',
+      guideId: GUIDE_ID,
+      originalFilename: 'notes.txt',
+      detectedType: 'text/plain',
+      kind: 'text',
+      sha256: 'c'.repeat(64),
+      sizeBytes: 4,
+      pageCount: 1,
+      receivedAtIso: '2026-01-01T00:00:00.000Z',
+      ocrRoute: 'text-layer',
+      status: 'complete',
+      receipt: null,
+      regions: [
+        {
+          regionId: 'region-2',
+          pageIndex: 0,
+          kind: 'paragraph',
+          excerpt: 'Done.',
+          structuralPath: 'block:1',
+        },
+      ],
+      conflicts: [],
+      tables: [],
+      mediaSegments: [],
+    };
+    await db.sources.put(row);
+
+    const sources = await migrateDexieSourcesToCanonical(db, GUIDE_ID);
+    expect(sources).toHaveLength(1);
+    expect(sources[0]?.sha256).toBe(row.sha256);
+    expect(sources[0]?.regions[0]?.contentHash).toHaveLength(64);
   });
 });
 

@@ -10,9 +10,12 @@
  *     ├─ lifecycleState: string
  *     ├─ createdAtIso: string
  *     ├─ taskOrder: Y.Array<string>          // ordered task ids
+ *     ├─ claimsJson/citationsJson/generationRunsJson: JSON provenance arrays
  *     └─ tasks: Y.Map                        // taskId -> Y.Map
  *            ├─ title: string
  *            └─ stepIds: Y.Array<string>
+ *   sources: Y.Map                        // sourceId -> sourceJson
+ *   sourceOrder: Y.Array<string>          // canonical source order
  *
  * Binary assets never enter the Y.Doc (they are content-addressed in OPFS/S3).
  * All changes are made by applying commands inside transactions tagged with
@@ -22,8 +25,12 @@ import type { GuideCommand } from '@guideforge/commands';
 import { applyGuideCommand } from '@guideforge/commands';
 import type { EntityId, GuideLifecycleState } from '@guideforge/domain';
 import type {
+  GenerationRun,
+  GuideCitation,
+  GuideClaim,
   GuideScene,
   GuideSnapshot,
+  GuideSource,
   GuideStep,
   GuideTask,
   TrainingState,
@@ -39,6 +46,9 @@ export interface WorkingGuide {
   tasks: Y.Map<Y.Map<unknown>>;
   taskOrder: Y.Array<string>;
   steps: Y.Map<Y.Map<unknown>>;
+  /** Canonical source provenance, mapped into Yjs rather than Dexie-only. */
+  sources: Y.Map<Y.Map<unknown>>;
+  sourceOrder: Y.Array<string>;
   /** Canonical scene graph (JSON-safe structure, collaborative via Yjs). */
   scene: Y.Map<unknown>;
   /** Canonical training state (objectives/assessments/modules). */
@@ -63,6 +73,8 @@ function seedWorkingGuide(doc: Y.Doc, guideId: EntityId, title: string): void {
   doc.getArray<string>('taskOrder');
   doc.getMap<Y.Map<unknown>>('tasks');
   doc.getMap<Y.Map<unknown>>('steps');
+  doc.getMap<Y.Map<unknown>>('sources');
+  doc.getArray<string>('sourceOrder');
   doc.getMap<unknown>('scene');
   doc.getMap<unknown>('training');
 }
@@ -74,6 +86,8 @@ function workingGuideFromDoc(doc: Y.Doc): WorkingGuide {
     tasks: doc.getMap<Y.Map<unknown>>('tasks'),
     taskOrder: doc.getArray<string>('taskOrder'),
     steps: doc.getMap<Y.Map<unknown>>('steps'),
+    sources: doc.getMap<Y.Map<unknown>>('sources'),
+    sourceOrder: doc.getArray<string>('sourceOrder'),
     scene: doc.getMap<unknown>('scene'),
     training: doc.getMap<unknown>('training'),
   };
@@ -132,11 +146,12 @@ export function materializeSnapshot(working: WorkingGuide): GuideSnapshot {
       verification: ((yStep.get('verification') as Y.Array<unknown>)?.toArray() ??
         []) as GuideStep['verification'],
       media: ((yStep.get('media') as Y.Array<unknown>)?.toArray() ?? []) as GuideStep['media'],
+      claimIds: ((yStep.get('claimIds') as Y.Array<string>)?.toArray() ?? []) as EntityId[],
     });
   }
 
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     guideId: guideId as EntityId,
     title,
     description,
@@ -147,8 +162,27 @@ export function materializeSnapshot(working: WorkingGuide): GuideSnapshot {
     steps,
     scene: materializeScene(working),
     training: materializeTraining(working),
-    sources: [],
+    sources: materializeSources(working),
+    claims: readJsonArray<GuideClaim>(working.guide, 'claimsJson'),
+    citations: readJsonArray<GuideCitation>(working.guide, 'citationsJson'),
+    generationRuns: readJsonArray<GenerationRun>(working.guide, 'generationRunsJson'),
   };
+}
+
+function materializeSources(working: WorkingGuide): GuideSource[] {
+  const sources: GuideSource[] = [];
+  for (const sourceId of working.sourceOrder.toArray()) {
+    const ySource = working.sources.get(sourceId);
+    if (!ySource) continue;
+    const raw = ySource.get('sourceJson');
+    if (typeof raw !== 'string') continue;
+    try {
+      sources.push(JSON.parse(raw) as GuideSource);
+    } catch {
+      // A malformed source is ignored; the canonical snapshot remains valid.
+    }
+  }
+  return sources;
 }
 
 /** Canonical scene from the working document (JSON-safe). */
@@ -165,11 +199,13 @@ export function materializeScene(working: WorkingGuide): GuideScene {
       cameras: [],
       measurements: [],
       annotations: [],
+      anchors: [],
       stepStates: {},
     };
   }
   try {
-    return JSON.parse(sceneJson) as GuideScene;
+    const scene = JSON.parse(sceneJson) as GuideScene;
+    return { ...scene, anchors: scene.anchors ?? [] };
   } catch {
     return {
       nodes: [],
@@ -180,6 +216,7 @@ export function materializeScene(working: WorkingGuide): GuideScene {
       cameras: [],
       measurements: [],
       annotations: [],
+      anchors: [],
       stepStates: {},
     };
   }
@@ -198,16 +235,19 @@ export function materializeTraining(working: WorkingGuide): TrainingState {
       objectives: [],
       assessmentItems: [],
       modules: [],
+      lessons: [],
       mastery: { requiredCriticalItems: 0, passThreshold: 0.8, maxAttempts: 3 },
     };
   }
   try {
-    return JSON.parse(raw) as TrainingState;
+    const training = JSON.parse(raw) as TrainingState;
+    return { ...training, lessons: training.lessons ?? [] };
   } catch {
     return {
       objectives: [],
       assessmentItems: [],
       modules: [],
+      lessons: [],
       mastery: { requiredCriticalItems: 0, passThreshold: 0.8, maxAttempts: 3 },
     };
   }
@@ -230,6 +270,8 @@ export function hydrateWorkingGuide(working: WorkingGuide, snapshot: GuideSnapsh
     working.taskOrder.delete(0, working.taskOrder.length);
     working.tasks.clear();
     working.steps.clear();
+    working.sourceOrder.delete(0, working.sourceOrder.length);
+    working.sources.clear();
     for (const task of snapshot.tasks) {
       working.taskOrder.push([task.taskId]);
       const yTask = new Y.Map<unknown>();
@@ -264,11 +306,18 @@ export function hydrateWorkingGuide(working: WorkingGuide, snapshot: GuideSnapsh
       const yMedia = new Y.Array<unknown>();
       yMedia.insert(0, step.media);
       yStep.set('media', yMedia);
+      const yClaimIds = new Y.Array<string>();
+      yClaimIds.insert(0, step.claimIds);
+      yStep.set('claimIds', yClaimIds);
       working.steps.set(step.stepId, yStep);
     }
     // Restore canonical scene + training into the working document.
     working.scene.set('sceneJson', JSON.stringify(snapshot.scene));
     working.training.set('trainingJson', JSON.stringify(snapshot.training));
+    setCanonicalSources(working, snapshot.sources);
+    writeJsonArray(working.guide, 'claimsJson', snapshot.claims);
+    writeJsonArray(working.guide, 'citationsJson', snapshot.citations);
+    writeJsonArray(working.guide, 'generationRunsJson', snapshot.generationRuns);
   }, 'guideforge:hydrate');
 }
 
@@ -337,6 +386,7 @@ export function applyCommandToWorkingGuide(working: WorkingGuide, command: Guide
       setYArray(yStep, 'conditions', step.conditions);
       setYArray(yStep, 'verification', step.verification);
       setYArray(yStep, 'media', step.media);
+      setYArray(yStep, 'claimIds', step.claimIds);
       existingSteps.delete(step.stepId);
     }
     for (const [stepId] of existingSteps) {
@@ -347,7 +397,37 @@ export function applyCommandToWorkingGuide(working: WorkingGuide, command: Guide
     // mutation (procedure, scene, or training command) is collaborative.
     working.scene.set('sceneJson', JSON.stringify(after.scene));
     working.training.set('trainingJson', JSON.stringify(after.training));
+    setCanonicalSources(working, after.sources);
+    writeJsonArray(working.guide, 'claimsJson', after.claims);
+    writeJsonArray(working.guide, 'citationsJson', after.citations);
+    writeJsonArray(working.guide, 'generationRunsJson', after.generationRuns);
   }, txOrigin);
+}
+
+function setCanonicalSources(working: WorkingGuide, sources: GuideSource[]): void {
+  working.sourceOrder.delete(0, working.sourceOrder.length);
+  working.sources.clear();
+  for (const source of sources) {
+    const ySource = new Y.Map<unknown>();
+    ySource.set('sourceJson', JSON.stringify(source));
+    working.sources.set(source.sourceId, ySource);
+    working.sourceOrder.push([source.sourceId]);
+  }
+}
+
+function readJsonArray<T>(map: Y.Map<unknown>, key: string): T[] {
+  const raw = map.get(key);
+  if (typeof raw !== 'string') return [];
+  try {
+    const value = JSON.parse(raw) as unknown;
+    return Array.isArray(value) ? (value as T[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeJsonArray(map: Y.Map<unknown>, key: string, value: unknown[]): void {
+  map.set(key, JSON.stringify(value));
 }
 
 function setYArray(map: Y.Map<unknown>, key: string, values: unknown[]): void {
@@ -371,6 +451,8 @@ export function createLocalUndoManager(working: WorkingGuide): Y.UndoManager {
     working.steps,
     ...Array.from(working.tasks.values()),
     ...Array.from(working.steps.values()),
+    working.sources,
+    ...Array.from(working.sources.values()),
   ];
   return new Y.UndoManager(scopes, {
     trackedOrigins: new Set([LOCAL_USER_ORIGIN]),

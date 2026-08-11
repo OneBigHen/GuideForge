@@ -170,6 +170,7 @@ export function importMsGuide(bytes: Uint8Array, source: string): ImportedGuide 
     conditions: [],
     verification: [],
     media: [],
+    claimIds: [],
   }));
   // Wire stepIds per task from step.taskId.
   for (const step of steps) {
@@ -188,7 +189,7 @@ export function importMsGuide(bytes: Uint8Array, source: string): ImportedGuide 
   const guideId = crypto.randomUUID() as EntityId;
   const now = new Date().toISOString();
   const snapshot: GuideSnapshot = {
-    schemaVersion: 3,
+    schemaVersion: 4,
     guideId,
     title: source.replace(/\.guide$/i, ''),
     description: '',
@@ -200,6 +201,9 @@ export function importMsGuide(bytes: Uint8Array, source: string): ImportedGuide 
     scene: createEmptyScene(),
     training: createEmptyTraining(),
     sources: [],
+    claims: [],
+    citations: [],
+    generationRuns: [],
   };
 
   // Assets: only Model/Image/Video bodies are extracted; all others dropped.
