@@ -19,7 +19,12 @@ import {
 import type { GuideCommand } from '@guideforge/commands';
 import { GUIDE_COMMAND_TYPES } from '@guideforge/commands';
 import type { AssetReference, ContentHash, EntityId } from '@guideforge/domain';
-import { isGuideSnapshot, migrateToCurrent, type GuideSnapshot } from '@guideforge/guide-schema';
+import {
+  isGuideSnapshot,
+  migrateToCurrent,
+  type GuideSnapshot,
+  type TrainingState,
+} from '@guideforge/guide-schema';
 import { importMsGuide as msImport } from '@guideforge/interop-ms-guide';
 import {
   canonicalJson,
@@ -263,6 +268,74 @@ export async function addAssessmentItem(
     payload: { itemId, ...input },
   });
   return itemId;
+}
+
+/** Replace the canonical training graph through the collaborative command bus. */
+export async function replaceTrainingProgram(
+  session: OpenGuideSession,
+  training: TrainingState,
+): Promise<void> {
+  await dispatchCommand(session, {
+    commandId: crypto.randomUUID(),
+    commandType: GUIDE_COMMAND_TYPES.replaceTraining,
+    actorId: 'local-user',
+    guideId: session.guideId as EntityId,
+    origin: 'user',
+    occurredAt: new Date().toISOString(),
+    payload: { training },
+  });
+}
+
+export async function updateTrainingObjective(
+  session: OpenGuideSession,
+  objectiveId: string,
+  patch: { verb?: string; target?: string; conditions?: string; criterion?: string },
+): Promise<void> {
+  await dispatchCommand(session, {
+    commandId: crypto.randomUUID(),
+    commandType: GUIDE_COMMAND_TYPES.updateTrainingObjective,
+    actorId: 'local-user',
+    guideId: session.guideId as EntityId,
+    origin: 'user',
+    occurredAt: new Date().toISOString(),
+    payload: { objectiveId, ...patch },
+  });
+}
+
+export async function updateAssessmentItem(
+  session: OpenGuideSession,
+  itemId: string,
+  patch: {
+    prompt?: string;
+    rationale?: string;
+    feedback?: { correct: string; incorrect: string };
+  },
+): Promise<void> {
+  await dispatchCommand(session, {
+    commandId: crypto.randomUUID(),
+    commandType: GUIDE_COMMAND_TYPES.updateAssessmentItem,
+    actorId: 'local-user',
+    guideId: session.guideId as EntityId,
+    origin: 'user',
+    occurredAt: new Date().toISOString(),
+    payload: { itemId, ...patch },
+  });
+}
+
+export async function reviewAssessmentItem(
+  session: OpenGuideSession,
+  itemId: string,
+  reviewState: 'draft' | 'reviewed',
+): Promise<void> {
+  await dispatchCommand(session, {
+    commandId: crypto.randomUUID(),
+    commandType: GUIDE_COMMAND_TYPES.reviewAssessmentItem,
+    actorId: 'local-user',
+    guideId: session.guideId as EntityId,
+    origin: 'user',
+    occurredAt: new Date().toISOString(),
+    payload: { itemId, reviewState },
+  });
 }
 
 export async function removeStep(

@@ -185,11 +185,28 @@ export function createEmptyScene(): GuideScene {
 }
 
 // ---------------------------------------------------------------------------
-// Training (objectives, modules, assessments, mastery)
+// Training (competencies, objectives, lessons, practice, assessments, mastery)
 // ---------------------------------------------------------------------------
+
+export type TrainingCriticality = 'core' | 'important' | 'supporting';
+
+export interface TrainingCitation {
+  sourceHash: ContentHash;
+  regionId: string;
+}
+
+export interface TrainingCompetency {
+  competencyId: EntityId;
+  title: string;
+  description: string;
+  objectiveIds: EntityId[];
+  citations: TrainingCitation[];
+  criticality: TrainingCriticality;
+}
 
 export interface LearningObjective {
   objectiveId: EntityId;
+  competencyId?: EntityId;
   verb: string;
   target: string;
   conditions: string;
@@ -197,8 +214,8 @@ export interface LearningObjective {
   /** Linked procedure step ids. */
   stepIds: EntityId[];
   /** Source region citations (sourceHash + regionId). */
-  citations: { sourceHash: string; regionId: string }[];
-  criticality: 'core' | 'important' | 'supporting';
+  citations: TrainingCitation[];
+  criticality: TrainingCriticality;
 }
 
 export interface AssessmentItem {
@@ -210,14 +227,17 @@ export interface AssessmentItem {
   /** Correct option ids / numeric answer / scoring rule. */
   scoringRule: Record<string, unknown>;
   rationale: string;
-  citations: { sourceHash: string; regionId: string }[];
-  criticality: 'core' | 'important' | 'supporting';
+  /** Explicit feedback shown after the item is scored. */
+  feedback?: { correct: string; incorrect: string };
+  citations: TrainingCitation[];
+  criticality: TrainingCriticality;
   reviewState: 'draft' | 'reviewed';
 }
 
 export interface TrainingModule {
   moduleId: EntityId;
   title: string;
+  competencyIds?: EntityId[];
   objectiveIds: EntityId[];
   lessonIds: EntityId[];
 }
@@ -227,24 +247,92 @@ export interface TrainingLesson {
   title: string;
   stepIds: EntityId[];
   objectiveIds: EntityId[];
-  citations: { sourceHash: ContentHash; regionId: string }[];
+  activityIds?: EntityId[];
+  citations: TrainingCitation[];
+}
+
+export interface TrainingActivity {
+  activityId: EntityId;
+  lessonId: EntityId;
+  title: string;
+  type: 'instruction' | 'procedure' | 'practice' | 'reflection';
+  stepIds: EntityId[];
+  objectiveIds: EntityId[];
+  itemIds: EntityId[];
+  citations: TrainingCitation[];
+}
+
+export interface TrainingAssessmentBlueprint {
+  blueprintId: EntityId;
+  title: string;
+  objectiveIds: EntityId[];
+  itemIds: EntityId[];
+  criticalItemIds: EntityId[];
+  passThreshold: number;
+  maxAttempts: number;
+  citations: TrainingCitation[];
+}
+
+export interface TrainingRemediationEdge {
+  edgeId: EntityId;
+  fromItemId: EntityId;
+  toActivityId: EntityId;
+  trigger: 'incorrect' | 'low-confidence' | 'incomplete';
+  reason: string;
+  citations: TrainingCitation[];
+}
+
+export interface TrainingMasteryPolicy {
+  requiredCriticalItems: number;
+  passThreshold: number;
+  maxAttempts: number;
+  policyVersion?: string;
+  requiredObjectiveIds?: EntityId[];
+  criticalItemIds?: EntityId[];
+  remediationThreshold?: number;
 }
 
 export interface TrainingState {
+  /** Optional for v4 backward compatibility; generated programs always fill it. */
+  competencies?: TrainingCompetency[];
   objectives: LearningObjective[];
   assessmentItems: AssessmentItem[];
   modules: TrainingModule[];
   lessons: TrainingLesson[];
-  mastery: { requiredCriticalItems: number; passThreshold: number; maxAttempts: number };
+  activities?: TrainingActivity[];
+  assessmentBlueprint?: TrainingAssessmentBlueprint;
+  remediationEdges?: TrainingRemediationEdge[];
+  mastery: TrainingMasteryPolicy;
 }
 
 export function createEmptyTraining(): TrainingState {
   return {
+    competencies: [],
     objectives: [],
     assessmentItems: [],
     modules: [],
     lessons: [],
-    mastery: { requiredCriticalItems: 0, passThreshold: 0.8, maxAttempts: 3 },
+    activities: [],
+    assessmentBlueprint: {
+      blueprintId: 'training-blueprint-empty' as EntityId,
+      title: 'Assessment blueprint',
+      objectiveIds: [],
+      itemIds: [],
+      criticalItemIds: [],
+      passThreshold: 0.8,
+      maxAttempts: 3,
+      citations: [],
+    },
+    remediationEdges: [],
+    mastery: {
+      requiredCriticalItems: 0,
+      passThreshold: 0.8,
+      maxAttempts: 3,
+      policyVersion: 'mastery-v1',
+      requiredObjectiveIds: [],
+      criticalItemIds: [],
+      remediationThreshold: 0.8,
+    },
   };
 }
 
@@ -414,7 +502,12 @@ export function isTrainingState(value: unknown): value is TrainingState {
     Array.isArray(v.modules) &&
     Array.isArray(v.lessons) &&
     typeof v.mastery === 'object' &&
-    v.mastery !== null
+    v.mastery !== null &&
+    (!('competencies' in v) || Array.isArray(v.competencies)) &&
+    (!('activities' in v) || Array.isArray(v.activities)) &&
+    (!('remediationEdges' in v) || Array.isArray(v.remediationEdges)) &&
+    (!('assessmentBlueprint' in v) ||
+      (typeof v.assessmentBlueprint === 'object' && v.assessmentBlueprint !== null))
   );
 }
 
@@ -441,6 +534,8 @@ export function isGuideStep(value: unknown): value is GuideStep {
     Array.isArray(v.claimIds)
   );
 }
+
+export * from './training.js';
 
 export {
   migrateLegacySourceRecord,

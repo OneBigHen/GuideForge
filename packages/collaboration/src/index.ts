@@ -24,16 +24,17 @@
 import type { GuideCommand } from '@guideforge/commands';
 import { applyGuideCommand } from '@guideforge/commands';
 import type { EntityId, GuideLifecycleState } from '@guideforge/domain';
-import type {
-  GenerationRun,
-  GuideCitation,
-  GuideClaim,
-  GuideScene,
-  GuideSnapshot,
-  GuideSource,
-  GuideStep,
-  GuideTask,
-  TrainingState,
+import {
+  createEmptyTraining,
+  type GenerationRun,
+  type GuideCitation,
+  type GuideClaim,
+  type GuideScene,
+  type GuideSnapshot,
+  type GuideSource,
+  type GuideStep,
+  type GuideTask,
+  type TrainingState,
 } from '@guideforge/guide-schema';
 import * as Y from 'yjs';
 
@@ -230,26 +231,12 @@ export function setWorkingScene(working: WorkingGuide, scene: GuideScene): void 
 /** Canonical training from the working document. */
 export function materializeTraining(working: WorkingGuide): TrainingState {
   const raw = working.training.get('trainingJson') as string | undefined;
-  if (!raw) {
-    return {
-      objectives: [],
-      assessmentItems: [],
-      modules: [],
-      lessons: [],
-      mastery: { requiredCriticalItems: 0, passThreshold: 0.8, maxAttempts: 3 },
-    };
-  }
+  if (!raw) return createEmptyTraining();
   try {
     const training = JSON.parse(raw) as TrainingState;
-    return { ...training, lessons: training.lessons ?? [] };
+    return { ...createEmptyTraining(), ...training, lessons: training.lessons ?? [] };
   } catch {
-    return {
-      objectives: [],
-      assessmentItems: [],
-      modules: [],
-      lessons: [],
-      mastery: { requiredCriticalItems: 0, passThreshold: 0.8, maxAttempts: 3 },
-    };
+    return createEmptyTraining();
   }
 }
 

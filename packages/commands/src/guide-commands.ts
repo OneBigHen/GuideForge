@@ -1,5 +1,5 @@
 import type { EntityId } from '@guideforge/domain';
-import type { GuideSnapshot, GuideTask } from '@guideforge/guide-schema';
+import type { GuideSnapshot, GuideTask, TrainingState } from '@guideforge/guide-schema';
 import type { GuideCommand } from './index.js';
 
 /** State the guide commands operate on: the canonical snapshot. */
@@ -58,6 +58,30 @@ export interface AddAssessmentItemPayload {
   criticality: 'core' | 'important' | 'supporting';
 }
 
+export interface ReplaceTrainingPayload {
+  training: TrainingState;
+}
+
+export interface UpdateTrainingObjectivePayload {
+  objectiveId: EntityId;
+  verb?: string;
+  target?: string;
+  conditions?: string;
+  criterion?: string;
+}
+
+export interface UpdateAssessmentItemPayload {
+  itemId: EntityId;
+  prompt?: string;
+  rationale?: string;
+  feedback?: { correct: string; incorrect: string };
+}
+
+export interface ReviewAssessmentItemPayload {
+  itemId: EntityId;
+  reviewState: 'draft' | 'reviewed';
+}
+
 export interface AddValuePayload {
   stepId: EntityId;
   valueId: EntityId;
@@ -105,7 +129,13 @@ export type GuideCommandPayloads =
   | AddConditionPayload
   | RemoveConditionPayload
   | AddVerificationPayload
-  | RemoveVerificationPayload;
+  | RemoveVerificationPayload
+  | AddObjectivePayload
+  | AddAssessmentItemPayload
+  | ReplaceTrainingPayload
+  | UpdateTrainingObjectivePayload
+  | UpdateAssessmentItemPayload
+  | ReviewAssessmentItemPayload;
 
 export type GuideCommandOf<P> = GuideCommand<P>;
 
@@ -132,6 +162,10 @@ export const GUIDE_COMMAND_TYPES = {
   removeVerification: 'guide/remove-verification',
   addObjective: 'training/add-objective',
   addAssessmentItem: 'training/add-assessment-item',
+  replaceTraining: 'training/replace-program',
+  updateTrainingObjective: 'training/update-objective',
+  updateAssessmentItem: 'training/update-assessment-item',
+  reviewAssessmentItem: 'training/review-assessment-item',
 } as const;
 
 export function findTask(state: GuideState, taskId: EntityId): GuideTask | undefined {

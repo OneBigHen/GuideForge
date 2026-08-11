@@ -404,6 +404,7 @@
       ],
       "properties": {
         "objectiveId": { "type": "string" },
+        "competencyId": { "type": "string" },
         "verb": { "type": "string" },
         "target": { "type": "string" },
         "conditions": { "type": "string" },
@@ -457,6 +458,15 @@
         },
         "scoringRule": { "type": "object" },
         "rationale": { "type": "string" },
+        "feedback": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["correct", "incorrect"],
+          "properties": {
+            "correct": { "type": "string" },
+            "incorrect": { "type": "string" }
+          }
+        },
         "citations": {
           "type": "array",
           "items": {
@@ -480,6 +490,7 @@
       "properties": {
         "moduleId": { "type": "string" },
         "title": { "type": "string" },
+        "competencyIds": { "type": "array", "items": { "type": "string" } },
         "objectiveIds": { "type": "array", "items": { "type": "string" } },
         "lessonIds": { "type": "array", "items": { "type": "string" } }
       }
@@ -493,6 +504,132 @@
         "title": { "type": "string" },
         "stepIds": { "type": "array", "items": { "type": "string" } },
         "objectiveIds": { "type": "array", "items": { "type": "string" } },
+        "activityIds": { "type": "array", "items": { "type": "string" } },
+        "citations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sourceHash", "regionId"],
+            "properties": {
+              "sourceHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              "regionId": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "TrainingCompetency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "competencyId",
+        "title",
+        "description",
+        "objectiveIds",
+        "citations",
+        "criticality"
+      ],
+      "properties": {
+        "competencyId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "objectiveIds": { "type": "array", "items": { "type": "string" } },
+        "citations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sourceHash", "regionId"],
+            "properties": {
+              "sourceHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              "regionId": { "type": "string" }
+            }
+          }
+        },
+        "criticality": { "enum": ["core", "important", "supporting"] }
+      }
+    },
+    "TrainingActivity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "activityId",
+        "lessonId",
+        "title",
+        "type",
+        "stepIds",
+        "objectiveIds",
+        "itemIds",
+        "citations"
+      ],
+      "properties": {
+        "activityId": { "type": "string" },
+        "lessonId": { "type": "string" },
+        "title": { "type": "string" },
+        "type": { "enum": ["instruction", "procedure", "practice", "reflection"] },
+        "stepIds": { "type": "array", "items": { "type": "string" } },
+        "objectiveIds": { "type": "array", "items": { "type": "string" } },
+        "itemIds": { "type": "array", "items": { "type": "string" } },
+        "citations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sourceHash", "regionId"],
+            "properties": {
+              "sourceHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              "regionId": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "TrainingAssessmentBlueprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "blueprintId",
+        "title",
+        "objectiveIds",
+        "itemIds",
+        "criticalItemIds",
+        "passThreshold",
+        "maxAttempts",
+        "citations"
+      ],
+      "properties": {
+        "blueprintId": { "type": "string" },
+        "title": { "type": "string" },
+        "objectiveIds": { "type": "array", "items": { "type": "string" } },
+        "itemIds": { "type": "array", "items": { "type": "string" } },
+        "criticalItemIds": { "type": "array", "items": { "type": "string" } },
+        "passThreshold": { "type": "number", "minimum": 0, "maximum": 1 },
+        "maxAttempts": { "type": "integer", "minimum": 1 },
+        "citations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sourceHash", "regionId"],
+            "properties": {
+              "sourceHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              "regionId": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "TrainingRemediationEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["edgeId", "fromItemId", "toActivityId", "trigger", "reason", "citations"],
+      "properties": {
+        "edgeId": { "type": "string" },
+        "fromItemId": { "type": "string" },
+        "toActivityId": { "type": "string" },
+        "trigger": { "enum": ["incorrect", "low-confidence", "incomplete"] },
+        "reason": { "type": "string" },
         "citations": {
           "type": "array",
           "items": {
@@ -512,10 +649,17 @@
       "additionalProperties": false,
       "required": ["objectives", "assessmentItems", "modules", "lessons", "mastery"],
       "properties": {
+        "competencies": { "type": "array", "items": { "$ref": "#/$defs/TrainingCompetency" } },
         "objectives": { "type": "array", "items": { "$ref": "#/$defs/LearningObjective" } },
         "assessmentItems": { "type": "array", "items": { "$ref": "#/$defs/AssessmentItem" } },
         "modules": { "type": "array", "items": { "$ref": "#/$defs/TrainingModule" } },
         "lessons": { "type": "array", "items": { "$ref": "#/$defs/TrainingLesson" } },
+        "activities": { "type": "array", "items": { "$ref": "#/$defs/TrainingActivity" } },
+        "assessmentBlueprint": { "$ref": "#/$defs/TrainingAssessmentBlueprint" },
+        "remediationEdges": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TrainingRemediationEdge" }
+        },
         "mastery": {
           "type": "object",
           "additionalProperties": false,
@@ -523,7 +667,11 @@
           "properties": {
             "requiredCriticalItems": { "type": "integer", "minimum": 0 },
             "passThreshold": { "type": "number", "minimum": 0, "maximum": 1 },
-            "maxAttempts": { "type": "integer", "minimum": 1 }
+            "maxAttempts": { "type": "integer", "minimum": 1 },
+            "policyVersion": { "type": "string" },
+            "requiredObjectiveIds": { "type": "array", "items": { "type": "string" } },
+            "criticalItemIds": { "type": "array", "items": { "type": "string" } },
+            "remediationThreshold": { "type": "number", "minimum": 0, "maximum": 1 }
           }
         }
       }

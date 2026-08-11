@@ -9,7 +9,7 @@
  *
  * All reducers are deterministic: same (state, command) => same output.
  */
-import type { EntityId } from '@guideforge/domain';
+import { isContentHash, type ContentHash, type EntityId } from '@guideforge/domain';
 import {
   createEmptyScene,
   createEmptyTraining,
@@ -27,6 +27,10 @@ import {
   type RemoveTaskPayload,
   type RenameTaskPayload,
   type ReorderTasksPayload,
+  type ReplaceTrainingPayload,
+  type ReviewAssessmentItemPayload,
+  type UpdateAssessmentItemPayload,
+  type UpdateTrainingObjectivePayload,
 } from './guide-commands.js';
 import type { GuideCommand } from './index.js';
 
@@ -265,6 +269,7 @@ export function applyGuideCommand(state: GuideSnapshot, command: GuideCommand): 
     }
     case GUIDE_COMMAND_TYPES.addObjective: {
       const p = command.payload as AddObjectivePayload;
+      if (p.citations.some((citation) => !isContentHash(citation.sourceHash))) return state;
       if (state.training.objectives.some((o) => o.objectiveId === p.objectiveId)) return state;
       const next = cloneSnapshot(state);
       next.training.objectives.push({
@@ -274,13 +279,17 @@ export function applyGuideCommand(state: GuideSnapshot, command: GuideCommand): 
         conditions: p.conditions,
         criterion: p.criterion,
         stepIds: [...p.stepIds],
-        citations: [...p.citations],
+        citations: p.citations.map((citation) => ({
+          ...citation,
+          sourceHash: citation.sourceHash as ContentHash,
+        })),
         criticality: p.criticality,
       });
       return next;
     }
     case GUIDE_COMMAND_TYPES.addAssessmentItem: {
       const p = command.payload as AddAssessmentItemPayload;
+      if (p.citations.some((citation) => !isContentHash(citation.sourceHash))) return state;
       if (state.training.assessmentItems.some((i) => i.itemId === p.itemId)) return state;
       const next = cloneSnapshot(state);
       next.training.assessmentItems.push({
@@ -291,10 +300,63 @@ export function applyGuideCommand(state: GuideSnapshot, command: GuideCommand): 
         options: p.options.map((o) => ({ ...o })),
         scoringRule: { ...p.scoringRule },
         rationale: p.rationale,
-        citations: [...p.citations],
+        citations: p.citations.map((citation) => ({
+          ...citation,
+          sourceHash: citation.sourceHash as ContentHash,
+        })),
         criticality: p.criticality,
         reviewState: 'draft',
       });
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.replaceTraining: {
+      const p = command.payload as ReplaceTrainingPayload;
+      const next = cloneSnapshot(state);
+      next.training = JSON.parse(JSON.stringify(p.training)) as GuideSnapshot['training'];
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.updateTrainingObjective: {
+      const p = command.payload as UpdateTrainingObjectivePayload;
+      const objective = state.training.objectives.find(
+        (item) => item.objectiveId === p.objectiveId,
+      );
+      if (!objective) return state;
+      const next = cloneSnapshot(state);
+      const target = next.training.objectives.find((item) => item.objectiveId === p.objectiveId);
+      if (!target) return state;
+      if (p.verb !== undefined) target.verb = p.verb;
+      if (p.target !== undefined) target.target = p.target;
+      if (p.conditions !== undefined) target.conditions = p.conditions;
+      if (p.criterion !== undefined) target.criterion = p.criterion;
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.updateAssessmentItem: {
+      const p = command.payload as UpdateAssessmentItemPayload;
+      const item = state.training.assessmentItems.find(
+        (candidate) => candidate.itemId === p.itemId,
+      );
+      if (!item) return state;
+      const next = cloneSnapshot(state);
+      const target = next.training.assessmentItems.find(
+        (candidate) => candidate.itemId === p.itemId,
+      );
+      if (!target) return state;
+      if (p.prompt !== undefined) target.prompt = p.prompt;
+      if (p.rationale !== undefined) target.rationale = p.rationale;
+      if (p.feedback !== undefined) target.feedback = { ...p.feedback };
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.reviewAssessmentItem: {
+      const p = command.payload as ReviewAssessmentItemPayload;
+      const item = state.training.assessmentItems.find(
+        (candidate) => candidate.itemId === p.itemId,
+      );
+      if (!item) return state;
+      const next = cloneSnapshot(state);
+      const target = next.training.assessmentItems.find(
+        (candidate) => candidate.itemId === p.itemId,
+      );
+      if (target) target.reviewState = p.reviewState;
       return next;
     }
     default:

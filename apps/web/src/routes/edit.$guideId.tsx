@@ -192,6 +192,9 @@ function EditPage() {
           <Link to="/scene/$guideId" params={{ guideId }} className="button button--small">
             Spatial editor
           </Link>
+          <Link to="/training/$guideId" params={{ guideId }} className="button button--small">
+            Training studio
+          </Link>
           <button
             type="button"
             className="button button--ghost"

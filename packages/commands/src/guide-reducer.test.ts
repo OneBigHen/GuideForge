@@ -169,6 +169,61 @@ describe('training commands (Phase 02 canonical training)', () => {
     expect(twice).toBe(once); // no-op returns same reference
   });
 
+  it('replaces, edits, and reviews the canonical training program without aliasing', () => {
+    const base = freshGuideState(GUIDE_ID, 'g');
+    const objectiveId = 'objective-1' as EntityId;
+    const itemId = 'item-1' as EntityId;
+    const training = {
+      ...base.training,
+      objectives: [
+        {
+          objectiveId,
+          verb: 'perform',
+          target: 'the setup',
+          conditions: 'given the approved guide',
+          criterion: 'complete the check',
+          stepIds: [],
+          citations: [],
+          criticality: 'important' as const,
+        },
+      ],
+      assessmentItems: [
+        {
+          itemId,
+          objectiveId,
+          prompt: 'What is the setup?',
+          interaction: 'short-answer' as const,
+          options: [],
+          scoringRule: { acceptedPhrases: ['setup'] },
+          rationale: 'The source says setup.',
+          citations: [],
+          criticality: 'important' as const,
+          reviewState: 'draft' as const,
+        },
+      ],
+    };
+    const replaced = applyGuideCommand(
+      base,
+      cmd(GUIDE_COMMAND_TYPES.replaceTraining, { training }),
+    );
+    expect(replaced.training.objectives[0]?.target).toBe('the setup');
+    expect(base.training.objectives).toHaveLength(0);
+
+    const edited = applyGuideCommand(
+      replaced,
+      cmd(GUIDE_COMMAND_TYPES.updateTrainingObjective, {
+        objectiveId,
+        target: 'the safe setup',
+      }),
+    );
+    expect(edited.training.objectives[0]?.target).toBe('the safe setup');
+    const reviewed = applyGuideCommand(
+      edited,
+      cmd(GUIDE_COMMAND_TYPES.reviewAssessmentItem, { itemId, reviewState: 'reviewed' }),
+    );
+    expect(reviewed.training.assessmentItems[0]?.reviewState).toBe('reviewed');
+  });
+
   it('adds and removes values, conditions, and verification on a step (Phase 06)', () => {
     const base = freshGuideState(GUIDE_ID, 'g');
     const TASK_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' as EntityId;

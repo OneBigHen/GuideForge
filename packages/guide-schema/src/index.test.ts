@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   GUIDE_SCHEMA_VERSION,
+  generateTrainingFromProcedure,
   isGuideSnapshot,
   migrateLegacySourceRecord,
+  validateTrainingProgram,
+  type GuideSnapshot,
   type LegacySourceRecord,
 } from './index.js';
 import { migrateToCurrent, migrationChainComplete } from './migrations.js';
@@ -188,5 +191,81 @@ describe('guide-schema', () => {
       type: 'paragraph',
     });
     expect(source.regions[0]!.contentHash).toHaveLength(64);
+  });
+
+  it('generates a complete source-grounded training graph from procedure steps', () => {
+    const sourceHash = 'a'.repeat(64);
+    const snapshot = {
+      guideId: 'guide-1',
+      title: 'Pump setup',
+      tasks: [{ taskId: 'task-1', title: 'Setup', stepIds: ['step-1'] }],
+      steps: [
+        {
+          stepId: 'step-1',
+          taskId: 'task-1',
+          instructionText: 'Disconnect power before opening the housing.',
+          warnings: [],
+          claimIds: [],
+        },
+      ],
+      sources: [
+        {
+          sourceHash,
+          regions: [
+            {
+              regionId: 'region-1',
+              sourceHash,
+              text: 'Disconnect power before opening the housing.',
+            },
+          ],
+        },
+      ],
+      citations: [],
+    } as unknown as GuideSnapshot;
+
+    const result = generateTrainingFromProcedure(snapshot);
+    expect(result.quality.ok).toBe(true);
+    expect(result.training.competencies).toHaveLength(1);
+    expect(result.training.activities?.length).toBeGreaterThan(0);
+    expect(result.training.assessmentBlueprint?.itemIds).toHaveLength(1);
+    expect(result.training.assessmentItems[0]?.feedback?.incorrect).toBeTruthy();
+    expect(result.training.remediationEdges).toHaveLength(1);
+    expect(result.quality.coverage.sourceGroundedItems).toBe(1);
+  });
+
+  it('fails the quality gate when an item loses its source citation', () => {
+    const sourceHash = 'b'.repeat(64);
+    const snapshot = {
+      guideId: 'guide-2',
+      title: 'Filter change',
+      tasks: [{ taskId: 'task-2', title: 'Change filter', stepIds: ['step-2'] }],
+      steps: [
+        {
+          stepId: 'step-2',
+          taskId: 'task-2',
+          instructionText: 'Close the isolation valve.',
+          warnings: [],
+          claimIds: [],
+        },
+      ],
+      sources: [
+        {
+          sourceHash,
+          regions: [{ regionId: 'region-2', sourceHash, text: 'Close the isolation valve.' }],
+        },
+      ],
+      citations: [],
+    } as unknown as GuideSnapshot;
+    const generated = generateTrainingFromProcedure(snapshot);
+    const tampered = {
+      ...generated.training,
+      assessmentItems: generated.training.assessmentItems.map((item) => ({
+        ...item,
+        citations: [],
+      })),
+    };
+    const report = validateTrainingProgram(tampered, snapshot);
+    expect(report.ok).toBe(false);
+    expect(report.issues.some((item) => item.code === 'missing-citation')).toBe(true);
   });
 });
