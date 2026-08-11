@@ -54,7 +54,10 @@ typecheck, but its API tests still used the local 15432 fallback because Turbo
 did not pass `DATABASE_URL` through strict task environment filtering. The
 replacement now declares `DATABASE_URL` in `turbo.json` `globalEnv`; a focused
 Turbo API run against the local Postgres service passed 17/17. A fresh GitHub
-run is pending.
+run then passed all preceding stages but gitleaks received a 403 while reading
+the pull request because the workflow granted only `contents: read`; its regex
+fallback passed. The workflow now grants `pull-requests: read`, and another
+fresh run is pending.
 
 ## Explicit pack-required probes
 
