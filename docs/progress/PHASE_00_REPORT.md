@@ -49,7 +49,12 @@ before project execution because the repository `.npmrc` forced the hosted
 runner to use the non-writable absolute store path `/root/.cache/pnpm-store`.
 That path setting was removed so pnpm can use the runner's environment-owned
 store; `CI=true pnpm install --frozen-lockfile` then recreated all 930 packages
-locally. The replacement commit is pending a fresh GitHub run.
+locally. The replacement run then passed setup, install, format, lint, and
+typecheck, but its API tests still used the local 15432 fallback because Turbo
+did not pass `DATABASE_URL` through strict task environment filtering. The
+replacement now declares `DATABASE_URL` in `turbo.json` `globalEnv`; a focused
+Turbo API run against the local Postgres service passed 17/17. A fresh GitHub
+run is pending.
 
 ## Explicit pack-required probes
 
