@@ -233,6 +233,9 @@ importers:
       '@guideforge/model-gateway':
         specifier: workspace:*
         version: link:../../packages/model-gateway
+      '@guideforge/synthesis':
+        specifier: workspace:*
+        version: link:../../packages/synthesis
       drizzle-orm:
         specifier: 'catalog:'
         version: 0.45.2(@types/better-sqlite3@9.6.0)(@types/pg@8.20.4)(better-sqlite3@13.0.3)(pg@8.22.0)(postgres@3.4.9)
@@ -872,6 +875,9 @@ importers:
       '@guideforge/ingestion':
         specifier: workspace:*
         version: link:../ingestion
+      '@guideforge/model-gateway':
+        specifier: workspace:*
+        version: link:../model-gateway
     devDependencies:
       '@types/node':
         specifier: 'catalog:'

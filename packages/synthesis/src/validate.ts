@@ -5,7 +5,7 @@
 import type { ExtractionOutput, ExtractionStep, ExtractionTask } from '@guideforge/ai-contracts';
 import {
   normalizeToken,
-  valueGrounded,
+  structuredValueGrounded,
   type SourceCoverage,
   type SynthesisAmbiguity,
   type SynthesisIssue,
@@ -65,7 +65,12 @@ export function validateSynthesisPlan(
           });
           continue;
         }
-        const grounded = step.values.filter((v) => !valueGrounded(v.label, region));
+        const grounded = step.values.filter(
+          (v) =>
+            ![...step.citations]
+              .map((id) => regions.get(id))
+              .some((candidate) => candidate && structuredValueGrounded(v, candidate)),
+        );
         for (const v of grounded) {
           issues.push({
             severity: 'error',
@@ -188,7 +193,12 @@ export function repairSynthesisPlan(
         continue;
       }
       const validCitations = step.citations.filter((id) => regions.has(id));
-      const groundedValues = step.values.filter((v) => valueGrounded(v.label, region));
+      const citedRegions = step.citations
+        .map((id) => regions.get(id))
+        .filter((candidate): candidate is SynthesisRegion => Boolean(candidate));
+      const groundedValues = step.values.filter((v) =>
+        citedRegions.some((candidate) => structuredValueGrounded(v, candidate)),
+      );
       if (groundedValues.length !== step.values.length) {
         repairs.push(
           `dropped ${step.values.length - groundedValues.length} ungrounded value(s) from step ${step.stepId}`,

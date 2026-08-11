@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://guideforge.dev/schemas/AiProposalRecord.schema.json",
+  "title": "GuideForge browser AI proposal record",
+  "type": "object",
+  "required": [
+    "proposalId",
+    "guideId",
+    "commandType",
+    "payload",
+    "summary",
+    "confidence",
+    "sourceHash",
+    "citations",
+    "receipt",
+    "createdAtIso",
+    "status"
+  ],
+  "properties": {
+    "proposalId": { "type": "string", "minLength": 1 },
+    "guideId": { "type": "string", "minLength": 1 },
+    "commandType": { "type": "string", "minLength": 1 },
+    "payload": { "type": "object" },
+    "summary": { "type": "string" },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "sourceHash": {
+      "anyOf": [{ "type": "null" }, { "type": "string", "pattern": "^[0-9a-f]{64}$" }]
+    },
+    "citations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["regionId", "pageIndex", "excerptHash", "claimRef"],
+        "properties": {
+          "regionId": { "type": "string", "minLength": 1 },
+          "sourceHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "pageIndex": { "type": "integer", "minimum": 0 },
+          "excerptHash": { "type": "string", "minLength": 1 },
+          "claimRef": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "required": [
+        "provider",
+        "model",
+        "inputTokens",
+        "outputTokens",
+        "latencyMs",
+        "promptVersion",
+        "schemaVersion",
+        "requestId",
+        "createdAtIso"
+      ],
+      "properties": {
+        "provider": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "inputTokens": { "type": "number", "minimum": 0 },
+        "outputTokens": { "type": "number", "minimum": 0 },
+        "latencyMs": { "type": "number", "minimum": 0 },
+        "promptVersion": { "type": "string", "minLength": 1 },
+        "schemaVersion": { "type": "string", "minLength": 1 },
+        "requestId": { "type": "string", "minLength": 1 },
+        "createdAtIso": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "createdAtIso": { "type": "string", "format": "date-time" },
+    "status": { "enum": ["pending", "accepted", "rejected"] }
+  },
+  "additionalProperties": false
+}

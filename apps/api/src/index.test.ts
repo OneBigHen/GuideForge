@@ -498,4 +498,46 @@ describe('control plane API', () => {
       expect(Array.isArray(body.proposals)).toBe(true);
     },
   );
+
+  it('source synthesis endpoint exposes the explicit offline rules mode', async () => {
+    const author = await login('88888888-8888-4888-8888-888888888888');
+    const sourceHash = 'a'.repeat(64);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/guides/guide-offline/source-synthesis',
+      headers: { cookie: `gf_session=${author}`, origin: TEST_ORIGIN },
+      payload: {
+        guideId: 'guide-offline',
+        mode: 'offline-rules',
+        sources: [
+          {
+            sourceHash,
+            originalFilename: 'manual.txt',
+            detectedType: 'text/plain',
+            sizeBytes: 32,
+            regions: [
+              {
+                regionId: 'reg-offline',
+                sourceHash,
+                pageIndex: 0,
+                structuralPath: 'p:1',
+                excerpt: 'Disconnect power before opening the housing.',
+                kind: 'paragraph',
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = bodyOf<{
+      mode: string;
+      plan: { coverage: { citedRegions: number } };
+      receipt: { provider: string; model: string };
+    }>(res);
+    expect(body.mode).toBe('offline-rules');
+    expect(body.receipt.provider).toBe('synthesis-local');
+    expect(body.receipt.model).toBe('synthesis-rules-v1');
+    expect(body.plan.coverage.citedRegions).toBe(1);
+  });
 });

@@ -91,7 +91,13 @@ export interface AiProposalRecord {
   confidence: number;
   sourceHash: string | null;
   /** Source regions cited by this proposal (regionId + page + excerpt hash). */
-  citations: { regionId: string; pageIndex: number; excerptHash: string; claimRef: string }[];
+  citations: {
+    regionId: string;
+    sourceHash?: string;
+    pageIndex: number;
+    excerptHash: string;
+    claimRef: string;
+  }[];
   /** Provider/model/receipt provenance for the generation that produced it. */
   receipt: {
     provider: string;

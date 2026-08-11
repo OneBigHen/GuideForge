@@ -1,14 +1,14 @@
 /**
  * Source-grounded procedure synthesis for apps/web (Phase 06).
  *
- * Reads ingested sources (Phase 05 Source Studio) from Dexie, runs the
- * deterministic @guideforge/synthesis planner, and turns the validated plan
- * into human-reviewable proposals. AI proposes; acceptance applies the
- * proposals through the normal command bus.
+ * Reads ingested sources (Phase 05 Source Studio), prefers the server-side
+ * DeepSeek synthesis gateway, and turns the validated plan into
+ * human-reviewable proposals. Browser-only mode uses explicitly labeled
+ * deterministic rules; acceptance applies proposals through the command bus.
  */
 import type { ExtractionOutput } from '@guideforge/ai-contracts';
 import { GUIDE_COMMAND_TYPES } from '@guideforge/commands';
-import type { ContentHash, EntityId } from '@guideforge/domain';
+import { sha256Hex, type ContentHash, type EntityId } from '@guideforge/domain';
 import type { SourceRecord } from '@guideforge/storage-web';
 import {
   synthesizeProcedure,
@@ -19,6 +19,11 @@ import { createProposal } from './guideStore';
 import type { SourceStudio } from './sourceStudio';
 
 export interface SynthesisRunResult {
+  mode: 'deepseek' | 'offline-rules';
+  provider: string;
+  model: string;
+  cacheHit: boolean;
+  providerCostUsd: number;
   proposalsCreated: number;
   citedRegions: number;
   coverageRatio: number;
@@ -36,6 +41,27 @@ export interface RegionRef {
   pageIndex: number;
   sourceHash: ContentHash;
   excerptHash: string;
+}
+
+export interface SynthesisReceipt {
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  latencyMs: number;
+  promptVersion: string;
+  schemaVersion: string;
+  requestId: string;
+  createdAtIso: string;
+}
+
+interface ServerSynthesisResponse {
+  mode: 'deepseek';
+  plan: SynthesisPlan;
+  receipt: SynthesisReceipt & {
+    cacheHit?: boolean;
+    providerCostUsd?: number;
+  };
 }
 
 /** Build the region reference map the planner's citations point at. */
@@ -56,12 +82,7 @@ function buildRegionRefs(sources: SourceRecord[]): Map<string, RegionRef> {
 }
 
 function hashExcerpt(text: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return (h >>> 0).toString(16).padStart(8, '0') + '-' + text.length.toString(16);
+  return sha256Hex(new TextEncoder().encode(text));
 }
 
 function toSynthesisSource(record: SourceRecord): SynthesisSource {
@@ -106,6 +127,11 @@ export async function synthesizeFromSources(
   const withRegions = rows.filter((r) => r.regions.length > 0 && r.status !== 'failed');
   if (withRegions.length === 0) {
     return {
+      mode: 'offline-rules',
+      provider: 'none',
+      model: 'none',
+      cacheHit: false,
+      providerCostUsd: 0,
       proposalsCreated: 0,
       citedRegions: 0,
       coverageRatio: 0,
@@ -119,19 +145,30 @@ export async function synthesizeFromSources(
     };
   }
 
-  const plan = synthesizeProcedure({
-    guideId: session.guideId,
-    sources: withRegions.map(toSynthesisSource),
-  });
   const regionRefs = buildRegionRefs(withRegions);
+  const server = await tryServerSynthesis(session.guideId, withRegions);
+  const serverResult = server && 'plan' in server ? server : null;
+  const plan =
+    serverResult?.plan ??
+    synthesizeProcedure({
+      guideId: session.guideId,
+      sources: withRegions.map(toSynthesisSource),
+    });
+  const receipt = serverResult?.receipt ?? localSynthesisReceipt();
 
   let created = 0;
-  for (const proposal of planToProposals(session.guideId, plan, regionRefs)) {
+  for (const proposal of planToProposals(session.guideId, plan, regionRefs, receipt)) {
     await createProposal(proposal);
     created += 1;
   }
 
+  const fallbackIssue = server && 'error' in server ? [server.error] : [];
   return {
+    mode: serverResult ? 'deepseek' : 'offline-rules',
+    provider: receipt.provider,
+    model: receipt.model,
+    cacheHit: serverResult?.receipt.cacheHit ?? false,
+    providerCostUsd: serverResult?.receipt.providerCostUsd ?? 0,
     proposalsCreated: created,
     citedRegions: plan.coverage.citedRegions,
     coverageRatio: plan.coverage.coverageRatio,
@@ -141,7 +178,54 @@ export async function synthesizeFromSources(
     taskCount: plan.output.tasks.length,
     stepCount: plan.output.tasks.reduce((n, t) => n + t.steps.length, 0),
     ok: plan.issues.every((i) => i.severity !== 'error'),
-    issues: plan.issues.map((i) => i.message),
+    issues: [...fallbackIssue, ...plan.issues.map((i) => i.message)],
+  };
+}
+
+async function tryServerSynthesis(
+  guideId: string,
+  sources: SourceRecord[],
+): Promise<ServerSynthesisResponse | { error: string }> {
+  try {
+    const response = await fetch(`/api/guides/${guideId}/source-synthesis`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        guideId,
+        mode: 'deepseek',
+        sources: sources.map(toSynthesisSource),
+      }),
+    });
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as { error?: string } | null;
+      return {
+        error: `DeepSeek companion unavailable: ${body?.error ?? `HTTP ${response.status}`}`,
+      };
+    }
+    const body = (await response.json()) as ServerSynthesisResponse;
+    if (body.mode !== 'deepseek' || !body.plan || !body.receipt) {
+      return { error: 'DeepSeek companion returned an invalid synthesis response' };
+    }
+    return body;
+  } catch (err) {
+    return {
+      error: `DeepSeek companion unavailable: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+function localSynthesisReceipt(): SynthesisReceipt {
+  return {
+    provider: 'synthesis-local',
+    model: 'synthesis-rules-v1',
+    inputTokens: 0,
+    outputTokens: 0,
+    latencyMs: 0,
+    promptVersion: 'phase05-offline-rules-v1',
+    schemaVersion: 'synthesis-output-v1',
+    requestId: crypto.randomUUID(),
+    createdAtIso: new Date().toISOString(),
   };
 }
 
@@ -152,19 +236,10 @@ export function planToProposals(
   guideId: string,
   plan: SynthesisPlan,
   regionRefs: Map<string, RegionRef>,
+  providedReceipt?: SynthesisReceipt,
 ): ProposalInput[] {
   const proposals: ProposalInput[] = [];
-  const receipt = {
-    provider: 'synthesis-local',
-    model: 'synthesis-rules-v1',
-    inputTokens: 0,
-    outputTokens: 0,
-    latencyMs: 0,
-    promptVersion: 'phase06-v1',
-    schemaVersion: '1',
-    requestId: crypto.randomUUID(),
-    createdAtIso: new Date().toISOString(),
-  };
+  const receipt = providedReceipt ?? localSynthesisReceipt();
   const confidence = plan.confidence.overall;
   const sourceHash = firstSourceHash(regionRefs);
 
@@ -289,6 +364,7 @@ function stepCitations(
     const ref = regionRefs.get(regionId);
     return {
       regionId,
+      ...(ref?.sourceHash ? { sourceHash: ref.sourceHash } : {}),
       pageIndex: ref?.pageIndex ?? 0,
       excerptHash: ref?.excerptHash ?? '',
       claimRef: step.stepId,

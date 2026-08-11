@@ -221,6 +221,8 @@ export function isExtractionOutput(value: unknown): value is ExtractionOutput {
 
 export interface Citation {
   regionId: string;
+  /** SHA-256 of the source owning the cited region. */
+  sourceHash?: ContentHash;
   pageIndex: number;
   excerptHash: string;
   /** SHA-256 of the region excerpt (deterministic check). */
@@ -262,6 +264,9 @@ export function validateCitations(
     }
     if (region.pageIndex !== citation.pageIndex) {
       issues.push(`page mismatch for ${citation.regionId}`);
+    }
+    if (citation.sourceHash && citation.sourceHash !== region.sourceHash) {
+      issues.push(`source hash mismatch for ${citation.regionId}`);
     }
     if (hashExcerpt(region.excerpt) !== citation.excerptHash) {
       issues.push(`excerpt hash mismatch for ${citation.regionId}`);

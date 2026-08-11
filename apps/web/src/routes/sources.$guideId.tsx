@@ -191,6 +191,12 @@ function SourcesPage() {
               {synthesis.stepCount === 1 ? '' : 's'}
             </p>
             <p className="empty-hint">
+              Provider <strong>{synthesis.provider}</strong> ({synthesis.model}) · mode{' '}
+              <strong>{synthesis.mode}</strong>
+              {synthesis.cacheHit ? ' · cache hit' : ''} · cost $
+              {synthesis.providerCostUsd.toFixed(6)}
+            </p>
+            <p className="empty-hint">
               Source coverage <strong>{Math.round(synthesis.coverageRatio * 100)}%</strong> (
               {synthesis.citedRegions} regions cited) · {synthesis.ambiguities} ambiguity note
               {synthesis.ambiguities === 1 ? '' : 's'}

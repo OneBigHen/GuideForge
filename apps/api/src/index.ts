@@ -11,7 +11,12 @@ import jwt from '@fastify/jwt';
 import swagger from '@fastify/swagger';
 import { structuralChunking, type SourceRegion } from '@guideforge/ai-contracts';
 import { isContentHash, type ContentHash } from '@guideforge/domain';
-import { DeepSeekAdapter, ModelGateway } from '@guideforge/model-gateway';
+import { DeepSeekAdapter, getDeepSeekModelProfile, ModelGateway } from '@guideforge/model-gateway';
+import {
+  SynthesisGateway,
+  validateSynthesisRequest,
+  type SynthesisRequest,
+} from '@guideforge/synthesis';
 import { eq } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -317,8 +322,9 @@ export async function buildServer(
 
   // AI proposal generation (server-side; the API key never reaches the
   // browser). The client sends step text; the server builds source regions,
-  // runs the ModelGateway (DeepSeek official API when configured, else the
-  // deterministic fake), and returns cited, schema-validated proposals.
+  // runs the configured DeepSeek adapter, and returns cited,
+  // schema-validated proposals. Browser-only callers own the explicit local
+  // fallback; this route does not silently substitute a fake provider.
   app.post('/api/guides/:guideId/ai-proposals', async (req, reply) => {
     const session = req.user as { sub?: string; roles?: string[] } | undefined;
     if (!session?.sub) return reply.code(401).send({ error: 'unauthenticated' });
@@ -349,7 +355,7 @@ export async function buildServer(
     );
     for (const c of chunks) regions.set(c.region.regionId, c.region);
 
-    // Gateway: real DeepSeek when configured; deterministic fake otherwise.
+    // Gateway: real DeepSeek only when configured; no silent fake fallback.
     const adapters =
       config.deepSeekApiKey && config.deepSeekApiKey.length > 0
         ? [
@@ -428,7 +434,118 @@ export async function buildServer(
     };
   });
 
+  /**
+   * Source Studio synthesis. The browser sends only immutable source hashes
+   * and citable excerpts; provider credentials remain server-side.
+   */
+  app.post('/api/guides/:guideId/source-synthesis', async (req, reply) => {
+    const session = req.user as { sub?: string; roles?: string[] } | undefined;
+    if (!session?.sub) return reply.code(401).send({ error: 'unauthenticated' });
+    requirePermission((session.roles ?? []) as Role[], 'read', 'guide');
+    const ip = req.ip ?? 'unknown';
+    if (rateLimited(`synthesis:${session.sub}:${ip}`, 6, 60_000)) {
+      return reply.code(429).send({ error: 'too many synthesis requests; slow down' });
+    }
+
+    const { guideId } = req.params as { guideId: string };
+    const body = (req.body ?? {}) as {
+      guideId?: unknown;
+      sources?: unknown;
+      mode?: unknown;
+      maxInputTokens?: unknown;
+      maxOutputTokens?: unknown;
+      maxCostUsd?: unknown;
+    };
+    if (body.guideId !== undefined && body.guideId !== guideId) {
+      return reply.code(400).send({ error: 'guideId does not match route' });
+    }
+    const requestValue = { guideId, sources: body.sources };
+    const validation = validateSynthesisRequest(requestValue);
+    if (!validation.ok) return reply.code(400).send({ error: validation.issues.join('; ') });
+    if (JSON.stringify(requestValue).length > 2_000_000) {
+      return reply.code(413).send({ error: 'synthesis request is too large' });
+    }
+
+    const requestedMode = body.mode;
+    if (
+      requestedMode !== undefined &&
+      requestedMode !== 'deepseek' &&
+      requestedMode !== 'offline-rules'
+    ) {
+      return reply.code(400).send({ error: 'mode must be deepseek or offline-rules' });
+    }
+    const mode: 'deepseek' | 'offline-rules' =
+      requestedMode === 'offline-rules' ? requestedMode : 'deepseek';
+    const request = requestValue as SynthesisRequest;
+    const budget = {
+      maxInputTokens: boundedNumber(body.maxInputTokens, 12_000, 1, 12_000),
+      maxOutputTokens: boundedNumber(body.maxOutputTokens, 4_096, 1, 4_096),
+      maxCostUsd: boundedNumber(body.maxCostUsd, 0.25, 0, 0.25),
+    };
+
+    let profile: ReturnType<typeof getDeepSeekModelProfile> | undefined;
+    try {
+      profile = getDeepSeekModelProfile(config.deepSeekModel);
+    } catch (err) {
+      if (mode === 'deepseek') {
+        return reply.code(503).send({ error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    const modelGateway =
+      mode === 'deepseek' && config.deepSeekApiKey
+        ? new ModelGateway([
+            new DeepSeekAdapter({
+              apiKey: config.deepSeekApiKey,
+              ...(config.deepSeekModel ? { model: config.deepSeekModel } : {}),
+            }),
+          ])
+        : undefined;
+    const synthesis = new SynthesisGateway({
+      mode,
+      ...(modelGateway ? { modelGateway } : {}),
+      ...(profile ? { profile } : {}),
+      budget,
+    });
+    const result = await synthesis.run(request);
+    if (!result.ok || !result.plan) {
+      return reply.code(result.receipt.error?.includes('budget') ? 429 : 502).send({
+        error: result.error ?? 'synthesis failed',
+        mode: result.mode,
+        receipt: result.receipt,
+      });
+    }
+
+    await db.insert(schema.auditEvents).values({
+      organizationId: SINGLE_OWNER_ORG_ID,
+      actorId: session.sub,
+      action: 'ai.synthesize',
+      resourceType: 'guide',
+      resourceId: guideId,
+      metadata: {
+        provider: result.receipt.provider,
+        model: result.receipt.model,
+        sourceCount: request.sources.length,
+        citedRegions: result.plan.coverage.citedRegions,
+        inputTokens: result.receipt.inputTokens,
+        outputTokens: result.receipt.outputTokens,
+        providerCostUsd: result.receipt.providerCostUsd,
+        cacheHit: result.receipt.cacheHit,
+      },
+    });
+    return {
+      mode: result.mode,
+      plan: result.plan,
+      receipt: result.receipt,
+    };
+  });
+
   return app;
+}
+
+function boundedNumber(value: unknown, fallback: number, min: number, max: number): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(max, Math.max(min, value))
+    : fallback;
 }
 
 function sha256HexText(text: string): ContentHash {

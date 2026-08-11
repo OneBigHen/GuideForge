@@ -24,6 +24,50 @@ import { sha256Hex, type ContentHash } from '@guideforge/domain';
 
 export type PrivacyPolicy = 'zdr' | 'eu-only' | 'default';
 
+/** Official DeepSeek profiles rechecked against the provider docs on 2026-08-11. */
+export interface DeepSeekModelProfile {
+  id: string;
+  contextWindow: number;
+  maxOutputTokens: number;
+  inputCostUsdPerMillion: number;
+  outputCostUsdPerMillion: number;
+  cacheReadCostUsdPerMillion: number;
+  providerApiVersion: string;
+  docsUrl: string;
+  verifiedAtIso: string;
+}
+
+export const DEEPSEEK_MODEL_PROFILES: Readonly<Record<string, DeepSeekModelProfile>> = {
+  'deepseek-v4-flash': {
+    id: 'deepseek-v4-flash',
+    contextWindow: 1_000_000,
+    maxOutputTokens: 384_000,
+    inputCostUsdPerMillion: 0.14,
+    outputCostUsdPerMillion: 0.28,
+    cacheReadCostUsdPerMillion: 0.028,
+    providerApiVersion: 'chat-completions-json-object',
+    docsUrl: 'https://api-docs.deepseek.com/api/create-chat-completion',
+    verifiedAtIso: '2026-08-11T00:00:00.000Z',
+  },
+  'deepseek-v4-pro': {
+    id: 'deepseek-v4-pro',
+    contextWindow: 1_000_000,
+    maxOutputTokens: 384_000,
+    inputCostUsdPerMillion: 1.74,
+    outputCostUsdPerMillion: 3.48,
+    cacheReadCostUsdPerMillion: 0.145,
+    providerApiVersion: 'chat-completions-json-object',
+    docsUrl: 'https://api-docs.deepseek.com/api/create-chat-completion',
+    verifiedAtIso: '2026-08-11T00:00:00.000Z',
+  },
+};
+
+export function getDeepSeekModelProfile(model = 'deepseek-v4-flash'): DeepSeekModelProfile {
+  const profile = DEEPSEEK_MODEL_PROFILES[model];
+  if (!profile) throw new Error(`unsupported DeepSeek model profile: ${model}`);
+  return profile;
+}
+
 export interface ModelRequest {
   sourceHash: ContentHash | null;
   chunks: { regionId: string; text: string; pageIndex: number }[];
@@ -31,6 +75,7 @@ export interface ModelRequest {
   promptVersion: string;
   policy: PrivacyPolicy;
   model?: string;
+  maxOutputTokens?: number;
 }
 
 export interface ModelResponse {
@@ -193,7 +238,12 @@ export class OpenRouterAdapter implements ModelAdapter {
     }
     const body = (await response.json()) as {
       choices?: { message?: { content?: string } }[];
-      usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+      usage?: {
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
+        prompt_cache_hit_tokens?: number;
+      };
     };
     const content = body.choices?.[0]?.message?.content;
     if (!content) throw new Error('openrouter empty content');
@@ -225,20 +275,48 @@ export interface DeepSeekAdapterConfig {
   /** Official models: `deepseek-v4-flash` or `deepseek-v4-pro`. */
   model?: string;
   baseUrl?: string;
+  maxOutputTokens?: number;
 }
 
 export class DeepSeekAdapter implements ModelAdapter {
   readonly provider = 'deepseek';
   readonly model: string;
   readonly available: boolean;
+  readonly profile: DeepSeekModelProfile;
   private readonly baseUrl: string;
   private readonly apiKey: string;
+  private readonly maxOutputTokens: number;
 
   constructor(config: DeepSeekAdapterConfig) {
     this.model = config.model ?? 'deepseek-v4-flash';
+    this.profile = getDeepSeekModelProfile(this.model);
     this.apiKey = config.apiKey;
     this.available = config.apiKey.length > 0;
     this.baseUrl = config.baseUrl ?? 'https://api.deepseek.com';
+    this.maxOutputTokens = config.maxOutputTokens ?? 4096;
+  }
+
+  /** Verify that the configured model is currently advertised by DeepSeek. */
+  async verifyModelProfile(fetcher: typeof fetch = globalThis.fetch): Promise<{
+    ok: boolean;
+    checkedAtIso: string;
+    error?: string;
+  }> {
+    const checkedAtIso = new Date().toISOString();
+    try {
+      const response = await fetcher(`${this.baseUrl}/models`, {
+        headers: { authorization: `Bearer ${this.configApiKey()}` },
+      });
+      if (!response.ok)
+        return { ok: false, checkedAtIso, error: `deepseek models http ${response.status}` };
+      const body = (await response.json()) as { data?: { id?: string }[] };
+      const advertised = body.data?.some((model) => model.id === this.model) ?? false;
+      return advertised
+        ? { ok: true, checkedAtIso }
+        : { ok: false, checkedAtIso, error: `deepseek model not advertised: ${this.model}` };
+    } catch (err) {
+      return { ok: false, checkedAtIso, error: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   async extract(
@@ -282,7 +360,10 @@ export class DeepSeekAdapter implements ModelAdapter {
             ),
           },
         ],
-        max_tokens: 4096,
+        max_tokens: Math.min(
+          request.maxOutputTokens ?? this.maxOutputTokens,
+          this.profile.maxOutputTokens,
+        ),
       }),
     });
     if (!response.ok) {
@@ -291,7 +372,12 @@ export class DeepSeekAdapter implements ModelAdapter {
     }
     const body = (await response.json()) as {
       choices?: { message?: { content?: string } }[];
-      usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+      usage?: {
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
+        prompt_cache_hit_tokens?: number;
+      };
     };
     const content = body.choices?.[0]?.message?.content;
     if (!content) throw new Error('deepseek empty content');
@@ -304,15 +390,15 @@ export class DeepSeekAdapter implements ModelAdapter {
       usage: makeReceipt(this, request, {
         inputTokens: body.usage?.prompt_tokens ?? 0,
         outputTokens: body.usage?.completion_tokens ?? 0,
+        cacheTokens: body.usage?.prompt_cache_hit_tokens ?? 0,
         latencyMs: Date.now() - started,
       }),
     };
   }
 
   private configApiKey(): string {
-    // Prefer the key passed to the constructor (server BFF passes the
-    // config-supplied key), else the environment variable. Both avoid
-    // browser exposure; the constructor path must actually be honored.
+    // Prefer the key passed to the constructor. The environment fallback is
+    // retained for a server-only adapter constructed without explicit config.
     return this.apiKey.length > 0 ? this.apiKey : (process.env.DEEPSEEK_API_KEY ?? '');
   }
 }
@@ -347,6 +433,7 @@ export class ModelGateway {
 
   /** Route by privacy policy; fall back through available adapters. */
   async run(request: ModelRequest): Promise<ModelResponse> {
+    this.lastError = null;
     const ordered = this.order
       .map((name) => this.adapters.find((a) => a.provider === name))
       .filter((a): a is ModelAdapter => Boolean(a?.available));
@@ -399,8 +486,13 @@ export class ModelGateway {
               issues.push(`uncited region ${regionId}`);
               continue;
             }
+            if (request.sourceHash && region.sourceHash !== request.sourceHash) {
+              issues.push(`source hash mismatch for region ${regionId}`);
+              continue;
+            }
             stepCitations.push({
               regionId,
+              sourceHash: region.sourceHash,
               pageIndex: region.pageIndex,
               excerptHash: hashExcerpt(region.excerpt),
               claimRef: step.stepId,

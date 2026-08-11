@@ -25,6 +25,7 @@
     "@guideforge/domain": "workspace:*",
     "@guideforge/guide-schema": "workspace:*",
     "@guideforge/model-gateway": "workspace:*",
+    "@guideforge/synthesis": "workspace:*",
     "drizzle-orm": "catalog:",
     "fastify": "catalog:",
     "pg": "catalog:",

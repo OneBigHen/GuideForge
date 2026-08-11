@@ -571,7 +571,13 @@ export interface NewProposal {
   confidence: number;
   sourceHash: string | null;
   /** Source regions cited by this proposal. */
-  citations?: { regionId: string; pageIndex: number; excerptHash: string; claimRef: string }[];
+  citations?: {
+    regionId: string;
+    sourceHash?: string;
+    pageIndex: number;
+    excerptHash: string;
+    claimRef: string;
+  }[];
   /** Provider/receipt provenance from the generation run. */
   receipt?: {
     provider: string;

@@ -216,6 +216,19 @@ describe('DeepSeek adapter', () => {
     expect(seen[0]!.auth).toBe('Bearer sk-constructor-key');
   });
 
+  it('verifies the configured model against the official model listing', async () => {
+    const adapter = new DeepSeekAdapter({ apiKey: 'sk-test', model: 'deepseek-v4-flash' });
+    const result = await adapter.verifyModelProfile(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ data: [{ id: 'deepseek-v4-flash', object: 'model' }] }), {
+          status: 200,
+        }),
+      ),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.checkedAtIso).toMatch(/T/);
+  });
+
   it(
     'performs a live extraction when DEEPSEEK_API_KEY is set (skipped otherwise)',
     { timeout: 60_000 },

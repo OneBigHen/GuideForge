@@ -72,14 +72,14 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 ## AI and synthesis
 
-| Requirement                                               | Current source/test evidence                                                  | Status            |
-| --------------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------- |
-| Real DeepSeek Source Studio synthesis                     | Current tests exercise `synthesis-rules-v1` offline rules                     | missing           |
-| Explicit offline fallback                                 | Rules path is named and tested                                                | verified narrowly |
-| Multi-source citations and SHA-256 integrity              | Proposal tests retain citations/receipts; full source package binding absent  | partial           |
-| Deep schema/unit/value gates                              | Current proposal tests reject ungrounded values; complete schema gate remains | partial           |
-| Bounded repair, profiles, cache/cost receipt, hard budget | Receipt path exists; production budget enforcement not proven                 | partial           |
-| AI proposes; owner accepts/signs/masters                  | Proposal tests cover pending/accept path                                      | partial           |
+| Requirement                                               | Current source/test evidence                                                 | Status            |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------- | ----------------- |
+| Real DeepSeek Source Studio synthesis                     | Server `SynthesisGateway` and endpoint are wired; no live key on this host   | unverified        |
+| Explicit offline fallback                                 | `offline-rules` / `synthesis-rules-v1` is separately labeled and tested      | verified narrowly |
+| Multi-source citations and SHA-256 integrity              | Request validation, source-hash citations, and SHA-256 excerpt tests         | verified narrowly |
+| Deep schema/unit/value gates                              | Runtime output schema, citation, numeric/unit grounding, and repair tests    | verified narrowly |
+| Bounded repair, profiles, cache/cost receipt, hard budget | 17 gateway tests cover profiles, cache, receipts, budget refusal, and repair | verified narrowly |
+| AI proposes; owner accepts/signs/masters                  | Proposal tests cover pending/accept path                                     | partial           |
 
 ## Training
 
