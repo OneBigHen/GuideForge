@@ -44,6 +44,13 @@ the helper Postgres container had exited (`exit 255`), and the API tests
 reported `ECONNREFUSED` on 127.0.0.1/::1:15432. After the container was
 restarted and readiness was verified, the complete forced check passed.
 
+The first GitHub PR check was also retained as failed evidence: setup stopped
+before project execution because the repository `.npmrc` forced the hosted
+runner to use the non-writable absolute store path `/root/.cache/pnpm-store`.
+That path setting was removed so pnpm can use the runner's environment-owned
+store; `CI=true pnpm install --frozen-lockfile` then recreated all 930 packages
+locally. The replacement commit is pending a fresh GitHub run.
+
 ## Explicit pack-required probes
 
 - Source materialization is not certified: `materializeSnapshot` currently
@@ -77,8 +84,8 @@ probe is outside the repository at
 
 ## Remaining gate item
 
-Push the certification commit, open or update a PR targeting `main`, and read
-back a passing GitHub combined status for that exact pushed SHA. Until that
-readback exists, Phase 00 is not marked PASS.
+Read back a passing GitHub combined status for the replacement commit on PR
+#1, targeting `main`, at the exact pushed SHA. Until that readback exists,
+Phase 00 is not marked PASS.
 
 **Gate: PENDING — GitHub current-SHA evidence**
