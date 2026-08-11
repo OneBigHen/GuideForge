@@ -4,6 +4,13 @@
 **Date:** 2026-08-05
 **Phase:** 00 (truth baseline)
 
+> Re-audit note (2026-08-11): this ADR records the earlier CI/gate decision,
+> not certification of the current branch. Current evidence is in
+> `docs/progress/PHASE_00_REPORT.md`; the current Playwright projects use
+> Chromium device profiles and the suite is bounded to 2 local workers / 1 CI
+> worker because concurrent WebGL contexts made actionability nondeterministic.
+> The current SHA still requires a GitHub status readback.
+
 ## Context
 
 `CURRENT_REPO_AUDIT.md` and the single-user build pack require that the

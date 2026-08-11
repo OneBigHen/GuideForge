@@ -1,5 +1,12 @@
 # Phase 06 Report — Docling and AI Proposal Pipeline
 
+> Historical note (2026-08-11): this report predates the Production Readiness
+> Pack audit at `abefa7475d52931957721b571df828c364c7e924`. Its claims are
+> retained as historical implementation evidence only, not current phase
+> certification. In particular, the fake/offline provider evidence below does
+> not prove the real Docling or model-provider gate. See the current capability
+> matrix and execution ledger.
+
 ## Outcome
 
 The deterministic document-intake → extraction → review pipeline is

@@ -1,5 +1,10 @@
 # Phase 07 Report — Signed Releases, Microsoft Interop, and Native Desktop
 
+> Historical note (2026-08-11): this report predates the Production Readiness
+> Pack audit at `abefa7475d52931957721b571df828c364c7e924`. Its claims are
+> retained as historical implementation evidence only, not current phase
+> certification. See the current capability matrix and execution ledger.
+
 ## Outcome
 
 Verifiable, deterministic signed releases, safe Microsoft `.guide`

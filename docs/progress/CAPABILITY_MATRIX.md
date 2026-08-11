@@ -1,184 +1,122 @@
-# GuideForge Capability Matrix — Truth Baseline (Phase 00)
+# GuideForge Capability Matrix — Current Production Re-audit
 
-Audited commit: `5d9a1d2962698506f675e8eb3c1e7337ccfd62a7` (current HEAD at branch creation)
-Audit date: 2026-08-05
-Source: source inspection of `apps/`, `packages/`, `services/`, `.github/workflows/ci.yml`
+Audited parent SHA: `abefa7475d52931957721b571df828c364c7e924`
+Audit date: 2026-08-11
+Authority: GuideForge Production Readiness Pack, `ACCEPTANCE_MATRIX.md`
 
-Status legend:
+This replaces the prior baseline matrix. A green unit test or an old phase
+report is not evidence of a production capability. `verified` below means the
+named current-tree check proves that narrow behavior; `partial` means a seam
+or incomplete primary path remains; `missing` means the pack requirement is
+not implemented; `blocked` means external hardware/provider access is needed.
 
-- `verified` — implemented and proven by tests in the current tree
-- `experimental` — implemented, minimal evidence
-- `partial` — implemented but incomplete primary path
-- `blocked` — cannot complete in this environment
-- `missing` — not implemented
+## Phase 00 baseline
 
-## Baseline
+| Requirement                     | Current evidence                                                | Status           |
+| ------------------------------- | --------------------------------------------------------------- | ---------------- |
+| Exact current-tree forced check | `pnpm check --force`: 115/115 after Postgres readiness          | verified locally |
+| Clean frozen install            | 24 workspaces / 930 packages from zero                          | verified locally |
+| Browser E2E                     | 43 passed / 2 expected skips with bounded workers               | verified locally |
+| Postgres integration            | API test file: 17/17 with live `guideforge-pg`                  | verified locally |
+| Package fuzz/drills             | package-gforge: 35/35                                           | verified locally |
+| Supply-chain gates              | audit, licenses, SBOM, secret scan, policy, boundary, dep-check | verified locally |
+| Current SHA GitHub status       | No PR/status existed at audit start                             | pending          |
 
-| Capability                                  |          Implemented | Unit | Integration |         E2E | Real device | Status      | Evidence                                                                              |
-| ------------------------------------------- | -------------------: | ---: | ----------: | ----------: | ----------: | ----------- | ------------------------------------------------------------------------------------- |
-| pnpm/Turborepo monorepo with pinned catalog |                  yes |    — |           — |           — |           — | verified    | pnpm-workspace.yaml catalog pins; turbo.json                                          |
-| Strict TypeScript                           |                  yes |    — |           — |           — |           — | verified    | tsconfig.base.json strict                                                             |
-| CI runs Playwright E2E                      |               **no** |    — |           — | yes (local) |           — | **missing** | `.github/workflows/ci.yml` has no e2e step; `apps/web/package.json` `test:e2e` unused |
-| CI integration services (Postgres)          |               **no** |    — | yes (local) |           — |           — | **missing** | no `services:` in ci.yml; `apps/api/src/index.test.ts` needs Postgres                 |
-| Audit/license/SBOM blocking policy          |               **no** |    — |           — |           — |           — | **missing** | all three steps `\|\| true` in ci.yml:73-80                                           |
-| Secret scanning                             | yes (regex fallback) |    — |           — |           — |           — | partial     | ci.yml:62-71 regex; gitleaks never installed                                          |
-| Capability matrix truthful                  |                    — |    — |           — |           — |           — | partial     | old reports ahead of implementation (audit finding)                                   |
-| Clean frozen install                        |                  yes |    — |           — |           — |           — | verified    | `pnpm install --frozen-lockfile` (Phase 00 re-run)                                    |
+## Single-owner security and control plane
 
-## Single-user security / control plane
+| Requirement                                                   | Current source signal                                                    | Status  |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------ | ------- |
+| Real owner credential with Argon2id/current equivalent        | No companion owner-auth path                                             | missing |
+| Loopback-default companion and secure LAN mode                | `apps/companion` is absent                                               | missing |
+| HTTPS required for non-loopback mode                          | No network owner runtime                                                 | missing |
+| Secure HttpOnly cookie, CSRF/origin, rotation/revoke/recovery | Enterprise-era API path; no complete single-owner session                | missing |
+| Provider and signing secrets protected from browser storage   | Provider path is server-side, but signing/browser legacy findings remain | partial |
+| No primary org/RBAC dependency                                | Current API still contains organization/workspace heritage               | partial |
+| Rate/resource limits and cancellation                         | Some converter timeout/size checks; no complete owner job policy         | partial |
 
-| Capability                                                                      |      Implemented | Unit | Integration | E2E | Status      | Evidence                                                                            |
-| ------------------------------------------------------------------------------- | ---------------: | ---: | ----------: | --: | ----------- | ----------------------------------------------------------------------------------- |
-| No body-supplied roles                                                          |           **no** |    — |           — |   — | **missing** | `apps/api/src/index.ts:88-93` reads `roles` from body                               |
-| Loopback default companion                                                      |           **no** |    — |           — |   — | **missing** | `apps/companion` does not exist                                                     |
-| LAN/network owner auth (Argon2id, session, CSRF, origin allowlist, rate limits) |           **no** |    — |           — |   — | **missing** | JWT cookie session only; no CSRF/origin/rate-limit                                  |
-| Provider keys never in browser                                                  |              yes |    — |           — |   — | verified    | keys server-side; but browser fallback fake exists                                  |
-| Signing key never in localStorage                                               |           **no** |    — |           — |   — | **missing** | `apps/web/src/services/guideStore.ts:495-502` Ed25519 private key in localStorage   |
-| Real SHA-256 content identity                                                   | **no** (partial) |    — |           — |   — | **missing** | FNV-1a padded to 64 hex in api `fnvHex`, ms-guide `hashBytes`, web `aiProposals.ts` |
-| Deep model-output validation                                                    |          partial |    — |           — |   — | partial     | `isExtractionOutput` shallow; zero-citation allowed                                 |
-| Constructor API key used by adapters                                            |           **no** |    — |           — |   — | **missing** | `DeepSeekAdapter.configApiKey()` ignores constructor key (model-gateway:306-310)    |
-| Proposals retain citations + receipt                                            |          partial |    — |           — |   — | partial     | server drops full citations; browser stores without citations/source identity       |
-| Provider/fallback explicit in UI                                                |           **no** |    — |           — |   — | **missing** | silent fallback to FakeModelAdapter                                                 |
-| Rate limits and cancellation                                                    |          partial |    — |           — |   — | partial     | docling timeout exists; no job-level rate limits                                    |
-| Approval content-hash invalidation                                              |           **no** |    — |           — |   — | **missing** | api:190-194 stub, no live Yjs hash                                                  |
-| Audit org IDs deterministic                                                     |           **no** |    — |           — |   — | **missing** | `crypto.randomUUID()` per audit event                                               |
-| Bounded archive extraction (no sync unzip)                                      |           **no** |    — |           — |   — | **missing** | `fflate.unzipSync` sync in guideStore.ts:476, release.ts:166                        |
+## Canonical project and package
 
-## Canonical guide / package
+| Requirement                                           | Current source/test evidence                                                         | Status            |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------ | ----------------- |
+| Canonical source records materialize/hydrate          | `materializeSnapshot` returns `sources: []`; Dexie owns Source Studio records        | missing           |
+| Scene/training/assets canonical round-trip            | `roundtrip.test.ts`: 2/2                                                             | partial           |
+| Multi-source citations round-trip                     | Citations are tested in proposals/roundtrip fixtures, not complete source hydration  | partial           |
+| SHA-256 source-region integrity                       | Storage/package paths use hashes; end-to-end source region binding is incomplete     | partial           |
+| v1/v2/v3 to canonical v4 migration                    | No current complete migration gate                                                   | missing           |
+| Complete `.gforge` package with all referenced assets | Current round-trip covers a local fixture; source/package completeness is not proven | partial           |
+| Signed release binding and restore                    | package-gforge drills: 35/35                                                         | verified narrowly |
 
-| Capability                                | Implemented | Unit | Integration | E2E | Status      | Evidence                                                      |
-| ----------------------------------------- | ----------: | ---: | ----------: | --: | ----------- | ------------------------------------------------------------- |
-| Scene in canonical Yjs/snapshot           |      **no** |    — |           — |   — | **missing** | Dexie `guideforge-scenes` authoritative (sceneStore.ts:26-29) |
-| Training in canonical Yjs/snapshot        |      **no** |    — |           — |   — | **missing** | no training structures anywhere in packages                   |
-| Assets content-addressed (OPFS)           |         yes |  yes |           — |   — | verified    | storage-web OpfsAssetStore SHA-256 keys                       |
-| Package contains all referenced assets    |      **no** |    — |           — |   — | **missing** | `assets: new Map()` passed at export (guideStore.ts:437,508)  |
-| Package deterministic draft               |         yes |  yes |           — |   — | verified    | package-gforge fixed timestamps, sorted entries, level 0      |
-| Signed release with real manifest binding |         yes |  yes |           — |   — | verified    | package-gforge signing.ts + release.ts                        |
-| Another browser imports identical state   |      **no** |    — |           — |   — | **missing** | no full snapshot scene/training import path                   |
-| Semantic round-trip comparison            |      **no** |    — |           — |   — | **missing** | not implemented                                               |
+## Real multimodal ingestion
 
-## Ingestion
+| Requirement                                           | Current source signal                                                          | Status  |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------ | ------- |
+| Digital PDF, scanned PDF/OCR, tables, figures/bboxes  | Deterministic ingestion contracts exist; real provider execution not proven    | partial |
+| DOCX/PPTX/XLSX and image intake                       | MIME/domain seams exist; complete production converters not proven             | partial |
+| Real audio ASR and video timestamps                   | No live provider evidence                                                      | missing |
+| VLM hard-page fallback                                | No live provider evidence                                                      | missing |
+| Quality report, cancellation, partial/revision impact | Cancellation/partial domain tests exist; complete reports/revisions incomplete | partial |
+| Source Studio upload/regions/receipts/conflicts       | `sourceStudio.test.ts`: 9/9 UI/service tests                                   | partial |
 
-| Capability                        | Implemented | Unit | Integration | E2E | Status   | Evidence                                                                   |
-| --------------------------------- | ----------: | ---: | ----------: | --: | -------- | -------------------------------------------------------------------------- |
-| Digital PDF / Docling             |     partial |    — | yes (local) |   — | partial  | apps/worker-documents DoclingConverter (real, verified live); not deployed |
-| Scanned PDF OCR / VLM fallback    |      **no** |    — |           — |   — | missing  | do_ocr=False; no VLM                                                       |
-| Tables / figures / bounding boxes |      **no** |    — |           — |   — | missing  | docling bridge disables table structure                                    |
-| DOCX/PPTX/XLSX                    |      **no** |    — |           — |   — | missing  | not implemented                                                            |
-| Audio/video ASR                   |      **no** |    — |           — |   — | missing  | worker-media empty                                                         |
-| Source studio UI                  |      **no** |    — |           — |   — | missing  | no ingestion UI in web                                                     |
-| Stable region IDs                 |      **no** |    — |           — |   — | missing  | not implemented                                                            |
-| Prompt-injection fixtures         |         yes |  yes |           — |   — | verified | Phase 06 injection tests                                                   |
-| Cancellation/partial results      |     partial |    — |           — |   — | partial  | docling timeout only                                                       |
+## AI and synthesis
 
-## AI
-
-| Capability                          | Implemented | Unit | Integration | E2E | Status  | Evidence                                                      |
-| ----------------------------------- | ----------: | ---: | ----------: | --: | ------- | ------------------------------------------------------------- |
-| Real SHA-256                        |     partial |  yes |           — |   — | partial | package/storage real; api/ms-guide/web padded FNV             |
-| Deep runtime schema validation      |     partial |  yes |           — |   — | partial | shallow guard                                                 |
-| Zero-citation steps rejected        |      **no** |    — |           — |   — | missing | gateway allows zero-citation steps                            |
-| Proposals retain citations/receipts |      **no** |    — |           — |   — | missing | lost server→browser                                           |
-| Provider/fallback visible           |      **no** |    — |           — |   — | missing | silent fake fallback                                          |
-| Bounded repair                      |      **no** |    — |           — |   — | missing | not implemented                                               |
-| Per-job cost limits                 |      **no** |    — |           — |   — | missing | not implemented                                               |
-| Cost profiles (fast-structure etc.) |      **no** |    — |           — |   — | missing | model names scattered                                         |
-| No fake in primary paths            |      **no** |    — |           — |   — | missing | FakeModelAdapter default when no key; `generateFakeProposals` |
-
-## Spatial editor
-
-| Capability                   |              Implemented | Unit | Integration | E2E | Status   | Evidence                                              |
-| ---------------------------- | -----------------------: | ---: | ----------: | --: | -------- | ----------------------------------------------------- |
-| 3D viewport (R3F)            |                      yes |    — |           — | yes | verified | scene-react SceneViewport; e2e scene.spec             |
-| Hierarchy tree + reparent    |                      yes |    — |           — |   — | partial  | buildHierarchy + reparent reducer; no UI for some ops |
-| Multiselect                  |                  partial |    — |           — |   — | partial  | reducer has multiselect; UI incomplete                |
-| Translate/rotate/scale gizmo |                      yes |    — |           — | yes | verified | TransformControls                                     |
-| Numeric controls             |                      yes |    — |           — |   — | verified | inspector position/scale                              |
-| Local/world toggle           |                      yes |    — |           — |   — | verified | scene page                                            |
-| Snapping (all axes)          |                  partial |  yes |           — |   — | partial  | scene-core snap math; UI grid snap                    |
-| Align/distribute             |                  partial |  yes |           — |   — | partial  | Y only (Align(Y)/Distribute(Y))                       |
-| Pivot control                |                   **no** |    — |           — |   — | missing  | —                                                     |
-| Visibility/lock/isolate      |                  partial |    — |           — |   — | partial  | hide/lock in hierarchy; no isolate                    |
-| Layer UI                     |                   **no** |    — |           — |   — | missing  | data model only                                       |
-| Camera bookmarks UI          |                   **no** |    — |           — |   — | missing  | data model + reducer only                             |
-| Step cameras                 |                   **no** |    — |           — |   — | missing  | —                                                     |
-| Measurement UI               |                   **no** |    — |           — |   — | missing  | data model only                                       |
-| Step scene states            |                   **no** |    — |           — |   — | missing  | —                                                     |
-| Annotations                  |                   **no** |    — |           — |   — | missing  | zero matches repo-wide                                |
-| Undo/redo                    | yes (guide) / no (scene) |  yes |           — |   — | partial  | collaboration undo manager; scene none                |
-| Keyboard shortcuts           |                  partial |    — |           — |   — | partial  | gizmo shortcuts; no palette                           |
-| Touch/Pencil controller      |                   **no** |    — |           — |   — | missing  | —                                                     |
-| Demand rendering             |                      yes |    — |           — |   — | verified | frameloop="demand"                                    |
-| Context-loss recovery        |                   **no** |    — |           — |   — | missing  | —                                                     |
-| Scene health                 |                   **no** |    — |           — |   — | missing  | —                                                     |
-| DOM alternative to drag      |                   **no** |    — |           — |   — | missing  | —                                                     |
-
-## Assets / providers
-
-| Capability                                | Implemented | Unit | Integration | E2E | Status   | Evidence                                        |
-| ----------------------------------------- | ----------: | ---: | ----------: | --: | -------- | ----------------------------------------------- |
-| Asset domain/metadata                     |     partial |    — |           — |   — | partial  | storage-web assets tables; scene AssetReference |
-| OPFS content store                        |         yes |  yes |           — |   — | verified | OpfsAssetStore                                  |
-| Local search                              |      **no** |    — |           — |   — | missing  | —                                               |
-| Thumbnails/turntables                     |      **no** |    — |           — |   — | missing  | —                                               |
-| Geometry/material health                  |      **no** |    — |           — |   — | missing  | —                                               |
-| License policy engine                     |      **no** |    — |           — |   — | missing  | not implemented                                 |
-| GLB import UI                             |      **no** |    — |           — |   — | missing  | asset resolver always empty map                 |
-| GLTF/OBJ/STL/STEP                         |      **no** |    — |           — |   — | missing  | —                                               |
-| Procedural scientific templates           |      **no** |    — |           — |   — | missing  | —                                               |
-| Provider adapters (Poly Haven, NIH, etc.) |      **no** |    — |           — |   — | missing  | —                                               |
-| Package attribution report                |      **no** |    — |           — |   — | missing  | —                                               |
+| Requirement                                               | Current source/test evidence                                                  | Status            |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------- |
+| Real DeepSeek Source Studio synthesis                     | Current tests exercise `synthesis-rules-v1` offline rules                     | missing           |
+| Explicit offline fallback                                 | Rules path is named and tested                                                | verified narrowly |
+| Multi-source citations and SHA-256 integrity              | Proposal tests retain citations/receipts; full source package binding absent  | partial           |
+| Deep schema/unit/value gates                              | Current proposal tests reject ungrounded values; complete schema gate remains | partial           |
+| Bounded repair, profiles, cache/cost receipt, hard budget | Receipt path exists; production budget enforcement not proven                 | partial           |
+| AI proposes; owner accepts/signs/masters                  | Proposal tests cover pending/accept path                                      | partial           |
 
 ## Training
 
-| Capability                         | Implemented | Unit | Integration | E2E | Status  | Evidence                               |
-| ---------------------------------- | ----------: | ---: | ----------: | --: | ------- | -------------------------------------- |
-| Objectives/competencies/modules    |      **no** |    — |           — |   — | missing | no training structures                 |
-| Assessments + rationales           |      **no** |    — |           — |   — | missing | —                                      |
-| Mastery policy                     |      **no** |    — |           — |   — | missing | —                                      |
-| Remediation                        |      **no** |    — |           — |   — | missing | —                                      |
-| Player (learn/practice/assessment) |      **no** |    — |           — |   — | missing | run player only (no scoring)           |
-| Attempt ledger/evidence            |     partial |    — |           — |   — | partial | evidence table + run page demo capture |
-| xAPI/QTI export                    |      **no** |    — |           — |   — | missing | —                                      |
+| Requirement                                                | Current source signal                       | Status  |
+| ---------------------------------------------------------- | ------------------------------------------- | ------- |
+| Competencies/objectives/lessons/activities/blueprint/items | Basic objective/assessment structures exist | partial |
+| Deterministic mastery/remediation                          | No complete runtime gate                    | missing |
+| Training studio/player/offline attempts                    | No complete studio/player evidence          | missing |
+| QTI 3 and xAPI-aligned export                              | No current production export gate           | missing |
 
-## Photo-to-3D / spatial intelligence
+## Execution and evidence
 
-| Capability                      | Implemented | Unit | Integration | E2E | Status  | Evidence |
-| ------------------------------- | ----------: | ---: | ----------: | --: | ------- | -------- |
-| Photo capture wizard            |      **no** |    — |           — |   — | missing | —        |
-| EXIF removal                    |      **no** |    — |           — |   — | missing | —        |
-| Hunyuan/TripoSR adapters        |      **no** |    — |           — |   — | missing | —        |
-| Blender cleanup                 |      **no** |    — |           — |   — | missing | —        |
-| Semantic anchors                |      **no** |    — |           — |   — | missing | —        |
-| Arrows/labels/callouts          |      **no** |    — |           — |   — | missing | —        |
-| Deterministic constraint solver |      **no** |    — |           — |   — | missing | —        |
-| Camera director                 |      **no** |    — |           — |   — | missing | —        |
+| Requirement                               | Current source/test evidence                    | Status            |
+| ----------------------------------------- | ----------------------------------------------- | ----------------- |
+| Procedure player renders authored steps   | Vertical-slice E2E passes                       | verified narrowly |
+| Real step completion state                | Progress currently equals evidence-row count    | missing           |
+| Real photo/signature/measurement evidence | Photo/sign buttons are explicitly demo behavior | missing           |
+| 3D step state, resume, offline report     | No complete runtime evidence                    | missing           |
 
-## Devices / PWA
+## Assets and 3D
 
-| Capability                    |  Implemented | Unit | Integration | E2E | Status       | Evidence                       |
-| ----------------------------- | -----------: | ---: | ----------: | --: | ------------ | ------------------------------ |
-| PWA offline shell             |          yes |    — |           — | yes | verified     | workbox precache; offline.spec |
-| Service-worker update flow    |          yes |    — |           — | yes | verified     | sw.ts + update banner          |
-| Desktop browser full creation |      partial |    — |           — | yes | verified     | editor + release e2e           |
-| iPad emulation E2E            |          yes |    — |           — | yes | —            | playwright ipad project        |
-| iPhone emulation E2E          |          yes |    — |           — | yes | —            | playwright iphone project      |
-| Real-device runbook           |       **no** |    — |           — |   — | blocked      | no physical device in sandbox  |
-| Tauri wrapper thin            |          yes |    — |           — |   — | verified     | desktop src-tauri              |
-| xr-web viewer                 | experimental |    — |           — |   — | experimental | separate app, not linked       |
+| Requirement                                          | Current source/test evidence                                         | Status            |
+| ---------------------------------------------------- | -------------------------------------------------------------------- | ----------------- |
+| Blank/unknown/GPL license fails closed               | Asset license tests pass                                             | verified narrowly |
+| Asset manager/previews/health/providers/STEP-OBJ-STL | Local procedural/GLB path exists; provider/converter path incomplete | partial           |
+| Local photo-to-3D GPU wizard                         | No production local GPU path                                         | missing           |
+| Hunyuan/license gate/Blender/scale/provenance        | No complete live evidence                                            | missing           |
 
-## Summary of verified gaps requiring repair before major AI features
+## Spatial intelligence
 
-1. No body-supplied roles → remove organization/roles from primary session path (Phase 01)
-2. Real SHA-256 everywhere content hash claimed (api, ms-guide, web aiProposals)
-3. Constructor-provided API keys actually used by adapters
-4. Deep runtime validation + zero-citation rejection
-5. Proposals retain source hash, citations, confidence, receipt
-6. No silent fallback real→fake; provider status explicit in UI
-7. No random org IDs in audit; approval content-hash invalidation implemented
-8. No signing keys in localStorage
-9. No empty asset maps in export; scene not authoritative in separate Dexie
-10. No unbounded synchronous unzip
-11. CI runs Playwright + integration services; audit/license/SBOM blocking
-12. Draft export button produces actual download
-13. Truthful capability claims
+| Requirement                                | Current source/test evidence                                   | Status  |
+| ------------------------------------------ | -------------------------------------------------------------- | ------- |
+| Durable surface anchors                    | No canonical anchor persistence path                           | missing |
+| Arrows/callouts/measurements/step-state UI | Basic scene annotations exist; durable semantic runtime absent | partial |
+| Semantic AI spatial compiler               | No complete planner/compiler/critic gate                       | missing |
+| Deterministic transforms and cameras       | Scene-core/editor tests cover local transforms/cameras         | partial |
+
+## Devices, storage, release, reliability
+
+| Requirement                                   | Current source/test evidence                                                  | Status  |
+| --------------------------------------------- | ----------------------------------------------------------------------------- | ------- |
+| Real iPad/iPhone/Pencil/camera/PWA tests      | Browser emulation only; real device unavailable here                          | blocked |
+| Persistence/quota/backup/restore              | Local storage/package drills exist; durable backup/restore service incomplete | partial |
+| PWA production deploy                         | Local service worker build exists; production deploy not proven               | partial |
+| Tauri artifacts/signing/upgrade/rollback      | Desktop package builds; release operations not fully proven                   | partial |
+| Golden micropipette/pump/filter certification | No current golden run                                                         | missing |
+
+## Phase certification
+
+No Phase 01–17 is certified by this matrix. The prior reports remain useful as
+implementation history only and are marked as such in their files. Each phase
+must replace its rows with current implementation, provider, package, device,
+and release evidence before its ledger status changes to `verified`.

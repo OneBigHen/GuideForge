@@ -1,5 +1,10 @@
 # Phase 01 Report — Single-User Architecture and Correctness Repairs
 
+> Historical note (2026-08-11): this report predates the Production Readiness
+> Pack audit at `abefa7475d52931957721b571df828c364c7e924`. Its claims are
+> retained as historical implementation evidence only, not current phase
+> certification. See the current capability matrix and execution ledger.
+
 ## Outcome
 
 The enterprise-shaped control plane is now an honest single-owner companion:

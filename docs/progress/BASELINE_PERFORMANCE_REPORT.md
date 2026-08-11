@@ -1,5 +1,10 @@
 # Baseline Bundle and Performance Report — Phase 00
 
+> Re-audit note (2026-08-11): the measurements below are retained as the
+> 2026-08-05 historical baseline. The current browser result is 43 passed / 2
+> expected skips with Playwright workers capped at 2 locally and 1 in CI; old
+> numbers do not certify the current SHA.
+
 Audited commit: `5d9a1d29` (baseline) on branch `feat/single-user-ai-studio`
 Date: 2026-08-05
 Method: production build (`vite build`) + Playwright e2e timing + bundle inspection
