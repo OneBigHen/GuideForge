@@ -57,7 +57,9 @@ Turbo API run against the local Postgres service passed 17/17. A fresh GitHub
 run then passed all preceding stages but gitleaks received a 403 while reading
 the pull request because the workflow granted only `contents: read`; its regex
 fallback passed. The workflow now grants `pull-requests: read`, and another
-fresh run is pending.
+fresh run then reached gitleaks, which could not resolve the PR base commit
+from the shallow checkout. The check job now fetches full history for that
+scan, and another fresh run is pending.
 
 ## Explicit pack-required probes
 
