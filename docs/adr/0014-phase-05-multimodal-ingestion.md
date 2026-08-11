@@ -36,9 +36,11 @@ producing stable regions.
 4. **Source metadata in Dexie**: `packages/storage-web` adds a `sources`
    table (`SourceRecord`) at schema `version(4)` holding regions, tables,
    media segments, receipt, and conflict metadata keyed by guideId + sha256.
-5. **Audio/video route explicitly**: media becomes an `asr-pending`
-   `MediaSegment` with a stable `segmentId`; transcription is a provider
-   follow-up and the UI shows the pending status truthfully.
+5. **Audio/video route explicitly**: the original implementation represented
+   media as an `asr-pending` `MediaSegment` while transcription was a provider
+   follow-up. That placeholder behavior is retained here only as historical
+   context; the current Phase 04 implementation fails closed until the real
+   Whisper/ffmpeg adapter can produce citable speech evidence.
 6. **Prompt-injection isolation is a domain invariant**: source text is
    flagged as untrusted before it can reach any model prompt; ingestion never
    mutates a guide directly — it only produces reviewable source artifacts.
@@ -59,3 +61,12 @@ producing stable regions.
 - Follow-ups (unchanged by this ADR): real Docling/VLM/ASR providers and
   external asset provider adapters remain `planned` until network/native
   runtimes are available.
+
+## Amendment — 2026-08-11
+
+The Production Readiness Pack Phase 04 supersedes the provider follow-up
+language above. Real Docling, VLM, and Whisper/ffmpeg adapters now exist in
+`apps/worker-documents`; the old media placeholder is retired. The adapters
+fail closed when their runtime is absent, and the current host has not yet
+provided live golden-corpus evidence. Historical Phase 05 test/report claims
+are not certification evidence for those providers.

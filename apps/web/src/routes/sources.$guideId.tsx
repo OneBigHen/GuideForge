@@ -43,6 +43,7 @@ function SourcesPage() {
   const [progress, setProgress] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [selectedHash, setSelectedHash] = useState<string | null>(null);
+  const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
   const [synthesis, setSynthesis] = useState<SynthesisRunResult | null>(null);
   const [synthesizing, setSynthesizing] = useState(false);
   const tokenRef = useRef<CancellationToken | null>(null);
@@ -84,6 +85,9 @@ function SourcesPage() {
         if (!res.verdict.accepted) {
           setError(`Rejected ${file.name}: ${res.verdict.reason}`);
           continue;
+        }
+        if (res.source.status === 'failed') {
+          setError(`${file.name}: ${res.source.receipt?.error ?? 'provider required'}`);
         }
       }
       await refresh();
@@ -221,6 +225,7 @@ function SourcesPage() {
                     onClick={() => {
                       toggle(s.sourceId);
                       setSelectedHash(s.sha256);
+                      setSelectedRegionId(null);
                     }}
                     aria-expanded={expanded[s.sourceId] ?? false}
                   >
@@ -253,10 +258,20 @@ function SourcesPage() {
                     <ol className="region-list">
                       {s.regions.map((r) => (
                         <li key={r.regionId} className="region-row">
-                          <code>{r.regionId}</code>
-                          <span className="region-page">p{r.pageIndex + 1}</span>
-                          <span className="region-kind">{r.kind}</span>
-                          <span className="region-excerpt">{r.excerpt}</span>
+                          <button
+                            type="button"
+                            className="region-row__button"
+                            onClick={() => {
+                              setSelectedHash(s.sha256);
+                              setSelectedRegionId(r.regionId);
+                            }}
+                            aria-current={selectedRegionId === r.regionId ? 'location' : undefined}
+                          >
+                            <code>{r.regionId}</code>
+                            <span className="region-page">{formatRegionLocator(r)}</span>
+                            <span className="region-kind">{r.kind}</span>
+                            <span className="region-excerpt">{r.excerpt}</span>
+                          </button>
                         </li>
                       ))}
                       {s.regions.length === 0 && (
@@ -326,6 +341,32 @@ function SourcesPage() {
                           <dd>{s.receipt.mediaSegmentCount}</dd>
                           <dt>Notes</dt>
                           <dd>{s.receipt.notes.join(', ') || '—'}</dd>
+                          {s.receipt.error && (
+                            <>
+                              <dt>Error</dt>
+                              <dd className="error-text">{s.receipt.error}</dd>
+                            </>
+                          )}
+                          {s.receipt.qualityReport && (
+                            <>
+                              <dt>Quality</dt>
+                              <dd>
+                                {typeof s.receipt.qualityReport.score === 'number'
+                                  ? `${Math.round(s.receipt.qualityReport.score * 100)}%`
+                                  : 'reported'}
+                              </dd>
+                            </>
+                          )}
+                          {s.receipt.providers && s.receipt.providers.length > 0 && (
+                            <>
+                              <dt>Providers</dt>
+                              <dd>
+                                {s.receipt.providers
+                                  .map((provider) => `${provider.provider}:${provider.status}`)
+                                  .join(', ')}
+                              </dd>
+                            </>
+                          )}
                         </dl>
                       </>
                     )}
@@ -337,12 +378,24 @@ function SourcesPage() {
         )}
       </section>
 
-      {active && <SourceDetailPreview key={active.sha256} source={active} />}
+      {active && (
+        <SourceDetailPreview
+          key={active.sha256}
+          source={active}
+          region={active.regions.find((r) => r.regionId === selectedRegionId) ?? null}
+        />
+      )}
     </main>
   );
 }
 
-function SourceDetailPreview({ source }: { source: SourceRecord }) {
+function SourceDetailPreview({
+  source,
+  region,
+}: {
+  source: SourceRecord;
+  region: SourceRecord['regions'][number] | null;
+}) {
   const [preview, setPreview] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
@@ -373,6 +426,15 @@ function SourceDetailPreview({ source }: { source: SourceRecord }) {
       <p className="empty-hint">
         sha256: <code>{source.sha256}</code>
       </p>
+      {region && (
+        <aside className="source-citation" aria-label="Selected citation">
+          <h3>Selected citation</h3>
+          <p>
+            <code>{region.regionId}</code> · {formatRegionLocator(region)} · {region.kind}
+          </p>
+          <blockquote>{region.excerpt}</blockquote>
+        </aside>
+      )}
       {previewError && (
         <p role="alert" className="error-text">
           {previewError}
@@ -384,4 +446,13 @@ function SourceDetailPreview({ source }: { source: SourceRecord }) {
       )}
     </section>
   );
+}
+
+function formatRegionLocator(region: SourceRecord['regions'][number]): string {
+  const locator = region.locator;
+  if (!locator) return `p${region.pageIndex + 1}`;
+  if (locator.kind === 'page') return `p${locator.pageIndex + 1}`;
+  if (locator.kind === 'slide') return `slide ${locator.slideIndex + 1}`;
+  if (locator.kind === 'sheet') return `${locator.sheet} ${locator.range}`;
+  return `${(locator.startMs / 1000).toFixed(1)}–${(locator.endMs / 1000).toFixed(1)}s`;
 }

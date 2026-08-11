@@ -1120,6 +1120,32 @@ body {
   color: var(--accent, #4f46e5);
 }
 
+.region-row__button {
+  display: grid;
+  grid-template-columns: auto auto auto 1fr;
+  gap: var(--space-2);
+  align-items: baseline;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.region-row__button[aria-current='location'] {
+  outline: 2px solid var(--accent, #4f46e5);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.region-row__button:focus-visible {
+  outline: 2px solid var(--accent, #4f46e5);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 .region-page,
 .region-kind {
   font-size: 0.7rem;

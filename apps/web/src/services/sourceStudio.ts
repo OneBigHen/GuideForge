@@ -17,9 +17,9 @@ import {
   detectConflicts,
   detectFormat,
   makeReceipt,
+  scoreConversionQuality,
   type CancellationToken,
   type ConvertedSource,
-  type MediaSegment,
   type SourceConflict,
   type TableRegion,
 } from '@guideforge/ingestion';
@@ -166,7 +166,93 @@ export async function addSource(
   await studio.assets.put(input.bytes, format.mimeType, format.extension);
 
   const startedAtIso = new Date().toISOString();
-  const isText = format.kind === 'text' || format.kind === 'csv' || format.kind === 'html';
+  const isText = format.kind === 'text';
+  if (!isText) {
+    const reason =
+      'This browser-local path cannot run the required Docling/OCR/ASR provider. Configure the companion worker to ingest this source.';
+    const ocrRoute = decideOcrRoute({
+      kind: format.kind,
+      hasTextLayer: false,
+      charsPerPage: 0,
+      pageCount: 1,
+    });
+    const qualityReport = scoreConversionQuality({
+      pages: 0,
+      regionCount: 0,
+      tableCount: 0,
+      figureCount: 0,
+      mediaSegmentCount: 0,
+      hasTextLayer: false,
+      route: ocrRoute,
+      providerErrors: [reason],
+    });
+    const finishedAtIso = new Date().toISOString();
+    const receipt = makeReceipt({
+      sourceHash: sha256,
+      converter: 'companion-required',
+      converterVersion: '0',
+      pipelineVersion: '1',
+      status: 'failed',
+      startedAtIso,
+      finishedAtIso,
+      pages: 0,
+      regionCount: 0,
+      notes: [`ocr-route:${ocrRoute}`, reason],
+      qualityReport,
+      providers: [
+        {
+          provider: 'companion-ingestion',
+          version: 'not-configured',
+          status: 'unavailable',
+          checkedAtIso: finishedAtIso,
+          error: reason,
+        },
+      ],
+      error: reason,
+    });
+    const record: SourceRecord = {
+      sourceId: uuidv4(),
+      guideId: input.guideId,
+      originalFilename: input.originalFilename,
+      detectedType: format.mimeType,
+      kind: format.kind,
+      sha256,
+      sizeBytes,
+      pageCount: 0,
+      receivedAtIso: startedAtIso,
+      ocrRoute,
+      status: 'failed',
+      receipt: {
+        receiptId: receipt.receiptId,
+        converter: receipt.converter,
+        converterVersion: receipt.converterVersion,
+        pipelineVersion: receipt.pipelineVersion,
+        durationMs: receipt.durationMs,
+        regionCount: receipt.regionCount,
+        tableCount: receipt.tableCount,
+        figureCount: receipt.figureCount,
+        mediaSegmentCount: receipt.mediaSegmentCount,
+        notes: receipt.notes,
+        status: receipt.status,
+        qualityReport,
+        ...(receipt.providers ? { providers: receipt.providers } : {}),
+        error: reason,
+      },
+      regions: [],
+      conflicts: [],
+      tables: [],
+      mediaSegments: [],
+    };
+    await studio.db.sources.put(record);
+    return {
+      sourceId: record.sourceId,
+      source: record,
+      verdict,
+      conflicts: [],
+      receipt: record.receipt,
+      ocrRoute,
+    };
+  }
   const textParse = isText ? parseTextSource(input.bytes) : null;
 
   const converted: ConvertedSource = {
@@ -181,26 +267,11 @@ export async function addSource(
         : []),
     tables: [],
     figures: [],
-    mediaSegments:
-      format.kind === 'audio' || format.kind === 'video'
-        ? ([
-            {
-              segmentId: `media-${sha256.slice(0, 10)}`,
-              sourceHash: sha256,
-              startSec: 0,
-              endSec: 0,
-              kind: 'scene',
-            },
-          ] as MediaSegment[])
-        : [],
+    mediaSegments: [],
     charsPerPage: textParse ? estimateCharsPerPage(textParse.blocks) : 0,
     hasTextLayer: (textParse?.blocks.length ?? 0) > 0,
-    converter: isText
-      ? 'text-source'
-      : format.kind === 'pdf' || format.kind === 'docx'
-        ? 'docling'
-        : 'asr-pending',
-    converterVersion: isText ? '1' : '0',
+    converter: 'text-source',
+    converterVersion: '1',
   };
 
   const built = buildRegions(converted, '1', input.token);
@@ -229,7 +300,19 @@ export async function addSource(
       : [];
 
   const finishedAtIso = new Date().toISOString();
-  const status = built.partial ? 'partial' : 'complete';
+  const qualityReport = scoreConversionQuality({
+    pages: converted.pages.length,
+    regionCount: built.regions.length,
+    tableCount: built.tables.length,
+    figureCount: built.figures.length,
+    mediaSegmentCount: built.mediaSegments.length,
+    hasTextLayer: converted.hasTextLayer,
+    route: ocrRoute,
+  });
+  const qualityFailed =
+    qualityReport.errors.length > 0 ||
+    qualityReport.checks.some((check) => check.status === 'fail');
+  const status = built.partial ? 'partial' : qualityFailed ? 'failed' : 'complete';
   const receipt = makeReceipt({
     sourceHash: sha256,
     converter: converted.converter,
@@ -247,6 +330,13 @@ export async function addSource(
       `ocr-route:${ocrRoute}`,
       ...(conflicts.length > 0 ? [`conflicts:${conflicts.length}`] : []),
     ],
+    qualityReport,
+    ...(qualityFailed
+      ? {
+          error:
+            qualityReport.errors.join('; ') || 'conversion quality below required citable coverage',
+        }
+      : {}),
   });
 
   const record: SourceRecord = {
@@ -260,7 +350,7 @@ export async function addSource(
     pageCount: Math.max(1, converted.pages.length),
     receivedAtIso: startedAtIso,
     ocrRoute,
-    status: format.kind === 'audio' || format.kind === 'video' ? 'asr-pending' : status,
+    status,
     receipt: {
       receiptId: receipt.receiptId,
       converter: receipt.converter,
@@ -273,6 +363,9 @@ export async function addSource(
       mediaSegmentCount: receipt.mediaSegmentCount,
       notes: receipt.notes,
       status: receipt.status,
+      qualityReport,
+      ...(receipt.providers ? { providers: receipt.providers } : {}),
+      ...(receipt.error ? { error: receipt.error } : {}),
     },
     regions: built.regions.map((c) => ({
       regionId: c.region.regionId,
@@ -280,6 +373,7 @@ export async function addSource(
       kind: c.region.kind,
       excerpt: c.region.excerpt,
       structuralPath: c.region.structuralPath,
+      ...(c.region.locator ? { locator: c.region.locator } : {}),
     })),
     conflicts,
     tables: built.tables.map((t: TableRegion) => ({

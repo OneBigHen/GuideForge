@@ -13,6 +13,7 @@ import type {
   EntityId,
   GuideLifecycleState,
   SourceKind,
+  SourceLocator,
 } from '@guideforge/domain';
 
 export const GUIDE_SCHEMA_VERSION = 4;
@@ -311,6 +312,21 @@ export interface LegacySourceRecord {
     mediaSegmentCount: number;
     notes: string[];
     status: string;
+    qualityReport?: {
+      score: number;
+      checks: { name: string; status: string; score: number; details: string }[];
+      warnings: string[];
+      errors: string[];
+    };
+    providers?: {
+      provider: string;
+      version: string;
+      status: string;
+      checkedAtIso: string;
+      details?: Record<string, string | number | boolean>;
+      error?: string;
+    }[];
+    error?: string;
   } | null;
   regions: {
     regionId: string;
@@ -318,6 +334,7 @@ export interface LegacySourceRecord {
     kind: string;
     excerpt: string;
     structuralPath: string;
+    locator?: SourceLocator;
   }[];
   conflicts: { kind: string; canonicalHash: string; otherHash: string; similarity: number }[];
   tables: { regionId: string; pageIndex: number; header: string[]; rows: string[][] }[];

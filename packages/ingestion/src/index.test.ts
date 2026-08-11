@@ -3,6 +3,7 @@ import fc from 'fast-check';
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
+  analyzeRevisionImpact,
   buildRegions,
   createCancellationToken,
   decideOcrRoute,
@@ -11,6 +12,8 @@ import {
   extensionOf,
   isolateSourceText,
   makeReceipt,
+  runIngestionJob,
+  scoreConversionQuality,
   segmentId,
   serializeTable,
   tableRegionId,
@@ -145,6 +148,44 @@ describe('conversion receipts', () => {
     });
     expect(r.durationMs).toBe(0);
   });
+
+  it('records quality and provider evidence without hiding failures', () => {
+    const quality = scoreConversionQuality({
+      pages: 2,
+      regionCount: 4,
+      tableCount: 1,
+      figureCount: 0,
+      mediaSegmentCount: 0,
+      hasTextLayer: false,
+      route: 'ocr',
+      providerErrors: ['ocr unavailable'],
+    });
+    const r = makeReceipt({
+      sourceHash: HASH,
+      converter: 'docling',
+      converterVersion: '2.118.0',
+      pipelineVersion: '1',
+      status: 'failed',
+      startedAtIso: '2026-01-01T00:00:00.000Z',
+      finishedAtIso: '2026-01-01T00:00:01.000Z',
+      pages: 2,
+      regionCount: 4,
+      qualityReport: quality,
+      providers: [
+        {
+          provider: 'ocr',
+          version: 'missing',
+          status: 'unavailable',
+          checkedAtIso: '2026-01-01T00:00:00.000Z',
+          error: 'ocr unavailable',
+        },
+      ],
+      error: 'ocr unavailable',
+    });
+    expect(r.qualityReport?.score).toBeLessThan(1);
+    expect(r.providers?.[0]?.status).toBe('unavailable');
+    expect(r.error).toBe('ocr unavailable');
+  });
 });
 
 describe('table and segment regions', () => {
@@ -180,6 +221,19 @@ describe('canonical source mapping', () => {
     expect(region.text).toBe('Disconnect power first.');
     expect(region.contentHash).toHaveLength(64);
     expect(region.confidence).toBe(1);
+  });
+
+  it('preserves provider locators in canonical provenance', () => {
+    const region = toCanonicalSourceRegion({
+      regionId: 'region-2',
+      sourceHash: HASH,
+      pageIndex: 1,
+      structuralPath: 'table:1',
+      excerpt: 'A, B',
+      kind: 'table-row',
+      locator: { kind: 'page', pageIndex: 1, bbox: [1, 2, 3, 4] },
+    });
+    expect(region.locator).toEqual({ kind: 'page', pageIndex: 1, bbox: [1, 2, 3, 4] });
   });
 });
 
@@ -307,5 +361,56 @@ describe('buildRegions + cancellation', () => {
         );
       }),
     );
+  });
+});
+
+describe('ingestion jobs and revision impact', () => {
+  it('retries failed attempts and reports progress', async () => {
+    let calls = 0;
+    const progress: string[] = [];
+    const result = await runIngestionJob(
+      (attempt, report) => {
+        calls++;
+        report({ phase: 'convert', completed: attempt, total: 2 });
+        if (attempt === 1) throw new Error('provider warming');
+        return Promise.resolve('ok');
+      },
+      { maxAttempts: 2, onProgress: (event) => progress.push(event.phase) },
+    );
+    expect(result).toEqual({ status: 'complete', attempts: 2, value: 'ok' });
+    expect(calls).toBe(2);
+    expect(progress).toContain('retry');
+  });
+
+  it('cancels without retrying or claiming completion', async () => {
+    const { token, cancel } = createCancellationToken();
+    const result = await runIngestionJob(
+      () => {
+        cancel('user stopped');
+        return Promise.reject(new Error('interrupted'));
+      },
+      { token, maxAttempts: 3 },
+    );
+    expect(result.status).toBe('cancelled');
+    expect(result.attempts).toBe(1);
+  });
+
+  it('identifies cited regions invalidated by a source revision', () => {
+    const impact = analyzeRevisionImpact(
+      [
+        { regionId: 'a', sourceHash: HASH, contentHash: HASH },
+        { regionId: 'b', sourceHash: HASH, contentHash: HASH_B },
+      ],
+      [
+        { regionId: 'a', sourceHash: HASH, contentHash: HASH_B },
+        { regionId: 'c', sourceHash: HASH, contentHash: HASH },
+      ],
+      ['a', 'b'],
+    );
+    expect(impact.changedRegionIds).toEqual(['a']);
+    expect(impact.removedRegionIds).toEqual(['b']);
+    expect(impact.addedRegionIds).toEqual(['c']);
+    expect(impact.citedChangedRegionIds).toEqual(['a', 'b']);
+    expect(impact.requiresReview).toBe(true);
   });
 });

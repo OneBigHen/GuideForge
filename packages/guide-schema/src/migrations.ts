@@ -111,7 +111,7 @@ export function migrateLegacySourceRecord(input: LegacySourceRecord): GuideSourc
     add({
       regionId: region.regionId,
       sourceHash,
-      locator: { kind: 'page', pageIndex: region.pageIndex },
+      locator: region.locator ?? { kind: 'page', pageIndex: region.pageIndex },
       structuralPath: region.structuralPath,
       type: region.kind,
       text: region.excerpt,

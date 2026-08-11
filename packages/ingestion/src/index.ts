@@ -25,6 +25,7 @@ import {
   type CanonicalSourceRegion,
   type ContentHash,
   type SourceKind,
+  type SourceLocator,
 } from '@guideforge/domain';
 export type {
   CanonicalSource,
@@ -38,7 +39,7 @@ export function toCanonicalSourceRegion(region: SourceRegion): CanonicalSourceRe
   return {
     regionId: region.regionId,
     sourceHash: region.sourceHash,
-    locator: { kind: 'page', pageIndex: region.pageIndex },
+    locator: region.locator ?? { kind: 'page', pageIndex: region.pageIndex },
     structuralPath: region.structuralPath,
     type: region.kind,
     text: region.excerpt,
@@ -346,6 +347,29 @@ export function decideOcrRoute(input: OcrRouteInput): OcrRoute {
 export type ConversionStatus =
   'queued' | 'running' | 'complete' | 'partial' | 'cancelled' | 'failed';
 
+export interface ProviderReceipt {
+  provider: string;
+  version: string;
+  status: 'used' | 'healthy' | 'unavailable' | 'failed';
+  checkedAtIso: string;
+  details?: Record<string, string | number | boolean>;
+  error?: string;
+}
+
+export interface ConversionQualityCheck {
+  name: string;
+  status: 'pass' | 'warn' | 'fail';
+  score: number;
+  details: string;
+}
+
+export interface ConversionQualityReport {
+  score: number;
+  checks: ConversionQualityCheck[];
+  warnings: string[];
+  errors: string[];
+}
+
 export interface ConversionReceipt {
   receiptId: string;
   sourceHash: ContentHash;
@@ -362,6 +386,9 @@ export interface ConversionReceipt {
   figureCount: number;
   mediaSegmentCount: number;
   notes: string[];
+  qualityReport?: ConversionQualityReport;
+  providers?: ProviderReceipt[];
+  error?: string;
 }
 
 export function makeReceipt(args: {
@@ -378,6 +405,9 @@ export function makeReceipt(args: {
   figureCount?: number;
   mediaSegmentCount?: number;
   notes?: string[];
+  qualityReport?: ConversionQualityReport;
+  providers?: ProviderReceipt[];
+  error?: string;
 }): ConversionReceipt {
   const started = Date.parse(args.startedAtIso);
   const finished = Date.parse(args.finishedAtIso);
@@ -402,7 +432,65 @@ export function makeReceipt(args: {
     figureCount: args.figureCount ?? 0,
     mediaSegmentCount: args.mediaSegmentCount ?? 0,
     notes: args.notes ?? [],
+    ...(args.qualityReport ? { qualityReport: args.qualityReport } : {}),
+    ...(args.providers ? { providers: args.providers } : {}),
+    ...(args.error ? { error: args.error } : {}),
   };
+}
+
+export interface ConversionQualityInput {
+  pages: number;
+  regionCount: number;
+  tableCount: number;
+  figureCount: number;
+  mediaSegmentCount: number;
+  hasTextLayer: boolean;
+  route: OcrRoute;
+  providerErrors?: string[];
+}
+
+/** Score observable conversion coverage; never turns a provider failure into a pass. */
+export function scoreConversionQuality(input: ConversionQualityInput): ConversionQualityReport {
+  const checks: ConversionQualityCheck[] = [];
+  const warnings: string[] = [];
+  const errors = [...(input.providerErrors ?? [])];
+  const pages = Math.max(1, input.pages);
+  const hasRegions =
+    input.regionCount > 0 ||
+    input.tableCount > 0 ||
+    input.figureCount > 0 ||
+    input.mediaSegmentCount > 0;
+  checks.push({
+    name: 'coverage',
+    status: hasRegions ? 'pass' : 'fail',
+    score: hasRegions ? 1 : 0,
+    details: hasRegions ? `${input.regionCount} citable regions` : 'no citable output',
+  });
+  const density = input.regionCount / pages;
+  checks.push({
+    name: 'page-coverage',
+    status: density >= 1 || input.mediaSegmentCount > 0 ? 'pass' : 'warn',
+    score: Math.min(1, density),
+    details: `${input.regionCount} regions across ${pages} pages`,
+  });
+  if (input.route !== 'text-layer' && !input.hasTextLayer) {
+    warnings.push(`route:${input.route}`);
+  }
+  if (errors.length > 0) {
+    checks.push({ name: 'provider-health', status: 'fail', score: 0, details: errors.join('; ') });
+  } else {
+    checks.push({
+      name: 'provider-health',
+      status: 'pass',
+      score: 1,
+      details: 'no provider errors',
+    });
+  }
+  const score =
+    Math.round(
+      (checks.reduce((sum, check) => sum + check.score, 0) / Math.max(1, checks.length)) * 100,
+    ) / 100;
+  return { score, checks, warnings, errors };
 }
 
 // ---------------------------------------------------------------------------
@@ -639,6 +727,7 @@ export interface ConvertedPage {
     kind: SourceRegion['kind'];
     text: string;
     structuralPath: string;
+    locator?: SourceLocator;
   }[];
   bbox?: BoundingBox;
 }
@@ -655,6 +744,9 @@ export interface ConvertedSource {
   hasTextLayer: boolean;
   converter: string;
   converterVersion: string;
+  qualityReport?: ConversionQualityReport;
+  providers?: ProviderReceipt[];
+  error?: string;
 }
 
 /**
@@ -709,6 +801,7 @@ export function buildRegions(
         structuralPath: block.structuralPath,
         excerpt: block.text,
         kind: block.kind,
+        ...(block.locator ? { locator: block.locator } : {}),
       };
       regions.push({ region, tokenEstimate: estimateTokens(block.text) });
     }
@@ -729,4 +822,102 @@ export function buildRegions(
   mediaSegments.push(...converted.mediaSegments);
 
   return { regions, tables, figures, mediaSegments, partial: false, cancelledReason: null };
+}
+
+// ---------------------------------------------------------------------------
+// Jobs and revision impact
+// ---------------------------------------------------------------------------
+
+export interface IngestionProgressEvent {
+  phase: string;
+  completed: number;
+  total: number;
+  message?: string;
+}
+
+export interface IngestionJobResult<T> {
+  status: 'complete' | 'cancelled' | 'failed';
+  value?: T;
+  attempts: number;
+  error?: string;
+}
+
+export async function runIngestionJob<T>(
+  operation: (attempt: number, report: (event: IngestionProgressEvent) => void) => Promise<T>,
+  options: {
+    token?: CancellationToken;
+    maxAttempts?: number;
+    onProgress?: (event: IngestionProgressEvent) => void;
+  } = {},
+): Promise<IngestionJobResult<T>> {
+  const maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? 1));
+  const report = (event: IngestionProgressEvent) => options.onProgress?.(event);
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (options.token?.cancelled) {
+      return {
+        status: 'cancelled',
+        attempts: attempt - 1,
+        error: options.token.reason ?? 'cancelled',
+      };
+    }
+    try {
+      const value = await operation(attempt, report);
+      return options.token?.cancelled
+        ? { status: 'cancelled', attempts: attempt, error: options.token.reason ?? 'cancelled' }
+        : { status: 'complete', attempts: attempt, value };
+    } catch (error) {
+      if (options.token?.cancelled) {
+        return {
+          status: 'cancelled',
+          attempts: attempt,
+          error: options.token.reason ?? 'cancelled',
+        };
+      }
+      if (attempt === maxAttempts) {
+        return {
+          status: 'failed',
+          attempts: attempt,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+      report({ phase: 'retry', completed: attempt, total: maxAttempts, message: String(error) });
+    }
+  }
+  return { status: 'failed', attempts: maxAttempts, error: 'ingestion did not run' };
+}
+
+export interface RevisionImpact {
+  addedRegionIds: string[];
+  changedRegionIds: string[];
+  removedRegionIds: string[];
+  citedChangedRegionIds: string[];
+  requiresReview: boolean;
+}
+
+export function analyzeRevisionImpact(
+  previous: Pick<CanonicalSourceRegion, 'regionId' | 'sourceHash' | 'contentHash'>[],
+  current: Pick<CanonicalSourceRegion, 'regionId' | 'sourceHash' | 'contentHash'>[],
+  citedRegionIds: string[] = [],
+): RevisionImpact {
+  const before = new Map(previous.map((region) => [region.regionId, region]));
+  const after = new Map(current.map((region) => [region.regionId, region]));
+  const addedRegionIds: string[] = [];
+  const changedRegionIds: string[] = [];
+  const removedRegionIds: string[] = [];
+  for (const [id, region] of after) {
+    const old = before.get(id);
+    if (!old) addedRegionIds.push(id);
+    else if (old.contentHash !== region.contentHash || old.sourceHash !== region.sourceHash)
+      changedRegionIds.push(id);
+  }
+  for (const id of before.keys()) if (!after.has(id)) removedRegionIds.push(id);
+  const changed = new Set([...changedRegionIds, ...removedRegionIds]);
+  const citedChangedRegionIds = citedRegionIds.filter((id) => changed.has(id));
+  return {
+    addedRegionIds,
+    changedRegionIds,
+    removedRegionIds,
+    citedChangedRegionIds,
+    requiresReview: citedChangedRegionIds.length > 0,
+  };
 }

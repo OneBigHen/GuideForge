@@ -6,7 +6,7 @@
  * The trust model: source documents are untrusted; AI proposes, never
  * silently edits or publishes.
  */
-import type { ContentHash, EntityId } from '@guideforge/domain';
+import type { ContentHash, EntityId, SourceLocator } from '@guideforge/domain';
 
 // ---------------------------------------------------------------------------
 // Intake
@@ -74,6 +74,8 @@ export interface SourceRegion {
   /** Excerpt text (deterministic; used for citation excerpt-hash checks). */
   excerpt: string;
   kind: 'paragraph' | 'heading' | 'list-item' | 'table-row' | 'figure-caption' | 'warning';
+  /** Exact source location when the provider can prove one. */
+  locator?: SourceLocator;
 }
 
 export function stableRegionId(
@@ -112,7 +114,12 @@ export function estimateTokens(text: string): number {
 export function structuralChunking(
   sourceHash: ContentHash,
   pageIndex: number,
-  blocks: { kind: SourceRegion['kind']; text: string; structuralPath: string }[],
+  blocks: {
+    kind: SourceRegion['kind'];
+    text: string;
+    structuralPath: string;
+    locator?: SourceLocator;
+  }[],
 ): ChunkedRegion[] {
   return blocks.map((block) => {
     const region: SourceRegion = {
@@ -122,6 +129,7 @@ export function structuralChunking(
       structuralPath: block.structuralPath,
       excerpt: block.text,
       kind: block.kind,
+      ...(block.locator ? { locator: block.locator } : {}),
     };
     return { region, tokenEstimate: estimateTokens(block.text) };
   });

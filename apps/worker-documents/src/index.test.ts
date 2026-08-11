@@ -1,12 +1,15 @@
 import { FakeModelAdapter, ModelGateway } from '@guideforge/model-gateway';
 import { describe, expect, it } from 'vitest';
+import type { DocumentConversionOutput } from './index.js';
 import {
   DEFAULT_INTAKE_POLICY,
   hashBytes,
   ingest,
   ingestMultimodal,
+  ProviderUnavailableError,
   runExtractionPipeline,
   TextSourceConverter,
+  WhisperMediaConverter,
 } from './index.js';
 
 describe('worker-documents intake', () => {
@@ -206,21 +209,17 @@ describe('worker-documents multimodal ingestion (Phase 05)', () => {
     expect(res.receipt.status).toBe('partial');
   });
 
-  it('media sources route to asr-pending and emit a media segment', async () => {
+  it('media sources fail closed when no ASR provider is configured', async () => {
     const { source, bytes } = textSource('clip.mp4', 'not real media');
-    const res = await ingestMultimodal({ source, bytes });
-    expect(res.ocrRoute).toBe('ocr');
-    expect(res.mediaSegments.length).toBeGreaterThan(0);
-    expect(res.receipt.mediaSegmentCount).toBeGreaterThan(0);
+    await expect(ingestMultimodal({ source, bytes })).rejects.toThrow(/No ASR provider configured/);
   });
 
-  it('routes sparse/scanned pages to OCR', async () => {
+  it('does not complete an OCR route without citable provider output', async () => {
     const { source, bytes } = textSource('scan.pdf', '');
-    const res = await ingestMultimodal({ source, bytes });
-    expect(res.ocrRoute).toBe('ocr');
+    await expect(ingestMultimodal({ source, bytes })).rejects.toThrow(/docling failed/);
   });
 
-  it('routes a multi-page scanned source to vlm-fallback', async () => {
+  it('requires a real VLM provider for hard scanned pages', async () => {
     const source = {
       sourceId: crypto.randomUUID() as never,
       originalFilename: 'scan.pdf',
@@ -234,8 +233,59 @@ describe('worker-documents multimodal ingestion (Phase 05)', () => {
       retentionClass: 'standard',
       receivedAtIso: new Date().toISOString(),
     };
-    const res = await ingestMultimodal({ source, bytes: new Uint8Array([1]) });
-    expect(res.ocrRoute).toBe('vlm-fallback');
+    await expect(ingestMultimodal({ source, bytes: new Uint8Array([1]) })).rejects.toThrow(
+      /docling failed/,
+    );
+  });
+
+  it('uses a supplied VLM only for a hard-page route and keeps page citations', async () => {
+    const source = {
+      sourceId: crypto.randomUUID() as never,
+      originalFilename: 'scan.pdf',
+      detectedType: 'application/pdf',
+      sha256: hashBytes(new Uint8Array([7])),
+      sizeBytes: 1,
+      pageCount: 20,
+      encrypted: false,
+      malwareStatus: 'clean' as const,
+      intakeActor: 't',
+      retentionClass: 'standard',
+      receivedAtIso: new Date().toISOString(),
+    };
+    const document: DocumentConversionOutput = {
+      pageCount: 20,
+      blocks: [],
+      pageImages: [{ pageIndex: 0, dataBase64: 'aGVsbG8=', mimeType: 'image/jpeg' }],
+    };
+    const res = await ingestMultimodal({
+      source,
+      bytes: new Uint8Array([7]),
+      converters: {
+        document: { convert: () => Promise.resolve(document) },
+        vlm: {
+          extractPage: ({ pageIndex }) =>
+            Promise.resolve({
+              text: `Page ${pageIndex + 1}: disconnect power.`,
+              provider: {
+                provider: 'test-vlm',
+                version: '1',
+                status: 'used',
+                checkedAtIso: new Date().toISOString(),
+              },
+            }),
+        },
+      },
+    });
+    expect(res.receipt.status).toBe('complete');
+    expect(res.regions[0]?.region.locator).toEqual({ kind: 'page', pageIndex: 0 });
+    expect(res.receipt.providers?.some((provider) => provider.provider === 'test-vlm')).toBe(true);
+  });
+
+  it('does not pretend Whisper is available when its model is absent', async () => {
+    const source = textSource('clip.mp4', 'not media').source;
+    await expect(
+      new WhisperMediaConverter({ model: '' }).convert(source, new Uint8Array([1])),
+    ).rejects.toBeInstanceOf(ProviderUnavailableError);
   });
 
   it('multimodal regions are reproducible across runs', async () => {

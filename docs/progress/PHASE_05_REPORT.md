@@ -14,7 +14,9 @@ that uploads and persists sources immutably (SHA-256 content addressing), and
 a Source Studio route with receipts, stable region IDs, table/figure/media
 segments, conflict detection, prompt-injection isolation, cancellation, and
 partial results. Text sources convert fully offline and deterministically;
-audio/video are routed to ASR with an explicit `asr-pending` status.
+the current implementation fails closed when real Docling, VLM, or
+Whisper/ffmpeg providers are unavailable rather than reporting media as
+complete.
 
 ## Commits
 
@@ -39,10 +41,11 @@ audio/video are routed to ASR with an explicit `asr-pending` status.
      building that still returns what was completed on cancellation.
 2. **`apps/worker-documents`**: `DEFAULT_INTAKE_POLICY` covers ~20 multimodal
    MIME types (100 MB max); `TextSourceConverter` (deterministic offline
-   text/markdown/HTML/CSV); `convertMultimodal` (audio/video become
-   `asr-pending` media segments, everything else routes through the text
-   converter); `ingestMultimodal` returns regions, tables, mediaSegments,
-   ocrRoute, receipt, conflicts, and partial/cancelledReason.
+   text/markdown/HTML/CSV); `convertMultimodal` routes text through the local
+   converter and other supported formats through the real Docling/VLM/
+   Whisper adapters; `ingestMultimodal` returns regions, tables,
+   mediaSegments, ocrRoute, receipt, provider/quality evidence, conflicts,
+   and partial/cancelledReason.
 3. **`packages/storage-web`**: `SourceRecord` schema + Dexie `sources` table
    at schema `version(4)`; source bytes live in OPFS (content-addressed via
    the existing OpfsAssetStore), never inside Yjs.
@@ -117,10 +120,11 @@ audio/video are routed to ASR with an explicit `asr-pending` status.
 
 ## Known limitations
 
-- Real Docling/VLM/ASR providers require network and native runtimes
-  (unavailable in this sandbox); the converter contract, OCR route decision,
-  and `asr-pending` media segments are in place, provider implementations are
-  scoped follow-ups (same pattern as Phase 04 providers).
+- The original report described `asr-pending` media placeholders and a
+  provider seam. That behavior is historical only and is superseded by the
+  Phase 04 implementation: real adapters exist, but this host lacks the
+  configured Docling, VLM, and Whisper runtimes/models, so the live golden
+  provider gate remains unverified.
 - Provider adapters for external assets remain `planned` (P04-7 follow-up).
 
 ## Blocked external dependencies
@@ -132,4 +136,4 @@ audio/video are routed to ASR with an explicit `asr-pending` status.
 - READY. Phase 06 (procedure synthesis) can consume stable source regions,
   receipts, and conflict metadata from the Source Studio.
 
-**Gate:** PASS
+**Gate:** HISTORICAL — superseded; current Phase 04 gate is UNVERIFIED

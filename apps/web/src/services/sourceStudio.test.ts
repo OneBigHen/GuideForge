@@ -102,15 +102,16 @@ describe('sourceStudio (Phase 05)', () => {
     expect(rows).toHaveLength(2);
   });
 
-  it('routes media to asr-pending with a media segment', async () => {
+  it('records binary media as failed until the companion provider is available', async () => {
     const s = studio();
     const res = await addSource(s, {
       guideId: uniqueGuide(),
       originalFilename: 'clip.mp4',
       bytes: new Uint8Array([0, 0, 0, 0, 1]),
     });
-    expect(res.source.status).toBe('asr-pending');
-    expect(res.source.mediaSegments.length).toBeGreaterThan(0);
+    expect(res.source.status).toBe('failed');
+    expect(res.source.receipt?.error).toContain('companion worker');
+    expect(res.source.mediaSegments).toHaveLength(0);
   });
 
   it('cancellation token aborts ingestion with partial results', async () => {

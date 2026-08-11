@@ -61,14 +61,14 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 ## Real multimodal ingestion
 
-| Requirement                                           | Current source signal                                                          | Status  |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------ | ------- |
-| Digital PDF, scanned PDF/OCR, tables, figures/bboxes  | Deterministic ingestion contracts exist; real provider execution not proven    | partial |
-| DOCX/PPTX/XLSX and image intake                       | MIME/domain seams exist; complete production converters not proven             | partial |
-| Real audio ASR and video timestamps                   | No live provider evidence                                                      | missing |
-| VLM hard-page fallback                                | No live provider evidence                                                      | missing |
-| Quality report, cancellation, partial/revision impact | Cancellation/partial domain tests exist; complete reports/revisions incomplete | partial |
-| Source Studio upload/regions/receipts/conflicts       | `sourceStudio.test.ts`: 9/9 UI/service tests                                   | partial |
+| Requirement                                           | Current source signal                                                           | Status            |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------- | ----------------- |
+| Digital PDF, scanned PDF/OCR, tables, figures/bboxes  | Real Docling bridge enables OCR/table structure/bboxes; no live golden run here | partial           |
+| DOCX/PPTX/XLSX and image intake                       | Docling standard converter path and explicit browser companion failure          | partial           |
+| Real audio ASR and video timestamps                   | ffprobe + Whisper/ffmpeg adapter; no configured live model                      | partial           |
+| VLM hard-page fallback                                | OpenAI-compatible VLM adapter is wired only for hard pages; no live endpoint    | partial           |
+| Quality report, cancellation, partial/revision impact | Quality/provider receipts and 28 ingestion tests                                | verified narrowly |
+| Source Studio upload/regions/receipts/conflicts       | Failed binary state, locator navigation, and 24 web tests                       | partial           |
 
 ## AI and synthesis
 
@@ -143,4 +143,6 @@ stability fix `64bc8671073e88f765ff68fa52ee11c805688cc3`; GitHub run
 (check and Playwright). The Phase 03 gate is verified in clean test storage and emulated
 browsers; physical devices, native OS keychains, and live providers remain
 unproven. Phase 04–17 remain uncertified; historical reports do not change
-their status.
+their status. Phase 04's focused contracts and adapters are current-tree
+verified, but its Pack golden-provider gate remains **UNVERIFIED** because this
+host has no configured Docling, Whisper, or VLM runtime.

@@ -1,103 +1,67 @@
-# Phase 04 Report — Asset Library, Seed Catalog, and Providers
+# Phase 04 Report — Real Multimodal Ingestion
 
-> Historical note (2026-08-11): this report predates the Production Readiness
-> Pack audit at `abefa7475d52931957721b571df828c364c7e924`. Its claims are
-> retained as historical implementation evidence only, not current phase
-> certification. See the current capability matrix and execution ledger.
+**Status:** implementation complete; production gate **UNVERIFIED**
 
-## Outcome
+This report supersedes the historical asset-library report that previously
+used the Phase 04 number. It is evidence for the Production Readiness Pack
+phase `PHASE_04_REAL_MULTIMODAL_INGESTION.md`, not an inherited PASS claim.
 
-A reliable local-first equipment library now exists: a new framework-
-independent `packages/assets` domain (metadata, deterministic license policy,
-local full-text search, 19 procedural scientific templates with a dependency-
-free GLB writer), a web asset library service wired into the scene editor
-(import GLB, add procedural seeds, attach to nodes, license-block display),
-and a package attribution report (`reports/asset-licenses.json`) emitted with
-every attributed draft package. Local search always runs before any external
-provider; external providers are scoped pending network access (the sandbox
-has none), with `AssetOrigin.kind: 'provider'` representing the seam.
+## Delivered
 
-## User-visible vertical slices
+- `packages/ingestion` now preserves provider locators, emits provider and
+  conversion-quality receipts, supports cancellable retry jobs, and reports
+  cited-region revision impact.
+- `apps/worker-documents` now has a real Docling bridge with OCR and table
+  structure enabled, provenance bboxes, table/figure extraction, page-image
+  export, and provider receipts. The primary path fails closed when Docling is
+  unavailable; it does not fall back to `FakeDoclingConverter`.
+- `OpenAiCompatibleVlmProvider` is used only when the deterministic route
+  escalates to `vlm-fallback`.
+- `WhisperMediaConverter` uses `ffprobe`, Whisper/faster-whisper, and ffmpeg
+  keyframes to produce timestamped speech and keyframe segments. Missing
+  `WHISPER_MODEL` is an explicit provider error.
+- Browser Source Studio keeps text/Markdown local-first. Binary, image, audio,
+  and video uploads are stored as `failed` with a companion/provider receipt;
+  no new completed record uses `asr-pending`.
+- Source Studio region buttons expose the selected excerpt and page,
+  slide/sheet, or time locator with `aria-current` citation navigation.
 
-- **Scene editor → Assets panel**: search local assets, import a GLB,
-  expand "Procedural scientific templates" and add a pipette/beaker/pump/
-  balance/workbench (CC0, generated locally), then attach the asset to the
-  selected node.
-- **Draft export** now carries `reports/asset-licenses.json` with per-asset
-  license + attribution when assets have origin metadata.
-- **Path safety**: archive entry names with trailing-whitespace parent
-  segments (`".. "`) are rejected; the fuzz property now asserts the correct
-  segment-level invariant.
+## Focused evidence
 
-## Commits
+| Check                                                    | Result       |
+| -------------------------------------------------------- | ------------ |
+| `pnpm --filter @guideforge/ingestion test`               | 28/28 passed |
+| `pnpm --filter @guideforge/worker-documents test`        | 18/18 passed |
+| `pnpm --filter @guideforge/web test`                     | 24/24 passed |
+| ingestion/worker/web/guide-schema/storage-web typechecks | passed       |
+| Python Docling and Whisper bridge AST parse              | passed       |
+| `git diff --check`                                       | passed       |
 
-- (this commit) feat: Phase 04 asset library, seed catalog, and providers
+The tests cover locator preservation, quality failures, retry/cancel behavior,
+revision impact, hard-page VLM routing, absent-ASR failure, timestamp/locator
+contracts, and browser failed-state persistence. They do not substitute for a
+live provider run.
 
-## Exact commands and results
+## Gate decision
 
-| Command                                                  | Result                                                         |
-| -------------------------------------------------------- | -------------------------------------------------------------- |
-| `pnpm --filter @guideforge/assets test`                  | 10/10 (search ranking, license policy, procedural determinism) |
-| `pnpm --filter @guideforge/package-gforge test`          | 35/35 (attribution emit/omit, hardened path property)          |
-| `pnpm check --force`                                     | 105/105 tasks pass (fresh)                                     |
-| `pnpm --filter @guideforge/web test:e2e`                 | 41 passed / 2 skipped (incl. asset-library scene spec)         |
-| `pnpm dep-check` / `pnpm boundary` / `pnpm format:check` | pass                                                           |
+The Pack gate requires golden digital PDF, scanned/OCR PDF, table/figure
+bboxes, Office/image inputs, real timestamped ASR/video keyframes, VLM
+fallback, and quality reports. The current host has no configured
+`DOCLING_PYTHON`, Whisper model/runtime, VLM endpoint, or Tesseract runtime;
+the real Docling/Whisper adapters therefore fail closed in this environment.
+No live golden-provider evidence is claimed, and Phase 04 remains
+**UNVERIFIED**, not PASS. The implementation is ready for a companion runtime
+with those providers.
 
-## Acceptance evidence
+## Persisted and security impact
 
-Gate items from `prompts/phases/PHASE_04_ASSET_LIBRARY.md`:
+Source region locators and quality/provider receipt fields are additive to the
+legacy Dexie source record and are carried into canonical provenance. Source
+bytes remain content-addressed. Provider failures are visible to the user;
+there is no silent fake or pending-as-complete path.
 
-| Requirement                     | Evidence                                                                                     |
-| ------------------------------- | -------------------------------------------------------------------------------------------- |
-| Asset domain and metadata       | `packages/assets` `AssetMetadata` (hash, derivatives, origin, review state, health, anchors) |
-| OPFS/content store              | existing `OpfsAssetStore` (Phase 01/02) reused                                               |
-| Local full-text/semantic search | `searchAssets`/`tokenize` (name > alias > tag > semantic); web panel search box              |
-| Thumbnails/turntables           | deferred (requires render pipeline; recorded)                                                |
-| Geometry/material health        | `GeometryHealth` model defined; import-time analysis deferred to companion                   |
-| Verification badges             | `AssetReviewState` model (proxy → manufacturer-verified); procedural = generated-draft       |
-| License policy                  | `decideLicense` fail-closed; blocks shown in UI                                              |
-| Import GLB/GLTF/OBJ/STL         | GLB/GLTF import in web; OBJ/STL adapters scoped to companion                                 |
-| STEP conversion through FreeCAD | deferred (companion worker; no FreeCAD in sandbox)                                           |
-| Procedural scientific templates | 19 templates + deterministic GLB writer (tested)                                             |
-| Provider toggles + adapters     | `AssetOrigin.kind: 'provider'` seam; toggles/adapters blocked on network                     |
-| Seed importer with review queue | procedural seed catalog; provider review queue scoped                                        |
-| Package attribution report      | `reports/asset-licenses.json` (tested emit/omit)                                             |
+## Next action
 
-External-provider and companion-only items (thumbnails, STEP, OBJ/STL
-conversion, live provider search) are explicitly blocked by the sandbox's lack
-of network/FreeCAD; the local-first vertical slice is complete and tested.
-
-## Persisted schema/migrations
-
-- None new (metadata lives in the existing Dexie `assets` table via spread).
-
-## Package round-trip impact
-
-- Draft packages may now include `reports/asset-licenses.json`; verified
-  deterministic (fixed timestamp, sorted entries).
-
-## Security/privacy/license impact
-
-- License policy fails closed on unknown/GPL/AGPL/SSPL/BUSL and non-commercial
-  licenses; share-alike blocks public-release embedding.
-- `validatePackagePath` hardened against trailing-whitespace traversal.
-
-## Known limitations
-
-- Provider search/download adapters, thumbnails/turntables, geometry-health
-  analysis, and STEP conversion are blocked by the sandbox (no network,
-  no FreeCAD); recorded as follow-ups.
-- Procedural GLBs are unit-cube placeholders (visual approximation), as the
-  pack requires generated equipment to be labeled.
-
-## External blockers
-
-- Network access to Poly Haven/NIH 3D/FreeCAD library/Kenney/Quaternius.
-- FreeCAD binary for STEP conversion.
-
-## Next-phase readiness
-
-Phase 05 (multimodal ingestion) can build on the content-addressed store and
-provenance model already in place.
-
-**Gate:** PASS
+Run the companion golden corpus with pinned Docling, OCR, Whisper, ffmpeg, and
+VLM providers; capture the actual provider versions and quality reports before
+certifying this phase.
