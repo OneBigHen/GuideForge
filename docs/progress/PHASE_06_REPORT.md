@@ -1,118 +1,77 @@
-# Phase 06 Report — Docling and AI Proposal Pipeline
+# Phase 06 Report — Production Training Domain and Studio
 
-> Historical note (2026-08-11): this report predates the Production Readiness
-> Pack audit at `abefa7475d52931957721b571df828c364c7e924`. Its claims are
-> retained as historical implementation evidence only, not current phase
-> certification. In particular, the fake/offline provider evidence below does
-> not prove the real Docling or model-provider gate. See the current capability
-> matrix and execution ledger.
+## Gate status
 
-## Outcome
+The Phase 06 gate is **VERIFIED NARROWLY** on the current implementation
+commit `dbf992dd915ce6e8e36065a16651da2be0591312`.
 
-The deterministic document-intake → extraction → review pipeline is
-implemented and tested: intake validation with immutable SHA-256 hashing,
-stable source-region IDs, structural chunking, strict extraction JSON
-Schemas, a provider-independent ModelGateway (deterministic fake adapter +
-OpenRouter + direct/local seams), citation gating (uncited actionable output
-is rejected), confidence computation, usage receipts, and prompt-injection
-fixtures. The web app's proposal generator now runs through the gateway and
-produces cited, human-reviewable proposals.
+A procedure with an uploaded text source can generate a complete training
+draft, persist it through the canonical command/Yjs path, edit objectives and
+assessment text, and mark source-grounded items reviewed in the training
+studio. The quality report fails closed when answer keys, feedback, or
+source-region citations are missing or invalid.
 
-## Commits
+This is current-tree evidence only. Phase 07 still owns runtime scoring,
+attempt persistence, offline mastery/resume, and QTI/xAPI export; those are not
+claimed here.
 
-- `(this commit)` feat: Phase 06 Docling and AI proposal pipeline
+## Delivered path
 
-## Delivered vertical slices
+- `@guideforge/guide-schema` now contains backward-compatible v4 training
+  structures for competencies, objectives, modules, lessons, activities,
+  assessment blueprints, item feedback, remediation edges, and mastery policy.
+- `generateTrainingFromProcedure` deterministically creates one competency,
+  objective, instruction/practice path, assessment item, remediation edge, and
+  source-cited blueprint per procedure task/step.
+- `validateTrainingProgram` checks graph references, measurable objective
+  fields, deterministic answer keys, correct/incorrect feedback, exact
+  `sourceHash:regionId` citations, policy bounds, and coverage counts before a
+  program is considered reviewable.
+- Training mutations use canonical typed commands for replacement, objective
+  edits, item edits, and review-state changes. Legacy v4 training remains
+  readable because the new collections are optional and empty defaults are
+  materialized for new documents.
+- `/training/:guideId` is a real TanStack route with quality/coverage
+  reporting, competency/module/lesson/activity views, editable objectives and
+  items, answer-key/rationale/feedback visibility, remediation links, and
+  review controls.
+- The editor links to the studio, and the studio links back to Source Studio
+  and the procedure player. The generated route tree is checked in.
 
-1. **packages/ai-contracts**: `SourceDocument`/intake policy,
-   `SourceRegion` + `stableRegionId` (deterministic FNV-1a), `structuralChunking`,
-   strict `ExtractionOutput` schema + validator, `Citation` +
-   `validateCitations` gate, `computeConfidence` (weighted, never model
-   self-confidence), `AiProposal`, `UsageReceipt`.
-2. **packages/model-gateway**: `ModelGateway` with ordered adapter fallback and
-   ZDR routing; `FakeModelAdapter` (deterministic rules, privacy-safe),
-   `OpenRouterAdapter` (strict JSON-Schema `response_format`; only when an
-   API key is configured server-side — never in browser bundles),
-   `DirectModelAdapter` seam; usage receipts per call.
-3. **apps/worker-documents**: `ingest` (type/size/pages/encryption/malware),
-   immutable `hashBytes`, `runExtractionPipeline` (chunk → regions →
-   gateway), pinned `DOCLING_CONFIG` (`ds4sd/docling:2.37.0`, tesseract OCR,
-   standard pipeline) as the conversion boundary.
-4. **apps/web aiProposals**: `generateGatewayProposals` builds chunks from the
-   guide snapshot, runs the gateway (ZDR policy → fake adapter), and creates
-   proposals for suggested warnings, tools, and verification steps — all
-   reviewable via the existing proposals panel.
-5. **Injection fixtures**: hostile "command-like" outputs and malicious
-   excerpts fail safely (strict schema rejects non-extraction shapes; citation
-   gate rejects uncited claims).
+## Evidence
 
-## Acceptance evidence
+| Check                                  | Result                                                                                                                         |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `@guideforge/guide-schema` tests       | 10 passed, including generated graph and citation-tamper gate                                                                  |
+| `@guideforge/commands` tests           | 8 passed, including canonical replacement/edit/review and no-aliasing                                                          |
+| `@guideforge/collaboration` tests      | 5 passed                                                                                                                       |
+| `@guideforge/web` unit tests           | 24 passed                                                                                                                      |
+| `@guideforge/web` typecheck/lint/build | Passed; existing warnings only                                                                                                 |
+| Training browser acceptance            | 3/3: desktop Chromium, iPad, iPhone                                                                                            |
+| Browser path covered                   | Create guide → add procedure step → upload text source → open training studio → generate → edit objective/item → mark reviewed |
+| Forced repository check                | `pnpm exec turbo run check --force --concurrency=2`: 120/120, 0 cached, 6m09.842s                                              |
+| Schema file parse                      | `GuideSnapshot.schema.json` parses as JSON                                                                                     |
+| Secret/whitespace checks               | `git diff --cached --check` and repository secret scan passed; gitleaks unavailable, regex fallback used                       |
 
-| Gate                                             | Evidence                                                                                      |
-| ------------------------------------------------ | --------------------------------------------------------------------------------------------- |
-| Repeated source/config creates stable region IDs | `stableRegionId` deterministic + property test                                                |
-| Uncited actionable output is rejected            | gateway test + `validateCitations` tests                                                      |
-| AI cannot mutate a guide before acceptance       | proposals only applied via `acceptProposal` command path (Phase 03)                           |
-| Privacy policy never relaxes automatically       | ZDR routing test forces privacy-safe adapter                                                  |
-| Cost receipts and routing attempts recorded      | `UsageReceipt` in every gateway response; unit tested                                         |
-| Injection fixtures fail safely                   | `injection.test.ts`: command-shape outputs rejected, malicious excerpts only cited as sources |
+## Grounding boundary
 
-## Test results
+The generator does not invent a citation. It first follows the canonical
+step-claim-citation graph; for imported procedures without that graph it only
+uses an exact normalized match between the step instruction and a canonical
+source-region text. No match produces a visible quality error, not a guessed
+answer key.
 
-- `pnpm check`: 80/80 tasks pass.
-- ai-contracts: 16 tests (intake, region IDs, chunking, citation gate,
-  confidence, extraction schema, injection).
-- model-gateway: 5 tests (fake extraction, uncited rejection, ZDR routing,
-  OpenRouter-unavailable, direct fallback).
-- worker-documents: 5 tests (intake accept/reject, pipeline, stable regions).
-- web: proposals tests pass; Playwright 22 passed / 2 skipped (WebKit offline).
+The current browser acceptance uses a text source so the local-first path can
+prove real regions without requiring a companion provider. Docling/OCR/VLM,
+audio/video providers, and live DeepSeek remain governed by their earlier
+explicit provider gates.
 
-## Responsive/device evidence
+## Next phase
 
-- Proposal review UI unchanged (Phase 03) and verified on desktop/iPad/iPhone.
+Phase 07 must add the actual learner runtime: deterministic scoring, attempt and
+mastery state, remediation execution, offline resume/reporting, and QTI/xAPI
+export. The authoring graph and studio are ready for that runtime; no Phase 07
+PASS is inherited.
 
-## Accessibility evidence
-
-- Proposal cards unchanged (Phase 03 accessibility foundations).
-
-## Security and privacy impact
-
-- No model API keys in browser bundles; OpenRouter key only server-side env.
-- ZDR routing prefers the privacy-safe deterministic adapter; policy never
-  relaxes automatically.
-- Source documents are untrusted; extraction output must pass strict schema +
-  citation gate before any proposal is created.
-- Usage receipts include cost/latency/tokens but no document content.
-
-## Persisted schema and migration impact
-
-- No new persisted schema in this phase; proposals continue to use the Dexie
-  `proposals` table (now with `sourceHash` populated).
-
-## Context7/ADR updates
-
-- ADR 0006 (AI proposal pipeline) added.
-
-## Known limitations
-
-- **Docling worker not runnable in this sandbox**: the pinned
-  `ds4sd/docling:2.37.0` image could not be pulled (registry access denied)
-  and pip DNS is unavailable, so the real converter could not be exercised.
-  The deterministic fake converter covers the pipeline contract; running the
-  real worker requires a host with registry access (`docker pull ds4sd/docling:2.37.0`).
-- OpenRouter adapter is wired but untested against a live endpoint (no key in
-  sandbox); strict-schema enforcement is enforced in code and unit-testable
-  with a mock.
-
-## Blocked external dependencies
-
-- Docling container pull (registry denied in sandbox) — smallest action to
-  resume: run on a host with registry access.
-- Live OpenRouter key for real-model validation.
-
-## Next phase readiness
-
-- READY. Phase 07 (signed releases, Microsoft interop, native desktop) builds
-  on the verified release/signing and interop foundations.
-
-**Gate:** PASS
+**Gate:** VERIFIED NARROWLY — current browser and forced-check evidence passed;
+runtime/export certification remains Phase 07.

@@ -83,12 +83,12 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 ## Training
 
-| Requirement                                                | Current source signal                       | Status  |
-| ---------------------------------------------------------- | ------------------------------------------- | ------- |
-| Competencies/objectives/lessons/activities/blueprint/items | Basic objective/assessment structures exist | partial |
-| Deterministic mastery/remediation                          | No complete runtime gate                    | missing |
-| Training studio/player/offline attempts                    | No complete studio/player evidence          | missing |
-| QTI 3 and xAPI-aligned export                              | No current production export gate           | missing |
+| Requirement                                                | Current source signal                                                                                                            | Status            |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Competencies/objectives/lessons/activities/blueprint/items | `dbf992d` generator, v4 schema, deterministic quality gate, canonical commands; training browser path passed desktop/iPad/iPhone | verified narrowly |
+| Deterministic mastery/remediation                          | Authored mastery policy and remediation edges are generated and citation-gated; learner scoring/runtime remains Phase 07         | partial           |
+| Training studio/player/offline attempts                    | `/training/:guideId` author/review flow passed 3/3 browser projects; learner attempts/offline resume remain Phase 07             | partial           |
+| QTI 3 and xAPI-aligned export                              | No current production export gate                                                                                                | missing           |
 
 ## Execution and evidence
 
@@ -145,4 +145,7 @@ browsers; physical devices, native OS keychains, and live providers remain
 unproven. Phase 04–17 remain uncertified; historical reports do not change
 their status. Phase 04's focused contracts and adapters are current-tree
 verified, but its Pack golden-provider gate remains **UNVERIFIED** because this
-host has no configured Docling, Whisper, or VLM runtime.
+host has no configured Docling, Whisper, or VLM runtime. Phase 06 is verified
+narrowly on current commit `dbf992d`: the authoring graph, citation quality
+gate, canonical edit commands, and browser review path pass; Phase 07 runtime
+scoring, offline attempts, and QTI/xAPI export remain unverified.
