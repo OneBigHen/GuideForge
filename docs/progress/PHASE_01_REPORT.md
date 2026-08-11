@@ -6,9 +6,11 @@ Baseline audited: `abefa7475d52931957721b571df828c364c7e924`
 
 ## Status
 
-The Phase 01 implementation is complete and verified locally. The phase
-commit still requires the current-SHA GitHub check and Playwright E2E readback
-before its ledger status becomes `verified`.
+The Phase 01 implementation commit
+`b6ec6b8e5c3d99e796845d2a336e7e77a6e1d8b7` is verified locally and by GitHub
+run `31498373276`: the required `check` job and Playwright desktop/iPad/iPhone
+job both passed. The follow-up documentation commit does not change the
+implementation under test.
 
 The physical iPad/iPhone path is not executed in this environment. The
 network gate is covered by a real HTTPS listener and a separate HTTPS client,
@@ -56,7 +58,7 @@ and the responsive settings path is exercised in an iPhone 13 emulation.
 | `pnpm --filter @guideforge/web test`                           | 23/23                                                                             |
 | web typecheck, lint, build                                     | pass                                                                              |
 | rendered settings flow with real companion + Playwright        | desktop setup/login/pairing and iPhone 13 login pass; no console/request failures |
-| `pnpm check --force`                                           | 120/120 tasks, 4m55.228s, fresh/no cache                                          |
+| `pnpm check --force`                                           | 120/120 tasks, 6m12.562s, fresh/no cache                                          |
 | `pnpm security:audit`                                          | pass; reviewed esbuild SUPPLY-0001 remains documented                             |
 | `pnpm security:licenses`                                       | pass                                                                              |
 | `pnpm security:sbom`                                           | pass; CycloneDX 1.6 JSON generated to ignored `sbom.xml`                          |
@@ -76,5 +78,4 @@ and the responsive settings path is exercised in an iPhone 13 emulation.
 
 ## Next phase readiness
 
-Phase 02 can proceed after the current phase commit receives required GitHub
-status and Playwright E2E evidence. No prior Phase 01 PASS claim is reused.
+Phase 02 can proceed. No prior Phase 01 PASS claim is reused.

@@ -116,7 +116,8 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 ## Phase certification
 
-Phase 01 is verified locally from the current tree but awaits its current-SHA
-GitHub status and Playwright E2E readback. Physical iPad/iPhone hardware and
-trusted LAN certificate installation remain explicitly unproven. Phase 02–17
-remain uncertified; historical reports do not change their status.
+Phase 01 is verified on implementation commit `b6ec6b8` by GitHub run
+`31498373276` (`check` and Playwright desktop/iPad/iPhone passed), in addition
+to the local evidence recorded in its report. Physical iPad/iPhone hardware
+and trusted LAN certificate installation remain explicitly unproven. Phase
+02–17 remain uncertified; historical reports do not change their status.
