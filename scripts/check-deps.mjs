@@ -21,7 +21,13 @@ const catalogEntries = new Set(
 
 function walk(dir, out = []) {
   for (const name of readdirSync(dir)) {
-    if (name === 'node_modules' || name === '.git' || name === '.pnpm') continue;
+    if (
+      name === 'node_modules' ||
+      name === '.git' ||
+      name === '.pnpm' ||
+      name === 'release-artifacts'
+    )
+      continue;
     const full = join(dir, name);
     if (statSync(full).isDirectory()) {
       walk(full, out);

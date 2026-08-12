@@ -1,7 +1,8 @@
 # GuideForge Capability Matrix — Current Production Re-audit
 
-Audited parent SHA: `abefa7475d52931957721b571df828c364c7e924`
-Audit date: 2026-08-11
+Audited parent SHA: `abefa7475d52931957721b571df828c364c7e924`; Phase 15
+hardening is included in the current-tree evidence below.
+Audit date: 2026-08-12
 Authority: GuideForge Production Readiness Pack, `ACCEPTANCE_MATRIX.md`
 
 This replaces the prior baseline matrix. A green unit test or an old phase
@@ -122,10 +123,10 @@ not implemented; `blocked` means external hardware/provider access is needed.
 | Requirement                                   | Current source/test evidence                                                                                                                                                       | Status            |
 | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
 | Real iPad/iPhone/Pencil/camera/PWA tests      | Phase 13 dashboard/job/backup flow and 18/18 Axe scans pass in desktop/iPad/iPhone emulation; real device unavailable here                                                         | blocked           |
-| Persistence/quota/backup/restore              | Settings reads live quota/persistence state; library downloads full backups and records a local last-backup marker; long-term browser recovery remains open                        | partial           |
+| Persistence/quota/backup/restore              | Settings reads live quota/persistence state; near-quota and persistence-request tests, hash-verified corrupted-blob reads, offline reload, full backup/import, and release recovery drill pass; physical browser deletion/recovery remains open | verified narrowly |
 | PWA production deploy                         | Manifest, Apple metadata, service-worker generation, checked-in CSP/cache/security-header policy, and candidate packaging pass; external HTTPS deploy/install lifecycle not proven | verified narrowly |
 | Tauri artifacts/signing/upgrade/rollback      | Linux x86_64 `.deb` builds; Windows/macOS matrix and signing/notarization are explicit external targets; manifest verification and data-preserving recovery drill pass             | verified narrowly |
-| Golden micropipette/pump/filter certification | No current golden run                                                                                                                                                              | missing           |
+| Golden micropipette/pump/filter certification | Phase 16 has not yet run the three real-source golden corpus                                                                                                                        | missing           |
 
 ## Phase certification
 
@@ -181,3 +182,13 @@ controls, measured bundle budgets, and 18/18 Axe scans across emulated
 desktop/iPad/iPhone profiles. Physical device input/camera, installed-PWA
 lifecycle, production CSP/headers/deployment, and native packaging remain
 unverified.
+Phase 14 is verified narrowly for the local release candidate, Linux `.deb`,
+signed personal package path, manifest verification, and data-preserving
+upgrade/rollback drill; platform signing, notarization, external deployment,
+and physical installation remain unverified. Phase 15 is verified narrowly for
+the local attack/recovery loop: provider endpoint validation, inert source
+handling, content-addressed corruption detection, quota/job/update seams, the
+offline shell, a 1.047s desktop cold-shell p95 pass, a forced 125/125 workspace
+gate, and a clean 78-pass/6-skip browser run. Strix was inconclusive because
+the local CLI was unavailable; live providers, network penetration, physical
+recovery, and DNS/egress enforcement remain external gates.

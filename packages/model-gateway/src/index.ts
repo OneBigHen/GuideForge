@@ -62,6 +62,92 @@ export const DEEPSEEK_MODEL_PROFILES: Readonly<Record<string, DeepSeekModelProfi
   },
 };
 
+/**
+ * Validate a server-side provider endpoint before it reaches fetch().
+ *
+ * Provider URLs are deployment configuration, not request data. Requiring an
+ * explicit HTTPS host allowlist (with an opt-in loopback seam for local
+ * providers) keeps a bad configuration from becoming an SSRF primitive.
+ */
+export function validateProviderBaseUrl(
+  baseUrl: string,
+  options: { allowedHosts?: readonly string[]; allowLoopback?: boolean } = {},
+): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    throw new Error('provider base URL is invalid');
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error('provider base URL must use HTTP(S)');
+  }
+  if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error('provider base URL cannot contain credentials, query, or fragment data');
+  }
+
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  const loopback = isLoopbackProviderHost(hostname);
+  if (loopback) {
+    if (!options.allowLoopback) throw new Error('loopback provider base URL is not allowed');
+  } else {
+    if (parsed.protocol !== 'https:') {
+      throw new Error('non-loopback provider endpoints require HTTPS');
+    }
+    if (isPrivateProviderHost(hostname)) {
+      throw new Error('private or metadata provider host is not allowed');
+    }
+    const allowed = (options.allowedHosts ?? []).some((candidate) => {
+      const normalized = candidate
+        .trim()
+        .toLowerCase()
+        .replace(/^\[|\]$/g, '');
+      return (
+        normalized.length > 0 && (hostname === normalized || hostname.endsWith(`.${normalized}`))
+      );
+    });
+    if (!allowed) throw new Error('provider base URL host is not allowlisted');
+  }
+
+  return parsed.toString().replace(/\/+$/, '');
+}
+
+function isLoopbackProviderHost(hostname: string): boolean {
+  return (
+    hostname === 'localhost' ||
+    hostname === '::1' ||
+    /^127\.(?:\d{1,3}\.){2}\d{1,3}$/.test(hostname)
+  );
+}
+
+function isPrivateProviderHost(hostname: string): boolean {
+  if (
+    hostname === 'metadata.google.internal' ||
+    hostname.endsWith('.internal') ||
+    hostname.endsWith('.local') ||
+    hostname === '0.0.0.0'
+  ) {
+    return true;
+  }
+  const octets = hostname.split('.').map(Number);
+  if (
+    octets.length !== 4 ||
+    octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)
+  ) {
+    return hostname.startsWith('fc') || hostname.startsWith('fd') || hostname.startsWith('fe80:');
+  }
+  const first = octets[0] ?? -1;
+  const second = octets[1] ?? -1;
+  return (
+    first === 10 ||
+    (first === 100 && second >= 64 && second <= 127) ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168) ||
+    (first === 198 && second >= 18 && second <= 19)
+  );
+}
+
 export function getDeepSeekModelProfile(model = 'deepseek-v4-flash'): DeepSeekModelProfile {
   const profile = DEEPSEEK_MODEL_PROFILES[model];
   if (!profile) throw new Error(`unsupported DeepSeek model profile: ${model}`);
@@ -203,7 +289,9 @@ export class OpenRouterAdapter implements ModelAdapter {
     this.model = config.model ?? 'anthropic/claude-sonnet-4.5';
     this.apiKey = config.apiKey;
     this.available = config.apiKey.length > 0;
-    this.baseUrl = config.baseUrl ?? 'https://openrouter.ai/api/v1';
+    this.baseUrl = validateProviderBaseUrl(config.baseUrl ?? 'https://openrouter.ai/api/v1', {
+      allowedHosts: ['openrouter.ai'],
+    });
   }
 
   async extract(
@@ -292,7 +380,9 @@ export class DeepSeekAdapter implements ModelAdapter {
     this.profile = getDeepSeekModelProfile(this.model);
     this.apiKey = config.apiKey;
     this.available = config.apiKey.length > 0;
-    this.baseUrl = config.baseUrl ?? 'https://api.deepseek.com';
+    this.baseUrl = validateProviderBaseUrl(config.baseUrl ?? 'https://api.deepseek.com', {
+      allowedHosts: ['api.deepseek.com'],
+    });
     this.maxOutputTokens = config.maxOutputTokens ?? 4096;
   }
 

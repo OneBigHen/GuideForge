@@ -319,11 +319,13 @@ export async function loadSourceBytes(
   const row = await db.sourceBlobs.get(sha256);
   if (!row) return null;
   const bytes = row.bytes;
-  if (typeof bytes === 'object' && bytes !== null && 'length' in bytes) {
-    return Uint8Array.from(bytes as unknown as ArrayLike<number>);
-  }
-  if (bytes instanceof ArrayBuffer) return new Uint8Array(bytes);
-  return new Uint8Array(await bytes.arrayBuffer());
+  const loaded =
+    typeof bytes === 'object' && bytes !== null && 'length' in bytes
+      ? Uint8Array.from(bytes as unknown as ArrayLike<number>)
+      : bytes instanceof ArrayBuffer
+        ? new Uint8Array(bytes)
+        : new Uint8Array(await bytes.arrayBuffer());
+  return (await sha256Hex(loaded)) === sha256 ? loaded : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -418,13 +420,13 @@ class IndexedDbAssetStore {
     const bytes = row.bytes;
     // Cross-realm structured-clone results defeat `instanceof` in some
     // engines (WebKit, fake-indexeddb). Duck-type instead.
-    if (typeof bytes === 'object' && bytes !== null && 'length' in bytes) {
-      const arr = bytes as unknown as ArrayLike<number>;
-      return Uint8Array.from(arr);
-    }
-    if (bytes instanceof ArrayBuffer) return new Uint8Array(bytes);
-    // Backward compatibility: earliest versions stored a Blob.
-    return new Uint8Array(await bytes.arrayBuffer());
+    const loaded =
+      typeof bytes === 'object' && bytes !== null && 'length' in bytes
+        ? Uint8Array.from(bytes as unknown as ArrayLike<number>)
+        : bytes instanceof ArrayBuffer
+          ? new Uint8Array(bytes)
+          : new Uint8Array(await bytes.arrayBuffer());
+    return (await sha256Hex(loaded)) === hash ? loaded : null;
   }
 
   async has(hash: ContentHash): Promise<boolean> {
@@ -515,7 +517,8 @@ export class OpfsAssetStore implements AssetStore {
     try {
       const handle = await root.getFileHandle(this.assetFileName(hash));
       const file = await handle.getFile();
-      return new Uint8Array(await file.arrayBuffer());
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      return (await sha256Hex(bytes)) === hash ? bytes : null;
     } catch {
       return this.fallback.get(hash);
     }

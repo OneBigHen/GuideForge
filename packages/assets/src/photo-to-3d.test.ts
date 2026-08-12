@@ -101,6 +101,31 @@ describe('photo-to-3d job policy', () => {
     expect(job.provenance.cleanupVersion).toBe('blender-safe-cleanup-v1');
   });
 
+  it('persists provider failure such as GPU OOM and permits explicit cancellation', () => {
+    let job = createPhotoTo3DJob({
+      jobId: 'job-oom',
+      sourceHashes: HASHES,
+      providerId: 'tripo-sr',
+      gpuProfileId: 'cuda-8gb',
+      licenseAccepted: true,
+      nowIso: '2026-08-11T00:00:00.000Z',
+    });
+    job = transitionPhotoTo3DJob(job, { type: 'start', nowIso: '2026-08-11T00:01:00.000Z' });
+    job = transitionPhotoTo3DJob(job, {
+      type: 'fail',
+      nowIso: '2026-08-11T00:02:00.000Z',
+      error: 'GPU out of memory',
+    });
+    expect(job.status).toBe('failed');
+    expect(job.error).toBe('GPU out of memory');
+    expect(() =>
+      transitionPhotoTo3DJob(job, { type: 'pause', nowIso: '2026-08-11T00:03:00.000Z' }),
+    ).toThrow(/not resumable/);
+    expect(
+      transitionPhotoTo3DJob(job, { type: 'cancel', nowIso: '2026-08-11T00:04:00.000Z' }).status,
+    ).toBe('cancelled');
+  });
+
   it('returns an argv-only Blender cleanup plan and rejects traversal', () => {
     expect(buildBlenderCleanupPlan({ jobId: 'job-1', draftFilename: 'draft.glb' }).args[0]).toBe(
       '--background',

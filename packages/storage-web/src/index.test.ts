@@ -10,10 +10,12 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 import type { GuideForgeDb, SourceRecord } from './index.js';
 import {
+  loadSourceBytes,
   migrateDexieSourcesToCanonical,
   openDb,
   OpfsAssetStore,
   persistWorkingDoc,
+  storeSourceBytes,
   validateEvidenceRecordSchema,
   validateRuntimeSessionSchema,
 } from './index.js';
@@ -87,6 +89,15 @@ describe('storage-web Dexie metadata', () => {
     expect(sources).toHaveLength(1);
     expect(sources[0]?.sha256).toBe(row.sha256);
     expect(sources[0]?.regions[0]?.contentHash).toHaveLength(64);
+  });
+
+  it('fails closed when a stored source blob is corrupted', async () => {
+    const hash = 'd'.repeat(64) as ContentHash;
+    await db.sourceBlobs.put({ sha256: hash, bytes: new Uint8Array([1, 2, 3]) });
+    expect(await loadSourceBytes(db, hash)).toBeNull();
+    await expect(storeSourceBytes(db, hash, new Uint8Array([1, 2, 3]))).rejects.toThrow(
+      /hash mismatch/,
+    );
   });
 
   it('persists a resumable training session in the v8 store', async () => {
@@ -193,6 +204,12 @@ describe('storage-web OPFS asset store (IndexedDB fallback path)', () => {
     expect(loaded).toEqual(bytes);
   });
 
+  it('fails closed when content-addressed asset bytes are corrupted', async () => {
+    const record = await store.put(new Uint8Array([8, 9, 10]), 'application/octet-stream', 'bin');
+    await db.assetBlobs.put({ hash: record.hash, bytes: new Uint8Array([0]) });
+    expect(await store.get(record.hash)).toBeNull();
+  });
+
   it('deduplicates identical content', async () => {
     const bytes = new Uint8Array([7, 7, 7, 7]);
     const a = await store.put(bytes, 'application/octet-stream', 'bin');
@@ -217,5 +234,27 @@ describe('storage-web OPFS asset store (IndexedDB fallback path)', () => {
     const health = await store.status();
     expect(health.opfsSupported).toBe(false);
     expect(health.quotaWarning).toBe('unknown');
+  });
+
+  it('surfaces near-quota pressure and persistence request results', async () => {
+    const original = navigator.storage;
+    Object.defineProperty(navigator, 'storage', {
+      configurable: true,
+      value: {
+        estimate: () => Promise.resolve({ quota: 1_000, usage: 900 }),
+        persisted: () => Promise.resolve(false),
+        persist: () => Promise.resolve(true),
+      },
+    });
+    try {
+      await expect(store.status()).resolves.toMatchObject({
+        usageRatio: 0.9,
+        quotaWarning: 'near-limit',
+        persistentGranted: false,
+      });
+      await expect(store.requestPersistence()).resolves.toBe(true);
+    } finally {
+      Object.defineProperty(navigator, 'storage', { configurable: true, value: original });
+    }
   });
 });

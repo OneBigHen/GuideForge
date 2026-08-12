@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 test('shared home route renders in browser', async ({ page }, testInfo) => {
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'GuideForge' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Project readiness' })).toBeVisible();
   const project = testInfo.project.name;
   if (project === 'iphone') {
     // Phone width hides the desktop nav; the Menu control is the primary nav.

@@ -39,7 +39,12 @@ import {
   type SourceConflict,
   type TableRegion,
 } from '@guideforge/ingestion';
-import type { ModelGateway, ModelRequest, ModelResponse } from '@guideforge/model-gateway';
+import {
+  validateProviderBaseUrl,
+  type ModelGateway,
+  type ModelRequest,
+  type ModelResponse,
+} from '@guideforge/model-gateway';
 import { createHash } from 'node:crypto';
 
 /**
@@ -392,8 +397,24 @@ export class OpenAiCompatibleVlmProvider implements VlmPageProvider {
   private readonly apiKey: string | undefined;
   private readonly model: string;
 
-  constructor(options: { baseUrl?: string; apiKey?: string; model?: string } = {}) {
-    this.baseUrl = options.baseUrl ?? process.env.VLM_BASE_URL ?? '';
+  constructor(
+    options: {
+      baseUrl?: string;
+      apiKey?: string;
+      model?: string;
+      allowedHosts?: readonly string[];
+    } = {},
+  ) {
+    const configuredBaseUrl = options.baseUrl ?? process.env.VLM_BASE_URL ?? '';
+    const allowedHosts =
+      options.allowedHosts ??
+      (process.env.VLM_ALLOWED_HOSTS ?? '')
+        .split(',')
+        .map((host) => host.trim())
+        .filter(Boolean);
+    this.baseUrl = configuredBaseUrl
+      ? validateProviderBaseUrl(configuredBaseUrl, { allowedHosts, allowLoopback: true })
+      : '';
     this.apiKey = options.apiKey ?? process.env.VLM_API_KEY;
     this.model = options.model ?? process.env.VLM_MODEL ?? 'Qwen2-VL-7B-Instruct';
   }

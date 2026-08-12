@@ -76,32 +76,40 @@ describe('guide store local-first workflow', () => {
   it('assembles a companion-signed personal release without browser key material', async () => {
     const key = generateSigningKeyPair();
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (input, init) => {
-      const path = String(input);
+    globalThis.fetch = (input, init) => {
+      const path =
+        typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (path.endsWith('/api/signing-keys')) {
-        return new Response(
-          JSON.stringify({
-            keys: [{ keyId: 'test-key-1234', publicKeyHex: key.publicKeyHex, status: 'active' }],
-          }),
-          { status: 200, headers: { 'content-type': 'application/json' } },
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              keys: [{ keyId: 'test-key-1234', publicKeyHex: key.publicKeyHex, status: 'active' }],
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
         );
       }
       if (path.endsWith('/api/signing-keys/test-key-1234/sign')) {
-        const body = JSON.parse(String(init?.body)) as { payloadJson: string };
+        if (typeof init?.body !== 'string') throw new Error('expected JSON signing request');
+        const body = JSON.parse(init.body) as { payloadJson: string };
         const signed = signReleasePayload(JSON.parse(body.payloadJson), key.privateKeyHex);
-        return new Response(
-          JSON.stringify({
-            keyId: 'test-key-1234',
-            publicKeyHex: Buffer.from(signed.publicKey).toString('hex'),
-            signatureHex: Buffer.from(signed.signature).toString('hex'),
-          }),
-          { status: 200, headers: { 'content-type': 'application/json' } },
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              keyId: 'test-key-1234',
+              publicKeyHex: Buffer.from(signed.publicKey).toString('hex'),
+              signatureHex: Buffer.from(signed.signature).toString('hex'),
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
         );
       }
-      return new Response(JSON.stringify({ error: 'unexpected companion request' }), {
-        status: 404,
-      });
-    }) as typeof fetch;
+      return Promise.resolve(
+        new Response(JSON.stringify({ error: 'unexpected companion request' }), {
+          status: 404,
+        }),
+      );
+    };
     try {
       const session = await createGuide('Signed personal release');
       const release = await exportPersonalRelease(session, '1.0.0');

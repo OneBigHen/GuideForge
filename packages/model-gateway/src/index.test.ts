@@ -7,6 +7,7 @@ import {
   FakeModelAdapter,
   ModelGateway,
   OpenRouterAdapter,
+  validateProviderBaseUrl,
   type ModelAdapter,
 } from './index.js';
 
@@ -137,6 +138,34 @@ describe('ModelGateway with fake adapter', () => {
     const gateway = new ModelGateway([new DirectModelAdapter('local-llama', true)]);
     const res = await gateway.run(request());
     expect(res.ok).toBe(true);
+  });
+});
+
+describe('provider endpoint SSRF guard', () => {
+  it('allows the documented provider host and canonicalizes its trailing slash', () => {
+    expect(
+      validateProviderBaseUrl('https://api.deepseek.com/', { allowedHosts: ['api.deepseek.com'] }),
+    ).toBe('https://api.deepseek.com');
+  });
+
+  it('rejects non-HTTPS, private, credential-bearing, and unallowlisted endpoints', () => {
+    expect(() =>
+      validateProviderBaseUrl('http://evil.example', { allowedHosts: ['evil.example'] }),
+    ).toThrow(/HTTPS/);
+    expect(() => validateProviderBaseUrl('https://169.254.169.254')).toThrow(/private|allowlisted/);
+    expect(() => validateProviderBaseUrl('https://user:pass@api.deepseek.com')).toThrow(
+      /credentials/,
+    );
+    expect(
+      () => new OpenRouterAdapter({ apiKey: 'test', baseUrl: 'https://evil.example' }),
+    ).toThrow(/allowlisted/);
+  });
+
+  it('keeps loopback available only as an explicit local-provider seam', () => {
+    expect(validateProviderBaseUrl('http://127.0.0.1:11434/', { allowLoopback: true })).toBe(
+      'http://127.0.0.1:11434',
+    );
+    expect(() => validateProviderBaseUrl('http://127.0.0.1:11434')).toThrow(/loopback/);
   });
 });
 

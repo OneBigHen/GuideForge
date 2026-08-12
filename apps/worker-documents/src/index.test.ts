@@ -6,6 +6,7 @@ import {
   hashBytes,
   ingest,
   ingestMultimodal,
+  OpenAiCompatibleVlmProvider,
   ProviderUnavailableError,
   runExtractionPipeline,
   TextSourceConverter,
@@ -51,6 +52,29 @@ describe('worker-documents intake', () => {
       ingest(DEFAULT_INTAKE_POLICY, { ...base, bytes: new Uint8Array(101 * 1024 * 1024) }).verdict
         .reason,
     ).toBe('too large');
+  });
+});
+
+describe('worker-documents provider endpoint SSRF guard', () => {
+  it('allows an explicitly local VLM seam and rejects metadata/private hosts', () => {
+    expect(
+      new OpenAiCompatibleVlmProvider({ baseUrl: 'http://127.0.0.1:11434/v1' }),
+    ).toBeInstanceOf(OpenAiCompatibleVlmProvider);
+    expect(
+      () => new OpenAiCompatibleVlmProvider({ baseUrl: 'https://169.254.169.254/latest' }),
+    ).toThrow(/private|metadata|allowlisted/);
+  });
+
+  it('requires an explicit allowlist for a remote VLM host', () => {
+    expect(() => new OpenAiCompatibleVlmProvider({ baseUrl: 'https://vlm.example/v1' })).toThrow(
+      /allowlisted/,
+    );
+    expect(
+      new OpenAiCompatibleVlmProvider({
+        baseUrl: 'https://vlm.example/v1',
+        allowedHosts: ['vlm.example'],
+      }),
+    ).toBeInstanceOf(OpenAiCompatibleVlmProvider);
   });
 });
 

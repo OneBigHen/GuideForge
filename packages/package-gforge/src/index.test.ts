@@ -331,6 +331,9 @@ describe('package-gforge v2 portability', () => {
     expect(() => sanitizePackageMetadata({ href: 'javascript:alert(1)' })).toThrow(
       /unsafe external resource/,
     );
+    expect(() => sanitizePackageMetadata({ description: '<svg onload="alert(1)">' })).toThrow(
+      /active content/,
+    );
     expect(sanitizePackageMetadata({ title: 'plain text', count: 2 })).toEqual({
       title: 'plain text',
       count: 2,

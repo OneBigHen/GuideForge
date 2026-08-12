@@ -343,13 +343,15 @@ export function sanitizeExternalResource(value: string): string | null {
 export function sanitizePackageMetadata<T>(value: T): T {
   const visit = (input: unknown, key = ''): unknown => {
     if (typeof input === 'string') {
-      if (/(?:<script\b|<iframe\b|<object\b|<embed\b)/i.test(input)) {
-        throw new PackageSafetyError('active content rejected in package metadata');
-      }
       if (/^(?:url|uri|href|src|action|externalurl)$/i.test(key)) {
         const safe = sanitizeExternalResource(input);
         if (!safe) throw new PackageSafetyError(`unsafe external resource: ${input}`);
         return safe;
+      }
+      if (
+        /(?:<script\b|<iframe\b|<object\b|<embed\b|<svg\b|on[a-z]+\s*=|javascript:)/i.test(input)
+      ) {
+        throw new PackageSafetyError('active content rejected in package metadata');
       }
       return input;
     }

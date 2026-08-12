@@ -114,6 +114,21 @@ describe('sourceStudio (Phase 05)', () => {
     expect(res.source.mediaSegments).toHaveLength(0);
   });
 
+  it('keeps HTML and SVG source bytes inert until a trusted converter handles them', async () => {
+    const s = studio();
+    for (const [filename, bytes] of [
+      ['hostile.html', new TextEncoder().encode('<script>alert(1)</script>')],
+      ['hostile.svg', new TextEncoder().encode('<svg onload="alert(1)" />')],
+    ] as const) {
+      const res = await addSource(s, { guideId: uniqueGuide(), originalFilename: filename, bytes });
+      expect(res.source.status).toBe('failed');
+      expect(res.source.regions).toHaveLength(0);
+      expect(Array.from((await s.assets.get(await sha256Hex(bytes))) ?? [])).toEqual(
+        Array.from(bytes),
+      );
+    }
+  });
+
   it('cancellation token aborts ingestion with partial results', async () => {
     const s = studio();
     const token = makeCancellationToken();
