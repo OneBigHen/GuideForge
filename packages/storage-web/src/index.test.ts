@@ -14,6 +14,8 @@ import {
   openDb,
   OpfsAssetStore,
   persistWorkingDoc,
+  validateEvidenceRecordSchema,
+  validateRuntimeSessionSchema,
 } from './index.js';
 
 // fake-indexeddb ships its own structuredClone + IDB; Node's webcrypto is the
@@ -124,10 +126,34 @@ describe('storage-web Dexie metadata', () => {
     });
     await db.runtimeSessions.put(runtime);
     expect(await db.runtimeSessions.get(runtime.sessionId)).toMatchObject({
-      runtimeVersion: 1,
+      runtimeVersion: 2,
       guideId: GUIDE_ID,
       status: 'in-progress',
     });
+  });
+
+  it('enforces checked-in schemas at the storage boundary', () => {
+    const note = {
+      evidenceId: 'evidence-1',
+      guideId: GUIDE_ID,
+      stepId: 'step-1',
+      kind: 'note',
+      capturedAtIso: '2026-01-01T00:00:00.000Z',
+      actorId: 'local-user',
+      value: 'Observed',
+    };
+    expect(validateEvidenceRecordSchema(note)).toBe(true);
+    expect(validateEvidenceRecordSchema({ ...note, unexpected: true })).toBe(false);
+    expect(validateEvidenceRecordSchema({ ...note, capturedAtIso: '2026-01-01' })).toBe(false);
+    const runtime = createRuntimeSession({
+      sessionId: 'runtime-schema',
+      guideId: GUIDE_ID,
+      learnerId: 'learner-1',
+      stepIds: ['step-1'],
+      nowIso: '2026-01-01T00:00:00.000Z',
+    });
+    expect(validateRuntimeSessionSchema(runtime)).toBe(true);
+    expect(validateRuntimeSessionSchema({ ...runtime, unexpected: true })).toBe(false);
   });
 });
 

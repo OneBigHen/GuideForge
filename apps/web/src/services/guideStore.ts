@@ -29,7 +29,7 @@ import {
   createRuntimeCompletionRule,
   createRuntimeSession,
   isGuideSnapshot,
-  isRuntimeSession,
+  migrateRuntimeSession,
   migrateToCurrent,
   recordRuntimeEvidence,
   startTrainingSession,
@@ -59,7 +59,9 @@ import {
   openDb,
   OpfsAssetStore,
   persistWorkingDoc,
-  storeSourceBytes,
+  validateEvidenceRecordSchema,
+  validateRuntimeCompletionReportSchema,
+  validateRuntimeSessionSchema,
   type AiProposalRecord,
   type AssetMetaRecord,
   type EvidenceRecord,
@@ -555,7 +557,7 @@ export async function removePart(
 // Execution evidence (stored in Dexie; offline-first)
 // ---------------------------------------------------------------------------
 
-export interface EvidenceInput {
+interface EvidenceInput {
   guideId: string;
   stepId: string;
   kind: 'photo' | 'note' | 'signature' | 'measurement';
@@ -588,13 +590,6 @@ function buildEvidenceRecord(
   return record;
 }
 
-export async function addEvidence(input: EvidenceInput): Promise<string> {
-  const evidenceId = uuidv4();
-  const record = buildEvidenceRecord(input, evidenceId);
-  await db().evidence.put(record);
-  return evidenceId;
-}
-
 export async function listEvidence(guideId: string): Promise<EvidenceRecord[]> {
   return db().evidence.where('guideId').equals(guideId).reverse().sortBy('capturedAtIso');
 }
@@ -607,6 +602,7 @@ const EVIDENCE_KINDS = new Set<EvidenceRecord['kind']>([
 ]);
 
 function isEvidenceRecord(value: unknown): value is EvidenceRecord {
+  if (!validateEvidenceRecordSchema(value)) return false;
   if (!value || typeof value !== 'object') return false;
   const record = value as Record<string, unknown>;
   if (!(
@@ -763,6 +759,9 @@ async function persistRuntimeSession(
   session: OpenGuideSession,
   runtime: RuntimeSession,
 ): Promise<void> {
+  if (!validateRuntimeSessionSchema(runtime)) {
+    throw new Error('runtime session does not match the checked-in schema');
+  }
   const blob = {
     id: `${session.guideId}:session-${runtime.sessionId}`,
     guideId: session.guideId,
@@ -795,7 +794,12 @@ export async function loadRuntimeSession(
     .filter((candidate) => candidate.learnerId === learnerId)
     .sortBy('updatedAtIso');
   const current = existing[existing.length - 1];
-  if (current && JSON.stringify(current.stepIds) === JSON.stringify(stepIds)) return current;
+  if (current && JSON.stringify(current.stepIds) === JSON.stringify(stepIds)) {
+    if (!validateRuntimeSessionSchema(current)) {
+      throw new Error('stored runtime session does not match the checked-in schema');
+    }
+    return current;
+  }
   const runtime = createRuntimeSession({
     sessionId: uuidv4(),
     guideId: session.guideId,
@@ -813,7 +817,16 @@ async function addRuntimeEvidence(
   input: EvidenceInput,
 ): Promise<{ evidenceId: string; runtime: RuntimeSession }> {
   const nowIso = new Date().toISOString();
-  const active = beginRuntimeStep(runtime, input.stepId, uuidv4(), nowIso);
+  const snapshot = materializeSnapshot(session.working);
+  const step = snapshot.steps.find((candidate) => candidate.stepId === input.stepId);
+  if (!step) throw new Error(`unknown guide step: ${input.stepId}`);
+  const active = beginRuntimeStep(
+    runtime,
+    input.stepId,
+    uuidv4(),
+    nowIso,
+    step.verification.map((verification) => verification.verificationId),
+  );
   const evidenceId = uuidv4();
   const record = buildEvidenceRecord(input, evidenceId, nowIso);
   const next = recordRuntimeEvidence(active, input.stepId, evidenceId, nowIso);
@@ -976,7 +989,14 @@ export async function completeRuntimeStepForGuide(
   const snapshot = materializeSnapshot(session.working);
   const step = snapshot.steps.find((candidate) => candidate.stepId === stepId);
   if (!step) throw new Error(`unknown guide step: ${stepId}`);
-  const active = beginRuntimeStep(runtime, stepId, uuidv4(), new Date().toISOString());
+  const verificationIds = step.verification.map((verification) => verification.verificationId);
+  const active = beginRuntimeStep(
+    runtime,
+    stepId,
+    uuidv4(),
+    new Date().toISOString(),
+    verificationIds,
+  );
   const attempt = active.attempts.find(
     (candidate) => candidate.stepId === stepId && candidate.status === 'in-progress',
   );
@@ -1010,7 +1030,7 @@ export async function completeRuntimeStepForGuide(
     completionId: uuidv4(),
     completedBy: 'local-user',
     evidence: evidence.map((record) => ({ evidenceId: record.evidenceId, kind: record.kind })),
-    rule: createRuntimeCompletionRule(step.verification.length),
+    rule: createRuntimeCompletionRule(verificationIds),
     nowIso: new Date().toISOString(),
   });
   await persistRuntimeSession(session, next);
@@ -1045,6 +1065,9 @@ export async function exportRuntimeCompletionReport(
     })),
     exportedAtIso: new Date().toISOString(),
   });
+  if (!validateRuntimeCompletionReportSchema(report)) {
+    throw new Error('completion report does not match the checked-in schema');
+  }
   await session.db.reports.put({
     id: `${session.guideId}:reports/runtime-completion-${runtime.sessionId}.json`,
     guideId: session.guideId,
@@ -1485,29 +1508,80 @@ export async function importDraft(bytes: Uint8Array): Promise<ImportDraftResult>
     (candidate) => candidate.path.startsWith('session-') && candidate.extension === 'json',
   )) {
     const parsed = parsePackageJson(file.entry.data, `runtime/evidence/${file.path}.json`);
-    if (!isRuntimeSession(parsed) || parsed.guideId !== snapshot.guideId) {
+    const migratedRuntime = migrateRuntimeSession(parsed);
+    if (
+      !migratedRuntime ||
+      !validateRuntimeSessionSchema(migratedRuntime) ||
+      migratedRuntime.guideId !== snapshot.guideId
+    ) {
       throw new Error(`import: invalid runtime session ${file.path}`);
     }
-    importedRuntimeSessions.push(parsed);
+    importedRuntimeSessions.push(migratedRuntime);
   }
   const importedSessionIds = new Set(importedRuntimeSessions.map((session) => session.sessionId));
+  const canonicalStepIds = flattenStepIds(snapshot);
+  const canonicalStepIdSet = new Set(canonicalStepIds);
+  const referencedEvidenceIds = new Set<string>();
   for (const runtime of importedRuntimeSessions) {
+    if (
+      JSON.stringify(runtime.stepIds) !== JSON.stringify(canonicalStepIds) ||
+      runtime.stepIds.some((stepId) => !canonicalStepIdSet.has(stepId))
+    ) {
+      throw new Error(`import: runtime step IDs do not match guide ${runtime.sessionId}`);
+    }
     for (const attempt of runtime.attempts) {
       for (const evidenceId of attempt.evidenceIds) {
         const record = evidenceById.get(evidenceId);
+        referencedEvidenceIds.add(evidenceId);
         if (record?.stepId !== attempt.stepId) {
           throw new Error(`import: runtime evidence provenance mismatch ${evidenceId}`);
         }
       }
     }
     for (const completion of runtime.completions) {
+      const completionEvidence = new Set(completion.evidenceIds);
+      if (completion.evidenceIds.length < completion.rule.minimumEvidenceCount) {
+        throw new Error(`import: completion evidence count mismatch ${completion.completionId}`);
+      }
+      if (
+        completion.rule.verificationIds.length !== completion.rule.verificationCount ||
+        completion.verificationEvidence.length !== completion.rule.verificationIds.length ||
+        completion.rule.verificationIds.some(
+          (verificationId) =>
+            !completion.verificationEvidence.some(
+              (mapping) =>
+                mapping.verificationId === verificationId && mapping.evidenceIds.length > 0,
+            ),
+        )
+      ) {
+        throw new Error(
+          `import: completion verification mapping mismatch ${completion.completionId}`,
+        );
+      }
       for (const evidenceId of completion.evidenceIds) {
         const record = evidenceById.get(evidenceId);
-        if (record?.stepId !== completion.stepId) {
+        referencedEvidenceIds.add(evidenceId);
+        if (
+          record?.stepId !== completion.stepId ||
+          !completion.rule.allowedEvidenceKinds.includes(record?.kind ?? 'photo')
+        ) {
           throw new Error(`import: completion evidence provenance mismatch ${evidenceId}`);
         }
       }
+      for (const mapping of completion.verificationEvidence) {
+        if (mapping.evidenceIds.some((evidenceId) => !completionEvidence.has(evidenceId))) {
+          throw new Error(
+            `import: completion verification evidence mismatch ${completion.completionId}`,
+          );
+        }
+      }
     }
+  }
+  if (evidence.some((record) => !canonicalStepIdSet.has(record.stepId))) {
+    throw new Error('import: evidence references a step missing from guide.json');
+  }
+  if (evidence.some((record) => !referencedEvidenceIds.has(record.evidenceId))) {
+    throw new Error('import: orphan runtime evidence is not attached to an attempt');
   }
   for (const record of evidence.filter((candidate) => candidate.kind === 'signature')) {
     if (!record.assetHash || !record.attestation) {
@@ -1605,57 +1679,19 @@ export async function importDraft(bytes: Uint8Array): Promise<ImportDraftResult>
     if (!reportPaths.has(row.path)) throw new Error(`import: unlisted report ${row.path}`);
   }
 
-  const store = new OpfsAssetStore(db());
-  for (const { entry, hash, extension } of packageAssets) {
-    await store.put(entry.data, packageAssetMimeType(extension), extension);
-    const restored = await store.get(hash as ContentHash);
-    if (!restored || (await webSha256(restored)) !== hash)
-      throw new Error(`import: asset restore failed ${hash}`);
-  }
-  for (const source of sourceBytes) await storeSourceBytes(db(), source.sha256, source.bytes);
-
   const guideId = snapshot.guideId;
   const working = createEmptyWorkingGuide();
   const persistence = persistWorkingDoc(working.doc, guideId);
-  await persistence.synced;
-  seedEmptyWorkingGuide(working, guideId, snapshot.title);
-  hydrateWorkingGuide(working, snapshot);
-
-  await db().guides.put({
-    guideId,
-    title: snapshot.title,
-    description: snapshot.description,
-    lifecycleState: snapshot.lifecycleState,
-    createdAtIso: snapshot.createdAtIso,
-    updatedAtIso: snapshot.updatedAtIso,
-    taskCount: snapshot.tasks.length,
-    stepCount: snapshot.tasks.reduce((n, t) => n + t.stepIds.length, 0),
-    docName: guideId,
-  });
-  if (evidence.length > 0) await db().evidence.bulkPut(evidence);
-  if (reportRows.length > 0) {
-    await db().reports.bulkPut([
-      ...reportRows.map(({ path, report }) => ({
-        id: `${guideId}:${path}`,
-        guideId,
-        path,
-        report,
-      })),
-      {
-        id: `${guideId}:reports/restore.json`,
-        guideId,
-        path: 'reports/restore.json',
-        report: {
-          format: 'gforge-restore',
-          manifestVersion: manifest.version,
-          targetSchemaVersion: snapshot.schemaVersion,
-          warnings,
-          restoredAtIso: new Date().toISOString(),
-        },
-      },
-    ]);
-  } else {
-    await db().reports.put({
+  const store = new OpfsAssetStore(db());
+  const stagedAssetHashes: ContentHash[] = [];
+  const restoredReports = [
+    ...reportRows.map(({ path, report }) => ({
+      id: `${guideId}:${path}`,
+      guideId,
+      path,
+      report,
+    })),
+    {
       id: `${guideId}:reports/restore.json`,
       guideId,
       path: 'reports/restore.json',
@@ -1666,20 +1702,75 @@ export async function importDraft(bytes: Uint8Array): Promise<ImportDraftResult>
         warnings,
         restoredAtIso: new Date().toISOString(),
       },
-    });
-  }
-  if (runtimeFiles.length > 0) {
-    await db().runtimeBlobs.bulkPut(
-      runtimeFiles.map(({ entry, path, extension }) => ({
-        id: `${guideId}:${path}`,
-        guideId,
-        path,
-        bytes: entry.data.slice(),
-        mimeType: packageAssetMimeType(extension),
-        extension,
-      })),
+    },
+  ];
+  const restoredRuntimeBlobs = runtimeFiles.map(({ entry, path, extension }) => ({
+    id: `${guideId}:${path}`,
+    guideId,
+    path,
+    bytes: entry.data.slice(),
+    mimeType: packageAssetMimeType(extension),
+    extension,
+  }));
+  try {
+    // Yjs is staged first. If the metadata transaction fails, clearData removes
+    // the otherwise orphaned document before the staged assets are reclaimed.
+    await persistence.synced;
+    seedEmptyWorkingGuide(working, guideId, snapshot.title);
+    hydrateWorkingGuide(working, snapshot);
+
+    for (const { entry, hash, extension } of packageAssets) {
+      const existed = await store.has(hash as ContentHash);
+      await store.put(entry.data, packageAssetMimeType(extension), extension);
+      const restored = await store.get(hash as ContentHash);
+      if (!restored || (await webSha256(restored)) !== hash) {
+        throw new Error(`import: asset restore failed ${hash}`);
+      }
+      if (!existed) stagedAssetHashes.push(hash as ContentHash);
+    }
+
+    await db().transaction(
+      'rw',
+      [
+        db().guides,
+        db().sourceBlobs,
+        db().evidence,
+        db().reports,
+        db().runtimeBlobs,
+        db().runtimeSessions,
+      ],
+      async () => {
+        await db().sourceBlobs.bulkPut(sourceBytes);
+        await db().guides.put({
+          guideId,
+          title: snapshot.title,
+          description: snapshot.description,
+          lifecycleState: snapshot.lifecycleState,
+          createdAtIso: snapshot.createdAtIso,
+          updatedAtIso: snapshot.updatedAtIso,
+          taskCount: snapshot.tasks.length,
+          stepCount: snapshot.tasks.reduce((n, t) => n + t.stepIds.length, 0),
+          docName: guideId,
+        });
+        if (evidence.length > 0) await db().evidence.bulkPut(evidence);
+        await db().reports.bulkPut(restoredReports);
+        if (restoredRuntimeBlobs.length > 0) {
+          await db().runtimeBlobs.bulkPut(restoredRuntimeBlobs);
+        }
+        if (importedRuntimeSessions.length > 0) {
+          await db().runtimeSessions.bulkPut(importedRuntimeSessions);
+        }
+      },
     );
-    for (const runtime of importedRuntimeSessions) await db().runtimeSessions.put(runtime);
+  } catch (error) {
+    await persistence.provider.clearData().catch(() => undefined);
+    working.doc.destroy();
+    const cleanup = await Promise.allSettled(stagedAssetHashes.map((hash) => store.remove(hash)));
+    const cleanupFailure = cleanup.find((result) => result.status === 'rejected');
+    if (cleanupFailure) {
+      throw new Error('staged asset cleanup failed', { cause: error });
+    }
+    throw error;
   }
   await persistence.provider.destroy();
   working.doc.destroy();

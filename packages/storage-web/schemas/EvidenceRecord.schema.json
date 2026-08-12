@@ -40,19 +40,65 @@
   "allOf": [
     {
       "if": { "properties": { "kind": { "const": "photo" } } },
-      "then": { "required": ["assetHash", "mimeType"] }
+      "then": {
+        "required": ["assetHash", "mimeType"],
+        "properties": {
+          "assetHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "mimeType": { "enum": ["image/jpeg", "image/png", "image/webp"] }
+        },
+        "not": {
+          "anyOf": [
+            { "required": ["measurement"], "properties": { "measurement": {} } },
+            { "required": ["attestation"], "properties": { "attestation": {} } }
+          ]
+        }
+      }
     },
     {
       "if": { "properties": { "kind": { "const": "note" } } },
-      "then": { "required": ["value"] }
+      "then": {
+        "required": ["value"],
+        "properties": { "value": { "type": "string" } },
+        "not": {
+          "anyOf": [
+            { "required": ["assetHash"], "properties": { "assetHash": {} } },
+            { "required": ["mimeType"], "properties": { "mimeType": {} } },
+            { "required": ["measurement"], "properties": { "measurement": {} } },
+            { "required": ["attestation"], "properties": { "attestation": {} } }
+          ]
+        }
+      }
     },
     {
       "if": { "properties": { "kind": { "const": "measurement" } } },
-      "then": { "required": ["value", "measurement"] }
+      "then": {
+        "required": ["value", "measurement"],
+        "properties": {
+          "value": { "type": "string" },
+          "measurement": { "$ref": "#/properties/measurement" }
+        },
+        "not": {
+          "anyOf": [
+            { "required": ["assetHash"], "properties": { "assetHash": {} } },
+            { "required": ["mimeType"], "properties": { "mimeType": {} } },
+            { "required": ["attestation"], "properties": { "attestation": {} } }
+          ]
+        }
+      }
     },
     {
       "if": { "properties": { "kind": { "const": "signature" } } },
-      "then": { "required": ["assetHash", "mimeType", "attestation"] }
+      "then": {
+        "required": ["assetHash", "mimeType", "attestation"],
+        "properties": {
+          "assetHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "mimeType": { "const": "application/json" },
+          "attestation": { "$ref": "#/properties/attestation" }
+        },
+        "not": {
+          "anyOf": [{ "required": ["measurement"], "properties": { "measurement": {} } }]
+        }
+      }
     }
   ],
   "additionalProperties": false

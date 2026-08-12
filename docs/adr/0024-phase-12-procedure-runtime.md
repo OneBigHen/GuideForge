@@ -25,9 +25,13 @@ evidence. The player uses the service-worker shell plus local storage so a
 reload can resume without a network connection.
 
 The persisted implementation is pinned by the repository lockfile to Dexie
-4.4.4 and y-indexeddb 9.0.12. Dexie transactions cover evidence,
-runtime-session, and runtime-blob metadata writes; runtime JSON is deeply
-validated before restore and the v10 table has a storage conformance test.
+4.4.4, y-indexeddb 9.0.12, and Ajv 8.20.0. Dexie v11 migrations convert the
+v1 runtime session shape to runtime version 2. Ajv Draft 2020-12 validation
+and domain guards cover evidence, runtime sessions, and completion reports;
+runtime imports additionally enforce canonical step IDs, evidence existence
+and provenance, authored verification mappings, and minimum counts. Restore
+stages content-addressed assets and commits metadata in one Dexie transaction,
+with cleanup on failure. The v11 table has a storage conformance test.
 Browser API behavior follows the official [Dexie transaction
 documentation](https://dexie.org/docs/Dexie/Dexie.transaction), [MDN
 SubtleCrypto documentation](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto),

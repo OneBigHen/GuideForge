@@ -1,6 +1,7 @@
 /** Offline procedure execution state. No browser, storage, or provider imports. */
 
-export const EXECUTION_RUNTIME_VERSION = 1 as const;
+export const EXECUTION_RUNTIME_VERSION = 2 as const;
+export const LEGACY_EXECUTION_RUNTIME_VERSION = 1 as const;
 
 export type RuntimeEvidenceKind = 'photo' | 'note' | 'signature' | 'measurement';
 
@@ -22,7 +23,13 @@ export interface RuntimeCompletionRule {
   minimumEvidenceCount: number;
   allowedEvidenceKinds: RuntimeEvidenceKind[];
   verificationCount: number;
+  verificationIds: string[];
   requiresExplicitAction: true;
+}
+
+export interface RuntimeVerificationEvidence {
+  verificationId: string;
+  evidenceIds: string[];
 }
 
 export interface StepAttempt {
@@ -32,6 +39,7 @@ export interface StepAttempt {
   updatedAtIso: string;
   status: 'in-progress' | 'completed';
   evidenceIds: string[];
+  verificationEvidence: RuntimeVerificationEvidence[];
 }
 
 export interface StepCompletion {
@@ -41,6 +49,7 @@ export interface StepCompletion {
   completedAtIso: string;
   completedBy: string;
   evidenceIds: string[];
+  verificationEvidence: RuntimeVerificationEvidence[];
   rule: RuntimeCompletionRule;
 }
 
@@ -101,14 +110,26 @@ export interface RuntimeCompletionReport {
 
 const ALLOWED_EVIDENCE_KINDS: RuntimeEvidenceKind[] = ['photo', 'note', 'signature', 'measurement'];
 
-export function createRuntimeCompletionRule(verificationCount = 0): RuntimeCompletionRule {
-  const normalizedVerificationCount = Number.isInteger(verificationCount)
-    ? Math.max(0, verificationCount)
-    : 0;
+export function createRuntimeCompletionRule(
+  verificationIdsOrCount: readonly string[] | number = [],
+): RuntimeCompletionRule {
+  const verificationIds =
+    typeof verificationIdsOrCount === 'number'
+      ? Array.from(
+          {
+            length: Number.isInteger(verificationIdsOrCount)
+              ? Math.max(0, verificationIdsOrCount)
+              : 0,
+          },
+          (_, index) => `verification-${index + 1}`,
+        )
+      : normalizeIds(verificationIdsOrCount);
+  const normalizedVerificationCount = verificationIds.length;
   return {
     minimumEvidenceCount: Math.max(1, normalizedVerificationCount),
     allowedEvidenceKinds: [...ALLOWED_EVIDENCE_KINDS],
     verificationCount: normalizedVerificationCount,
+    verificationIds,
     requiresExplicitAction: true,
   };
 }
@@ -141,18 +162,36 @@ export function beginRuntimeStep(
   stepId: string,
   attemptId: string,
   nowIso: string,
+  verificationIds: readonly string[] = [],
 ): RuntimeSession {
   if (session.status === 'completed') return session;
   if (session.stepIds[session.currentStepIndex] !== stepId) {
     throw new Error(`cannot begin non-current step: ${stepId}`);
   }
   if (session.completions.some((completion) => completion.stepId === stepId)) return session;
-  if (
-    session.attempts.some(
-      (attempt) => attempt.stepId === stepId && attempt.status === 'in-progress',
-    )
-  ) {
-    return session;
+  const existing = session.attempts.find(
+    (attempt) => attempt.stepId === stepId && attempt.status === 'in-progress',
+  );
+  const normalizedVerificationIds = normalizeIds(verificationIds);
+  if (existing) {
+    if (normalizedVerificationIds.length === 0) return session;
+    const mappedIds = new Set(existing.verificationEvidence.map((item) => item.verificationId));
+    const nextVerificationEvidence = [
+      ...existing.verificationEvidence,
+      ...normalizedVerificationIds
+        .filter((verificationId) => !mappedIds.has(verificationId))
+        .map((verificationId) => ({ verificationId, evidenceIds: [] })),
+    ];
+    if (nextVerificationEvidence.length === existing.verificationEvidence.length) return session;
+    return {
+      ...session,
+      attempts: session.attempts.map((attempt) =>
+        attempt.attemptId === existing.attemptId
+          ? { ...attempt, verificationEvidence: nextVerificationEvidence, updatedAtIso: nowIso }
+          : attempt,
+      ),
+      updatedAtIso: nowIso,
+    };
   }
   return {
     ...session,
@@ -165,6 +204,10 @@ export function beginRuntimeStep(
         updatedAtIso: nowIso,
         status: 'in-progress',
         evidenceIds: [],
+        verificationEvidence: normalizedVerificationIds.map((verificationId) => ({
+          verificationId,
+          evidenceIds: [],
+        })),
       },
     ],
     updatedAtIso: nowIso,
@@ -176,12 +219,26 @@ export function recordRuntimeEvidence(
   stepId: string,
   evidenceId: string,
   nowIso: string,
+  verificationId?: string,
 ): RuntimeSession {
   const attempt = session.attempts.find(
     (candidate) => candidate.stepId === stepId && candidate.status === 'in-progress',
   );
   if (!attempt) throw new Error(`no active attempt for step: ${stepId}`);
   if (attempt.evidenceIds.includes(evidenceId)) return session;
+  const targetVerificationId =
+    verificationId ??
+    attempt.verificationEvidence.find((item) => item.evidenceIds.length === 0)?.verificationId ??
+    attempt.verificationEvidence[0]?.verificationId;
+  if (attempt.verificationEvidence.length > 0 && !targetVerificationId) {
+    throw new Error('all verification checks already have evidence');
+  }
+  if (
+    targetVerificationId &&
+    !attempt.verificationEvidence.some((item) => item.verificationId === targetVerificationId)
+  ) {
+    throw new Error(`unknown verification check: ${targetVerificationId}`);
+  }
   return {
     ...session,
     attempts: session.attempts.map((candidate) =>
@@ -189,6 +246,13 @@ export function recordRuntimeEvidence(
         ? {
             ...candidate,
             evidenceIds: [...candidate.evidenceIds, evidenceId],
+            verificationEvidence: targetVerificationId
+              ? candidate.verificationEvidence.map((item) =>
+                  item.verificationId === targetVerificationId
+                    ? { ...item, evidenceIds: [...item.evidenceIds, evidenceId] }
+                    : item,
+                )
+              : candidate.verificationEvidence,
             updatedAtIso: nowIso,
           }
         : candidate,
@@ -241,6 +305,21 @@ export function completeRuntimeStep(input: {
   }
   const decision = evaluateRuntimeCompletion(input.rule, input.evidence);
   if (!decision.ok) throw new Error(decision.reason ?? 'step completion rejected');
+  if (input.rule.verificationIds.length > 0) {
+    const completionEvidence = new Set(completionEvidenceIds);
+    const mappings = new Map(
+      attempt.verificationEvidence.map((item) => [item.verificationId, item.evidenceIds]),
+    );
+    for (const verificationId of input.rule.verificationIds) {
+      const mappedEvidenceIds = mappings.get(verificationId) ?? [];
+      if (
+        mappedEvidenceIds.length === 0 ||
+        mappedEvidenceIds.some((evidenceId) => !completionEvidence.has(evidenceId))
+      ) {
+        throw new Error(`verification check is missing evidence: ${verificationId}`);
+      }
+    }
+  }
 
   const nextIndex = Math.min(session.stepIds.length, session.currentStepIndex + 1);
   const completed = nextIndex >= session.stepIds.length;
@@ -261,6 +340,10 @@ export function completeRuntimeStep(input: {
         completedAtIso: input.nowIso,
         completedBy: input.completedBy,
         evidenceIds: input.evidence.map((item) => item.evidenceId),
+        verificationEvidence: attempt.verificationEvidence.map((item) => ({
+          verificationId: item.verificationId,
+          evidenceIds: [...item.evidenceIds],
+        })),
         rule: input.rule,
       },
     ],
@@ -377,8 +460,55 @@ export function isRuntimeSession(value: unknown): value is RuntimeSession {
   return false;
 }
 
+/** Upgrade the v1 runtime without inventing authored verification evidence. */
+export function migrateRuntimeSession(value: unknown): RuntimeSession | null {
+  if (isRuntimeSession(value)) return value;
+  if (!value || typeof value !== 'object') return null;
+  const legacy = value as Record<string, unknown>;
+  if (
+    legacy.runtimeVersion !== LEGACY_EXECUTION_RUNTIME_VERSION ||
+    !Array.isArray(legacy.stepIds) ||
+    !Array.isArray(legacy.attempts) ||
+    !Array.isArray(legacy.completions)
+  ) {
+    return null;
+  }
+  const attempts = (legacy.attempts as unknown[]).map((attempt) => {
+    if (!attempt || typeof attempt !== 'object') return null;
+    return { ...(attempt as Record<string, unknown>), verificationEvidence: [] };
+  });
+  const completions = (legacy.completions as unknown[]).map((completion) => {
+    if (!completion || typeof completion !== 'object') return null;
+    const record = completion as Record<string, unknown>;
+    return {
+      ...record,
+      verificationEvidence: [],
+      rule: {
+        ...(record.rule && typeof record.rule === 'object'
+          ? (record.rule as Record<string, unknown>)
+          : {}),
+        minimumEvidenceCount: 1,
+        verificationCount: 0,
+        verificationIds: [],
+        requiresExplicitAction: true,
+      },
+    };
+  });
+  const migrated = {
+    ...legacy,
+    runtimeVersion: EXECUTION_RUNTIME_VERSION,
+    attempts,
+    completions,
+  };
+  return isRuntimeSession(migrated) ? migrated : null;
+}
+
 function isIsoDate(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0 && !Number.isNaN(Date.parse(value));
+  return (
+    typeof value === 'string' &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) &&
+    !Number.isNaN(Date.parse(value))
+  );
 }
 
 function isStepAttempt(value: unknown, stepIds: ReadonlySet<string>): value is StepAttempt {
@@ -396,7 +526,9 @@ function isStepAttempt(value: unknown, stepIds: ReadonlySet<string>): value is S
     new Set(record.evidenceIds).size === record.evidenceIds.length &&
     record.evidenceIds.every(
       (evidenceId) => typeof evidenceId === 'string' && evidenceId.length > 0,
-    )
+    ) &&
+    Array.isArray(record.verificationEvidence) &&
+    isVerificationEvidence(record.verificationEvidence, new Set(record.evidenceIds))
   );
 }
 
@@ -416,9 +548,41 @@ function isRuntimeCompletionRule(value: unknown): value is RuntimeCompletionRule
     typeof verificationCount === 'number' &&
     Number.isInteger(verificationCount) &&
     verificationCount >= 0 &&
+    Array.isArray(record.verificationIds) &&
+    record.verificationIds.every(
+      (verificationId) => typeof verificationId === 'string' && verificationId.length > 0,
+    ) &&
+    new Set(record.verificationIds).size === record.verificationIds.length &&
+    record.verificationIds.length === verificationCount &&
     minimumEvidenceCount === Math.max(1, verificationCount) &&
     record.requiresExplicitAction === true
   );
+}
+
+function isVerificationEvidence(
+  value: unknown,
+  evidenceIds: ReadonlySet<string>,
+): value is RuntimeVerificationEvidence[] {
+  if (!Array.isArray(value)) return false;
+  const verificationIds = new Set<string>();
+  return value.every((item) => {
+    if (!item || typeof item !== 'object') return false;
+    const record = item as Record<string, unknown>;
+    if (
+      typeof record.verificationId !== 'string' ||
+      record.verificationId.length === 0 ||
+      verificationIds.has(record.verificationId) ||
+      !Array.isArray(record.evidenceIds) ||
+      new Set(record.evidenceIds).size !== record.evidenceIds.length ||
+      !record.evidenceIds.every(
+        (evidenceId) => typeof evidenceId === 'string' && evidenceIds.has(evidenceId),
+      )
+    ) {
+      return false;
+    }
+    verificationIds.add(record.verificationId);
+    return true;
+  });
 }
 
 function isStepCompletion(
@@ -436,6 +600,10 @@ function isStepCompletion(
       (candidate as Record<string, unknown>).attemptId === record.attemptId,
   ) as StepAttempt | undefined;
   const evidenceIds = Array.isArray(record.evidenceIds) ? record.evidenceIds : [];
+  const rule = isRuntimeCompletionRule(record.rule) ? record.rule : null;
+  const verificationEvidence = Array.isArray(record.verificationEvidence)
+    ? record.verificationEvidence
+    : null;
   return (
     typeof record.completionId === 'string' &&
     record.completionId.length > 0 &&
@@ -449,9 +617,24 @@ function isStepCompletion(
     typeof record.completedBy === 'string' &&
     record.completedBy.length > 0 &&
     new Set(evidenceIds).size === evidenceIds.length &&
+    evidenceIds.length >= (rule?.minimumEvidenceCount ?? Number.MAX_SAFE_INTEGER) &&
     evidenceIds.every(
       (evidenceId) => typeof evidenceId === 'string' && attempt.evidenceIds.includes(evidenceId),
     ) &&
-    isRuntimeCompletionRule(record.rule)
+    rule !== null &&
+    verificationEvidence !== null &&
+    isVerificationEvidence(verificationEvidence, new Set(evidenceIds)) &&
+    new Set(verificationEvidence.map((item) => item.verificationId)).size ===
+      rule.verificationIds.length &&
+    verificationEvidence.every((item) => rule.verificationIds.includes(item.verificationId)) &&
+    (rule.verificationIds.length === 0 ||
+      rule.verificationIds.every((verificationId) => {
+        const mapping = verificationEvidence.find((item) => item.verificationId === verificationId);
+        return mapping !== undefined && mapping.evidenceIds.length > 0;
+      }))
   );
+}
+
+function normalizeIds(ids: readonly string[]): string[] {
+  return [...new Set(ids.filter((id) => id.length > 0))];
 }

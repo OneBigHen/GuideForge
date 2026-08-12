@@ -12,8 +12,9 @@ progress, offline reload/resume, and a JSON completion report export.
 - `packages/guide-schema/src/execution-runtime.ts` defines versioned
   `RuntimeSession`, `StepAttempt`, `StepCompletion`, explicit evidence rules,
   progress, and completion-report projections.
-- Dexie v10 persists runtime sessions; checked-in JSON Schemas cover runtime
-  sessions and the expanded evidence record.
+- Dexie v11 persists runtime sessions; checked-in Draft 2020-12 JSON Schemas
+  plus Ajv validation cover runtime sessions, completion reports, and evidence.
+  The v10 runtime format migrates to runtime version 2 before use.
 - The player uses the native `capture="environment"` photo input, the existing
   content-addressed store, and the existing metadata sanitizer before storing
   a photo evidence hash.
@@ -27,15 +28,15 @@ progress, offline reload/resume, and a JSON completion report export.
 
 | Check                       | Result                                                                                                                                                                                                                    |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Runtime state-machine tests | `pnpm --filter @guideforge/guide-schema test`: 19 passed across 3 files; active-attempt, authored-check, and deep-state rejection covered                                                                                 |
+| Runtime state-machine tests | `pnpm --filter @guideforge/guide-schema test`: 21 passed across 3 files; active-attempt, authored-check mapping, v1 migration, and deep-state rejection covered |
 | Guide store runtime test    | `pnpm --filter @guideforge/web exec vitest run src/services/guideStore.test.ts`: 5 passed; persistence, typed evidence, signature round-trip, backup/import, tamper rejection                                             |
-| Storage/schema tests        | `pnpm --filter @guideforge/storage-web test`: 10 passed; Dexie v10 persistence/conformance and checked-in schema JSON parse/deep validation                                                                               |
-| Browser runtime acceptance  | `pnpm --filter @guideforge/web exec playwright test e2e/run12.spec.ts`: 3 passed in 45.9s; multi-step photo/attestation/note completion, offline reload, and downloaded report JSON inspection across desktop/iPad/iPhone |
+| Storage/schema tests        | `pnpm --filter @guideforge/storage-web test`: 11 passed; Dexie v11 persistence/conformance, Ajv validation, and checked-in schema rejection cases |
+| Browser runtime acceptance  | `pnpm --filter @guideforge/web exec playwright test e2e/run12.spec.ts`: 3 passed in 1.1m; multi-step photo/attestation/note completion, offline UI, and downloaded report JSON inspection across desktop/iPad/iPhone |
 | Accessibility acceptance    | `pnpm --filter @guideforge/web exec playwright test e2e/a11y.spec.ts`: 12 passed in 1.0m; critical/serious Axe violations absent, including procedure player                                                              |
-| Existing vertical slice     | Existing native photo/file capture path retained; prior 3-project vertical-slice run passed; rerun with the final phase gate                                                                                              |
+| Existing vertical slice     | Existing native photo/file capture path retained; `pnpm --filter @guideforge/web exec playwright test e2e/vertical-slice.spec.ts --workers=1`: 3 passed in 2.1m across desktop/iPad/iPhone |
 | Security policy             | `bash scripts/secret-scan.sh`: fallback scan passed; tampered attestation backup rejected by guide-store test; gitleaks unavailable on host                                                                               |
 | Performance                 | Web build passes, but the existing 1.795 MB minified main chunk remains above the 500 kB warning threshold; performance budget is open for Phase 13                                                                       |
-| Forced repository gate      | `pnpm check --force`: 125/125 tasks passed in 8m2.024s after review hardening                                                                                                                                             |
+| Forced repository gate      | `pnpm exec turbo run check --force --concurrency=1`: 125/125 tasks passed in 13m6.444s; the unconstrained host run hit Vitest worker contention, then the serial web suite passed 25/25 |
 
 ## Known boundary
 
@@ -47,9 +48,13 @@ navigate to a newly reloaded page while its network is disabled, so the iPad and
 iPhone projects prove offline UI/completion plus online reload/report export.
 WebCrypto attestation is intentionally device-local and the completion report
 is local JSON. Those boundaries remain explicit for later device, security, and
-release phases. The runtime state is validated deeply against the checked-in
-contract before backup restore; the report is scoped to the selected runtime
-session and downloaded JSON is inspected by browser acceptance.
+release phases. The runtime state is validated against the checked-in contract
+with Ajv and domain guards before backup restore; imported completion evidence
+must exist, belong to its canonical step, satisfy the authored verification
+mapping, and meet the minimum count. Restore stages assets and commits metadata
+in one Dexie transaction, cleaning staged data on failure. The report is scoped
+to the selected runtime session and downloaded JSON is inspected by browser
+acceptance.
 
 **Gate:** VERIFIED NARROWLY — offline local execution, real evidence hashing,
 attestation artifact, typed measurements, completion state, backup/import, and

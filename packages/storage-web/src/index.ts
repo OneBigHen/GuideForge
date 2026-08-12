@@ -13,6 +13,7 @@ import type { PhotoTo3DJob } from '@guideforge/assets';
 import type { ContentHash } from '@guideforge/domain';
 import {
   migrateLegacySourceRecord,
+  migrateRuntimeSession,
   type GuideSource,
   type LegacySourceRecord,
   type RuntimeAttestation,
@@ -23,6 +24,12 @@ import {
 import Dexie, { type Table } from 'dexie';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import type * as Y from 'yjs';
+
+export {
+  validateEvidenceRecordSchema,
+  validateRuntimeCompletionReportSchema,
+  validateRuntimeSessionSchema,
+} from './schema-validation.js';
 
 // ---------------------------------------------------------------------------
 // Dexie metadata schema
@@ -254,6 +261,31 @@ export class GuideForgeDb extends Dexie {
       photoJobs: 'jobId, status, providerId, reuseKey, updatedAtIso',
       runtimeSessions: 'sessionId, guideId, learnerId, status, updatedAtIso',
     });
+    // v11: migrate runtime-session contract v1 to v2 before the database is
+    // exposed to the application. The table shape is unchanged; the
+    // persisted JSON contract is versioned by the record itself.
+    this.version(11)
+      .stores({
+        guides: 'guideId, title, updatedAtIso, lifecycleState',
+        assets: 'hash, mimeType, sizeBytes',
+        assetBlobs: 'hash',
+        sourceBlobs: 'sha256',
+        evidence: 'evidenceId, guideId, stepId, capturedAtIso',
+        proposals: 'proposalId, guideId, status, createdAtIso',
+        sources: 'sourceId, guideId, sha256, receivedAtIso',
+        reports: 'id, guideId, path',
+        runtimeBlobs: 'id, guideId, path',
+        trainingSessions: 'sessionId, guideId, learnerId, status, updatedAtIso',
+        photoJobs: 'jobId, status, providerId, reuseKey, updatedAtIso',
+        runtimeSessions: 'sessionId, guideId, learnerId, status, updatedAtIso',
+      })
+      .upgrade(async (tx) => {
+        const table = tx.table('runtimeSessions');
+        for (const value of await table.toArray()) {
+          const migrated = migrateRuntimeSession(value);
+          if (migrated) await table.put(migrated);
+        }
+      });
   }
 }
 

@@ -67,11 +67,39 @@ test('completes, resumes offline, and exports a multi-step procedure report', as
     status: string;
     completedSteps: number;
     totalSteps: number;
-    evidence: { kind: string }[];
+    steps: {
+      stepId: string;
+      completed: boolean;
+      completion: { evidenceIds: string[] } | null;
+    }[];
+    evidence: {
+      evidenceId: string;
+      stepId: string;
+      kind: string;
+      assetHash?: string;
+      attestation?: { signatureHex: string };
+      value?: string;
+    }[];
   };
   expect(report).toMatchObject({ status: 'completed', completedSteps: 2, totalSteps: 2 });
   expect(report.evidence.map((item) => item.kind)).toEqual(
     expect.arrayContaining(['photo', 'signature', 'note']),
+  );
+  expect(report.steps).toHaveLength(2);
+  const evidenceById = new Map(report.evidence.map((item) => [item.evidenceId, item]));
+  for (const step of report.steps) {
+    expect(step.completed).toBe(true);
+    expect(step.completion?.evidenceIds.length).toBeGreaterThan(0);
+    for (const evidenceId of step.completion?.evidenceIds ?? []) {
+      expect(evidenceById.get(evidenceId)?.stepId).toBe(step.stepId);
+    }
+  }
+  expect(report.evidence.find((item) => item.kind === 'photo')?.assetHash).toMatch(/^[0-9a-f]{64}$/);
+  expect(report.evidence.find((item) => item.kind === 'signature')?.attestation?.signatureHex).toMatch(
+    /^[0-9a-f]+$/,
+  );
+  expect(report.evidence.find((item) => item.kind === 'note')?.value).toBe(
+    'Pressure recorded locally.',
   );
   await expect(page.getByText(/Completion report exported/)).toBeVisible();
 });

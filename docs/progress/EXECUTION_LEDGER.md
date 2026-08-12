@@ -25,7 +25,7 @@ current status.
 | P09   | 09    | Local photo-to-3D production path                                  | verified narrowly | `@guideforge/assets` sanitation/quality/provider/GPU gates, storage-web v9, companion SQLite queue, lifecycle/reuse/Blender-plan tests, and 3/3 browser acceptance; hardware-backed inference and reviewed GLB gate unverified                                             | run supported GPU/provider golden path                                  |
 | P10   | 10    | Durable anchors, arrows, annotations                               | verified narrowly | schema v5 `SurfaceAttachment`/v4 migration, scene-core transform/rebind tests, canonical Yjs/package round trip, correction/review/annotation/measurement/step-state UI, and `scene03` 6/6 browser acceptance                                                              | proceed to Phase 11; run live multiview/raycast gate                    |
 | P11   | 11    | Semantic spatial planner/compiler                                  | verified narrowly | `@guideforge/spatial-compiler` deterministic requirements/graph/consumed constraints/asset resolution/solver/ranked cameras/annotations/step states; typed command application and validation gate; 3 focused tests, 6/6 scene browser acceptance, and forced 125/125 gate | run live provider/mesh observation gate                                 |
-| P12   | 12    | Real procedure player/evidence/resume                              | verified narrowly | review-hardened runtime: 19 schema tests, 10 storage tests, 5 guide-store tests including tampered-attestation rejection, 3-project report-inspecting E2E, 12-project Axe checks, and forced repository gate rerun pending final commit                                    | proceed to Phase 13; physical camera/trusted identity gate remains open |
+| P12   | 12    | Real procedure player/evidence/resume                              | verified narrowly | review-hardened runtime v2 with v1 migration, Ajv/schema validation, authored per-check evidence mapping, atomic metadata restore, 21 guide-schema tests, 11 storage tests, 5 guide-store tests, 3 browser-profile report-inspecting E2E, 12 Axe checks, and `pnpm exec turbo run check --force --concurrency=1` 125/125 | proceed to Phase 13; physical camera/trusted identity gate remains open |
 | P13   | 13    | Device, performance, accessibility, PWA                            | planned           | emulation only; bundle warning recorded                                                                                                                                                                                                                                    | prove device/perf gates                                                 |
 | P14   | 14    | Release engineering and recovery                                   | planned           | no current release certification                                                                                                                                                                                                                                           | implement artifacts/signing/rollback                                    |
 | P15   | 15    | Security and reliability hardening                                 | planned           | Phase 01 control plane still absent                                                                                                                                                                                                                                        | harden after canonical path                                             |
@@ -65,7 +65,10 @@ attestation artifact, typed measurements/notes, backup/import, completion
 report, and emulated desktop/iPad/iPhone browser flow. Physical camera capture,
 trusted identity, external signature verification, and long-term device quota
 remain unverified. Review hardening additionally scopes evidence to active
-attempts, deeply validates imported runtime JSON, verifies restored signatures,
-inspects downloaded report JSON, and adds procedure-player accessibility scans.
-The final review-hardened `pnpm check --force` passed 125/125 tasks in
-8m2.024s.
+attempts, migrates runtime v1 to v2, validates imported runtime and reports
+against checked-in schemas and domain rules, enforces authored per-check
+mapping, uses atomic metadata restore with staged-asset cleanup, verifies
+restored signatures, inspects downloaded report JSON, and adds procedure-player
+accessibility scans. The final repository gate passed 125/125 with serial
+Turbo scheduling; the unconstrained host run was affected by Vitest worker
+contention, while the serial web suite passed 25/25.

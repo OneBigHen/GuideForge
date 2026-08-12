@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://guideforge.dev/schemas/RuntimeCompletionReport.schema.json",
+  "title": "GuideForge procedure completion report",
+  "type": "object",
+  "required": ["reportVersion", "reportType", "sessionId", "guideId", "learnerId", "status", "startedAtIso", "completedAtIso", "exportedAtIso", "totalSteps", "completedSteps", "steps", "evidence"],
+  "properties": {
+    "reportVersion": { "const": 1 },
+    "reportType": { "const": "guideforge-procedure-completion" },
+    "sessionId": { "type": "string", "minLength": 1 },
+    "guideId": { "type": "string", "minLength": 1 },
+    "learnerId": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["in-progress", "completed"] },
+    "startedAtIso": { "type": "string", "format": "date-time" },
+    "completedAtIso": { "type": ["string", "null"], "format": "date-time" },
+    "exportedAtIso": { "type": "string", "format": "date-time" },
+    "totalSteps": { "type": "integer", "minimum": 0 },
+    "completedSteps": { "type": "integer", "minimum": 0 },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["stepId", "title", "completed", "completion"],
+        "properties": {
+          "stepId": { "type": "string", "minLength": 1 },
+          "title": { "type": "string" },
+          "completed": { "type": "boolean" },
+          "completion": { "anyOf": [{ "$ref": "#/$defs/StepCompletion" }, { "type": "null" }] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "evidence": { "type": "array", "items": { "$ref": "#/$defs/ReportEvidence" } }
+  },
+  "$defs": {
+    "VerificationEvidence": {
+      "type": "object",
+      "required": ["verificationId", "evidenceIds"],
+      "properties": {
+        "verificationId": { "type": "string", "minLength": 1 },
+        "evidenceIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      },
+      "additionalProperties": false
+    },
+    "ReportEvidence": {
+      "type": "object",
+      "required": ["evidenceId", "stepId", "kind", "capturedAtIso"],
+      "properties": {
+        "evidenceId": { "type": "string", "minLength": 1 },
+        "stepId": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["photo", "note", "signature", "measurement"] },
+        "capturedAtIso": { "type": "string", "format": "date-time" },
+        "value": { "type": "string" },
+        "assetHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "mimeType": { "type": "string" },
+        "measurement": { "type": "object" },
+        "attestation": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "CompletionRule": {
+      "type": "object",
+      "required": ["minimumEvidenceCount", "allowedEvidenceKinds", "verificationCount", "verificationIds", "requiresExplicitAction"],
+      "properties": {
+        "minimumEvidenceCount": { "type": "integer", "minimum": 1 },
+        "allowedEvidenceKinds": { "type": "array", "uniqueItems": true, "items": { "enum": ["photo", "note", "signature", "measurement"] } },
+        "verificationCount": { "type": "integer", "minimum": 0 },
+        "verificationIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "requiresExplicitAction": { "const": true }
+      },
+      "additionalProperties": false
+    },
+    "StepCompletion": {
+      "type": "object",
+      "required": ["completionId", "attemptId", "stepId", "completedAtIso", "completedBy", "evidenceIds", "verificationEvidence", "rule"],
+      "properties": {
+        "completionId": { "type": "string", "minLength": 1 },
+        "attemptId": { "type": "string", "minLength": 1 },
+        "stepId": { "type": "string", "minLength": 1 },
+        "completedAtIso": { "type": "string", "format": "date-time" },
+        "completedBy": { "type": "string", "minLength": 1 },
+        "evidenceIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "verificationEvidence": { "type": "array", "items": { "$ref": "#/$defs/VerificationEvidence" } },
+        "rule": { "$ref": "#/$defs/CompletionRule" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

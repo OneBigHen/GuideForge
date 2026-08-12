@@ -4,7 +4,6 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { webcrypto } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
-  addEvidence,
   addStep,
   addTask,
   closeGuide,
@@ -69,14 +68,10 @@ describe('guide store local-first workflow', () => {
 
   it('restores a full backup including evidence and reports', async () => {
     const session = await createGuide('Restorable project');
-    const asset = await session.assets.put(new Uint8Array([9, 8, 7]), 'image/png', 'png');
-    await addEvidence({
-      guideId: session.guideId,
-      stepId: 'step-1',
-      kind: 'photo',
-      assetHash: asset.hash,
-      mimeType: 'image/png',
-    });
+    const taskId = await addTask(session, 'Restore task');
+    const stepId = await addStep(session, taskId, 'Restore evidence step');
+    const runtimeBeforeBackup = await loadRuntimeSession(session);
+    await recordRuntimeNote(session, runtimeBeforeBackup, stepId, 'Restored note');
     await session.db.runtimeBlobs.put({
       id: `${session.guideId}:capture-1`,
       guideId: session.guideId,
@@ -98,9 +93,9 @@ describe('guide store local-first workflow', () => {
     expect(restored.warnings).toEqual([]);
     const evidence = await listEvidence(restored.guideId);
     expect(evidence).toHaveLength(1);
-    expect(evidence[0]?.assetHash).toBe(asset.hash);
-    const runtime = await session.db.runtimeBlobs.get(`${restored.guideId}:capture-1`);
-    expect(Array.from(runtime?.bytes as Uint8Array)).toEqual([6, 5, 4]);
+    expect(evidence[0]?.value).toBe('Restored note');
+    const restoredBlob = await session.db.runtimeBlobs.get(`${restored.guideId}:capture-1`);
+    expect(Array.from(restoredBlob?.bytes as Uint8Array)).toEqual([6, 5, 4]);
     const reports = await session.db.reports.where('guideId').equals(restored.guideId).toArray();
     expect(reports.map((report) => report.path)).toEqual(
       expect.arrayContaining([
@@ -156,6 +151,14 @@ describe('guide store local-first workflow', () => {
     expect(
       await session.db.runtimeBlobs.get(`${session.guideId}:session-${completed.sessionId}`),
     ).toBeDefined();
+    const restoredReport = await session.db.reports.get(
+      `${session.guideId}:reports/runtime-completion-${completed.sessionId}.json`,
+    );
+    expect(restoredReport?.report).toMatchObject({
+      reportType: 'guideforge-procedure-completion',
+      status: 'completed',
+      completedSteps: 1,
+    });
     expect(restored.guideId).toBe(session.guideId);
 
     const restoredSession = await openGuide(restored.guideId);

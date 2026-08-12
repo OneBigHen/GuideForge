@@ -111,6 +111,15 @@ function RunPage() {
     ? (snapshot?.scene.nodes.filter((node) => stepState.visibleNodeIds.includes(node.nodeId)) ?? [])
     : [];
   const verificationChecks = step?.verification ?? [];
+  const satisfiedVerificationIds = new Set(
+    activeAttempt?.verificationEvidence
+      .filter((item) => item.evidenceIds.length > 0)
+      .map((item) => item.verificationId) ?? [],
+  );
+  const minimumEvidenceCount = Math.max(1, verificationChecks.length);
+  const canComplete =
+    stepEvidence.length >= minimumEvidenceCount &&
+    verificationChecks.every((check) => satisfiedVerificationIds.has(check.verificationId));
 
   async function refreshEvidence() {
     setEvidence(await listEvidence(guideId));
@@ -296,6 +305,7 @@ function RunPage() {
                 ))}
               </ul>
               <p>
+                {satisfiedVerificationIds.size} of {verificationChecks.length} checks have evidence.
                 Capture at least one evidence item for each check before using the explicit
                 completion action.
               </p>
@@ -442,7 +452,8 @@ function RunPage() {
 
           <div className="step-card__nav">
             <span className="step-card__context">
-              Completion requires one evidence item and the explicit action below.
+              Completion requires at least {minimumEvidenceCount} evidence item
+              {minimumEvidenceCount === 1 ? '' : 's'} and the explicit action below.
             </span>
             <button
               type="button"
@@ -450,7 +461,7 @@ function RunPage() {
               onClick={() =>
                 void runAction(() => completeRuntimeStepForGuide(session!, runtime, step.stepId))
               }
-              disabled={busy || stepEvidence.length === 0}
+              disabled={busy || !canComplete}
             >
               {busy ? 'Saving…' : 'Complete step →'}
             </button>

@@ -6,6 +6,7 @@ import {
   createRuntimeCompletionRule,
   createRuntimeSession,
   isRuntimeSession,
+  migrateRuntimeSession,
   recordRuntimeEvidence,
   runtimeProgress,
 } from './execution-runtime';
@@ -19,7 +20,9 @@ describe('offline procedure execution runtime', () => {
       stepIds: ['step-1', 'step-2'],
       nowIso: '2026-08-11T00:00:00.000Z',
     });
-    const attempted = beginRuntimeStep(start, 'step-1', 'attempt-1', '2026-08-11T00:01:00.000Z');
+    const attempted = beginRuntimeStep(start, 'step-1', 'attempt-1', '2026-08-11T00:01:00.000Z', [
+      'verification-1',
+    ]);
     expect(() =>
       completeRuntimeStep({
         session: attempted,
@@ -151,8 +154,104 @@ describe('offline procedure execution runtime', () => {
         updatedAtIso: '2026-08-11T00:01:00.000Z',
         status: 'in-progress',
         evidenceIds: [],
+        verificationEvidence: [],
       },
     ];
     expect(isRuntimeSession(malformed)).toBe(false);
+  });
+
+  it('requires evidence mapped to every authored verification check', () => {
+    const start = createRuntimeSession({
+      sessionId: 'session-5',
+      guideId: 'guide-5',
+      learnerId: 'local-user',
+      stepIds: ['step-1'],
+      nowIso: '2026-08-11T00:00:00.000Z',
+    });
+    const attempted = beginRuntimeStep(start, 'step-1', 'attempt-1', '2026-08-11T00:01:00.000Z', [
+      'check-a',
+      'check-b',
+    ]);
+    const oneCheck = recordRuntimeEvidence(
+      attempted,
+      'step-1',
+      'evidence-a',
+      '2026-08-11T00:02:00.000Z',
+      'check-a',
+    );
+    const twoEvidenceOneCheck = recordRuntimeEvidence(
+      oneCheck,
+      'step-1',
+      'evidence-b',
+      '2026-08-11T00:02:15.000Z',
+      'check-a',
+    );
+    const rule = createRuntimeCompletionRule(['check-a', 'check-b']);
+    expect(() =>
+      completeRuntimeStep({
+        session: twoEvidenceOneCheck,
+        stepId: 'step-1',
+        completionId: 'completion-1',
+        completedBy: 'local-user',
+        evidence: [
+          { evidenceId: 'evidence-a', kind: 'photo' },
+          { evidenceId: 'evidence-b', kind: 'note' },
+        ],
+        rule,
+        nowIso: '2026-08-11T00:03:00.000Z',
+      }),
+    ).toThrow('verification check is missing evidence: check-b');
+    const allChecks = recordRuntimeEvidence(
+      oneCheck,
+      'step-1',
+      'evidence-b',
+      '2026-08-11T00:02:30.000Z',
+      'check-b',
+    );
+    const completed = completeRuntimeStep({
+      session: allChecks,
+      stepId: 'step-1',
+      completionId: 'completion-1',
+      completedBy: 'local-user',
+      evidence: [
+        { evidenceId: 'evidence-a', kind: 'photo' },
+        { evidenceId: 'evidence-b', kind: 'note' },
+      ],
+      rule,
+      nowIso: '2026-08-11T00:03:00.000Z',
+    });
+    expect(completed.completions[0]?.verificationEvidence).toEqual([
+      { verificationId: 'check-a', evidenceIds: ['evidence-a'] },
+      { verificationId: 'check-b', evidenceIds: ['evidence-b'] },
+    ]);
+  });
+
+  it('migrates a legacy v1 session to the v2 persisted contract', () => {
+    const current = createRuntimeSession({
+      sessionId: 'session-6',
+      guideId: 'guide-6',
+      learnerId: 'local-user',
+      stepIds: ['step-1'],
+      nowIso: '2026-08-11T00:00:00.000Z',
+    });
+    const legacy = {
+      ...current,
+      runtimeVersion: 1,
+      attempts: [
+        {
+          attemptId: 'attempt-1',
+          stepId: 'step-1',
+          startedAtIso: '2026-08-11T00:01:00.000Z',
+          updatedAtIso: '2026-08-11T00:01:00.000Z',
+          status: 'in-progress',
+          evidenceIds: [],
+        },
+      ],
+    };
+    const migrated = migrateRuntimeSession(legacy);
+    expect(migrated).not.toBeNull();
+    expect(migrated?.runtimeVersion).toBe(2);
+    expect(migrated?.attempts[0]?.verificationEvidence).toEqual([]);
+    expect(isRuntimeSession(migrated)).toBe(true);
   });
 });
