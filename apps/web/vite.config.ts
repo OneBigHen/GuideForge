@@ -12,7 +12,7 @@ const { generateSW } = workboxBuild as unknown as WorkboxBuildApi;
 
 export default defineConfig({
   plugins: [
-    TanStackRouterVite({ target: 'react', autoCodeSplitting: false }),
+    TanStackRouterVite({ target: 'react', autoCodeSplitting: true }),
     react(),
     {
       name: 'guideforge-workbox',

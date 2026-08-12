@@ -92,11 +92,11 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 ## Execution and evidence
 
-| Requirement                               | Current source/test evidence                                                                                                                                 | Status            |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------- |
-| Procedure player renders authored steps   | `/run/:guideId` renders ordered authored steps, authored verification checks, scene transforms/camera/annotations, and offline status                        | verified narrowly |
-| Real step completion state                | Versioned `RuntimeSession` with `StepAttempt`/`StepCompletion`; progress derives from active-attempt evidence, authored check count, and explicit completion | verified narrowly |
-| Real photo/signature/measurement evidence | Native camera/file input with sanitized content hash, cryptographically verified local ECDSA artifact on restore, typed measurement and note records         | verified narrowly |
+| Requirement                               | Current source/test evidence                                                                                                                                  | Status            |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Procedure player renders authored steps   | `/run/:guideId` renders ordered authored steps, authored verification checks, scene transforms/camera/annotations, and offline status                         | verified narrowly |
+| Real step completion state                | Versioned `RuntimeSession` with `StepAttempt`/`StepCompletion`; progress derives from active-attempt evidence, authored check count, and explicit completion  | verified narrowly |
+| Real photo/signature/measurement evidence | Native camera/file input with sanitized content hash, cryptographically verified local ECDSA artifact on restore, typed measurement and note records          | verified narrowly |
 | 3D step state, resume, offline report     | Dexie v11 runtime resume with v1-to-v2 migration, schema/domain validation, service-worker offline reload, full backup/import, and downloaded JSON report E2E | verified narrowly |
 
 ## Assets and 3D
@@ -119,13 +119,13 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 ## Devices, storage, release, reliability
 
-| Requirement                                   | Current source/test evidence                                                  | Status  |
-| --------------------------------------------- | ----------------------------------------------------------------------------- | ------- |
-| Real iPad/iPhone/Pencil/camera/PWA tests      | Browser emulation only; real device unavailable here                          | blocked |
-| Persistence/quota/backup/restore              | Local storage/package drills exist; durable backup/restore service incomplete | partial |
-| PWA production deploy                         | Local service worker build exists; production deploy not proven               | partial |
-| Tauri artifacts/signing/upgrade/rollback      | Desktop package builds; release operations not fully proven                   | partial |
-| Golden micropipette/pump/filter certification | No current golden run                                                         | missing |
+| Requirement                                   | Current source/test evidence                                                                                                                                | Status  |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| Real iPad/iPhone/Pencil/camera/PWA tests      | Phase 13 dashboard/job/backup flow and 18/18 Axe scans pass in desktop/iPad/iPhone emulation; real device unavailable here                                  | blocked |
+| Persistence/quota/backup/restore              | Settings reads live quota/persistence state; library downloads full backups and records a local last-backup marker; long-term browser recovery remains open | partial |
+| PWA production deploy                         | Manifest, Apple metadata, service-worker generation, and local offline shell build pass; production headers/deploy/install lifecycle not proven             | partial |
+| Tauri artifacts/signing/upgrade/rollback      | Desktop package builds; release operations not fully proven                                                                                                 | partial |
+| Golden micropipette/pump/filter certification | No current golden run                                                                                                                                       | missing |
 
 ## Phase certification
 
@@ -175,3 +175,9 @@ evidence, authored verification mappings, atomic metadata restore, attestation
 restore checks, report JSON inspection, and procedure-player Axe coverage.
 Physical camera, trusted identity, external signature verification, browser
 quota recovery, and real-device offline reload remain unverified.
+Phase 13 is verified narrowly for the route-split web shell, real local
+readiness/job/storage surfaces, full-backup download UX, 44px responsive
+controls, measured bundle budgets, and 18/18 Axe scans across emulated
+desktop/iPad/iPhone profiles. Physical device input/camera, installed-PWA
+lifecycle, production CSP/headers/deployment, and native packaging remain
+unverified.

@@ -1,7 +1,11 @@
 import type { StorageHealth } from '@guideforge/storage-web';
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useState, type FormEvent } from 'react';
-import { getStorageHealth, requestStoragePersistence } from '../services/guideStore';
+import {
+  getLastBackupAtIso,
+  getStorageHealth,
+  requestStoragePersistence,
+} from '../services/guideStore';
 
 export const Route = createFileRoute('/settings')({
   component: SettingsPage,
@@ -103,10 +107,13 @@ function SettingsPage() {
   const [storageHealth, setStorageHealth] = useState<StorageHealth | null>(null);
   const [storageError, setStorageError] = useState<string | null>(null);
   const [storageBusy, setStorageBusy] = useState(false);
+  const [lastBackupAtIso, setLastBackupAtIso] = useState<string | null>(null);
 
   async function refreshStorage() {
     try {
-      setStorageHealth(await getStorageHealth());
+      const [health, backupAtIso] = await Promise.all([getStorageHealth(), getLastBackupAtIso()]);
+      setStorageHealth(health);
+      setLastBackupAtIso(backupAtIso);
       setStorageError(null);
     } catch (nextError) {
       setStorageError(errorMessage(nextError));
@@ -150,10 +157,11 @@ function SettingsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    void getStorageHealth()
-      .then((nextHealth) => {
+    void Promise.all([getStorageHealth(), getLastBackupAtIso()])
+      .then(([nextHealth, backupAtIso]) => {
         if (cancelled) return;
         setStorageHealth(nextHealth);
+        setLastBackupAtIso(backupAtIso);
         setStorageError(null);
       })
       .catch((nextError: unknown) => {
@@ -214,6 +222,12 @@ function SettingsPage() {
             <div>
               <dt>Persistence</dt>
               <dd>{storageHealth.persistentGranted ? 'Granted' : 'Not granted'}</dd>
+            </div>
+            <div>
+              <dt>Last full backup</dt>
+              <dd>
+                {lastBackupAtIso ? new Date(lastBackupAtIso).toLocaleString() : 'Not recorded'}
+              </dd>
             </div>
           </dl>
           {!storageHealth.persistentGranted && (

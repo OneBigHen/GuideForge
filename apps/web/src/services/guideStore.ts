@@ -103,6 +103,27 @@ export async function requestStoragePersistence(): Promise<boolean> {
   return new OpfsAssetStore(db()).requestPersistence();
 }
 
+export async function getLastBackupAtIso(guideId?: string): Promise<string | null> {
+  const rows = guideId
+    ? await db()
+        .reports.get(`${guideId}:reports/backup-meta.json`)
+        .then((row) => (row ? [row] : []))
+    : await db().reports.where('path').equals('reports/backup-meta.json').toArray();
+  const timestamps = rows.flatMap((row) => {
+    const report = row.report;
+    if (
+      report &&
+      typeof report === 'object' &&
+      'exportedAtIso' in report &&
+      typeof report.exportedAtIso === 'string'
+    ) {
+      return [report.exportedAtIso];
+    }
+    return [];
+  });
+  return timestamps.sort().at(-1) ?? null;
+}
+
 function uuidv4(): EntityId {
   // crypto.randomUUID is available in modern browsers and jsdom/node 24.
   return crypto.randomUUID() as EntityId;
@@ -1350,10 +1371,27 @@ export async function exportFullBackup(
     },
     attributions: await collectAttributions(session, assets),
   });
+  await session.db.reports.put({
+    id: `${session.guideId}:reports/backup-meta.json`,
+    guideId: session.guideId,
+    path: 'reports/backup-meta.json',
+    report: { format: 'gforge-backup-meta', exportedAtIso: new Date().toISOString() },
+  });
   return {
     bytes,
     filename: `${snapshot.title.replace(/[^a-z0-9-_]+/gi, '-')}-backup.gforge`,
   };
+}
+
+export async function exportGuideBackup(
+  guideId: string,
+): Promise<{ bytes: Uint8Array; filename: string }> {
+  const session = await openGuide(guideId);
+  try {
+    return await exportFullBackup(session);
+  } finally {
+    await closeGuide(session);
+  }
 }
 
 /**

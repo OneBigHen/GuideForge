@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AssetsRouteImport } from './routes/assets'
+import { Route as JobsRouteImport } from './routes/jobs'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as PhotoTo3dRouteImport } from './routes/photo-to-3d'
 import { Route as SettingsRouteImport } from './routes/settings'
@@ -29,6 +30,11 @@ const IndexRoute = IndexRouteImport.update({
 const AssetsRoute = AssetsRouteImport.update({
   id: '/assets',
   path: '/assets',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const JobsRoute = JobsRouteImport.update({
+  id: '/jobs',
+  path: '/jobs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LibraryRoute = LibraryRouteImport.update({
@@ -80,6 +86,7 @@ const TrainingPlayerGuideIdRoute = TrainingPlayerGuideIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/assets': typeof AssetsRoute
+  '/jobs': typeof JobsRoute
   '/library': typeof LibraryRoute
   '/photo-to-3d': typeof PhotoTo3dRoute
   '/settings': typeof SettingsRoute
@@ -93,6 +100,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/assets': typeof AssetsRoute
+  '/jobs': typeof JobsRoute
   '/library': typeof LibraryRoute
   '/photo-to-3d': typeof PhotoTo3dRoute
   '/settings': typeof SettingsRoute
@@ -107,6 +115,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/assets': typeof AssetsRoute
+  '/jobs': typeof JobsRoute
   '/library': typeof LibraryRoute
   '/photo-to-3d': typeof PhotoTo3dRoute
   '/settings': typeof SettingsRoute
@@ -122,6 +131,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/assets'
+    | '/jobs'
     | '/library'
     | '/photo-to-3d'
     | '/settings'
@@ -135,6 +145,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/assets'
+    | '/jobs'
     | '/library'
     | '/photo-to-3d'
     | '/settings'
@@ -148,6 +159,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/assets'
+    | '/jobs'
     | '/library'
     | '/photo-to-3d'
     | '/settings'
@@ -162,6 +174,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AssetsRoute: typeof AssetsRoute
+  JobsRoute: typeof JobsRoute
   LibraryRoute: typeof LibraryRoute
   PhotoTo3dRoute: typeof PhotoTo3dRoute
   SettingsRoute: typeof SettingsRoute
@@ -187,6 +200,13 @@ declare module '@tanstack/react-router' {
       path: '/assets'
       fullPath: '/assets'
       preLoaderRoute: typeof AssetsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/jobs': {
+      id: '/jobs'
+      path: '/jobs'
+      fullPath: '/jobs'
+      preLoaderRoute: typeof JobsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/library': {
@@ -258,6 +278,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AssetsRoute: AssetsRoute,
+  JobsRoute: JobsRoute,
   LibraryRoute: LibraryRoute,
   PhotoTo3dRoute: PhotoTo3dRoute,
   SettingsRoute: SettingsRoute,

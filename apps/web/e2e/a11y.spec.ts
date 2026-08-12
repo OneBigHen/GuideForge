@@ -1,8 +1,8 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
-// Phase 08 WCAG 2.2 AA scan across the main routes (non-XR workflows).
-for (const route of ['/', '/library']) {
+// Phase 13 WCAG 2.2 AA scan across the main routes (non-XR workflows).
+for (const route of ['/', '/library', '/jobs', '/settings']) {
   test(`WCAG 2.2 scan: ${route}`, async ({ page }) => {
     await page.goto(route);
     await page.waitForLoadState('networkidle');

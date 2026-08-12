@@ -13,6 +13,7 @@ import {
   exportDraft,
   exportFullBackup,
   exportRuntimeCompletionReport,
+  getLastBackupAtIso,
   importDraft,
   listEvidence,
   listGuides,
@@ -82,6 +83,7 @@ describe('guide store local-first workflow', () => {
     });
     const { bytes, filename } = await exportFullBackup(session);
     expect(filename).toContain('-backup.gforge');
+    expect(await getLastBackupAtIso(session.guideId)).toBeTruthy();
 
     await closeGuide(session);
     await session.db.evidence.clear();
