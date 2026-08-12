@@ -24,6 +24,15 @@ artifacts, and completion reports. Draft exports intentionally omit runtime
 evidence. The player uses the service-worker shell plus local storage so a
 reload can resume without a network connection.
 
+The persisted implementation is pinned by the repository lockfile to Dexie
+4.4.4 and y-indexeddb 9.0.12. Dexie transactions cover evidence,
+runtime-session, and runtime-blob metadata writes; runtime JSON is deeply
+validated before restore and the v10 table has a storage conformance test.
+Browser API behavior follows the official [Dexie transaction
+documentation](https://dexie.org/docs/Dexie/Dexie.transaction), [MDN
+SubtleCrypto documentation](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto),
+and [MDN input capture documentation](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Attributes/capture).
+
 ## Consequences
 
 - Progress cannot advance merely because an evidence row exists; the explicit

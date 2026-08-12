@@ -5,6 +5,7 @@ import {
   completeRuntimeStep,
   createRuntimeCompletionRule,
   createRuntimeSession,
+  isRuntimeSession,
   recordRuntimeEvidence,
   runtimeProgress,
 } from './execution-runtime';
@@ -29,7 +30,7 @@ describe('offline procedure execution runtime', () => {
         rule: createRuntimeCompletionRule(1),
         nowIso: '2026-08-11T00:02:00.000Z',
       }),
-    ).toThrow('capture at least one evidence item');
+    ).toThrow('capture at least 1 evidence item');
 
     const withEvidence = recordRuntimeEvidence(
       attempted,
@@ -94,5 +95,64 @@ describe('offline procedure execution runtime', () => {
     expect(report).toMatchObject({ status: 'completed', completedSteps: 1 });
     expect(report.steps[0]).toMatchObject({ title: 'Verify seal', completed: true });
     expect(report.evidence[0]?.assetHash).toBe('a'.repeat(64));
+  });
+
+  it('rejects evidence outside the active attempt and enforces authored checks', () => {
+    const session = createRuntimeSession({
+      sessionId: 'session-3',
+      guideId: 'guide-3',
+      learnerId: 'local-user',
+      stepIds: ['step-1'],
+      nowIso: '2026-08-11T00:00:00.000Z',
+    });
+    const active = recordRuntimeEvidence(
+      beginRuntimeStep(session, 'step-1', 'attempt-1', '2026-08-11T00:01:00.000Z'),
+      'step-1',
+      'evidence-1',
+      '2026-08-11T00:02:00.000Z',
+    );
+    expect(() =>
+      completeRuntimeStep({
+        session: active,
+        stepId: 'step-1',
+        completionId: 'completion-1',
+        completedBy: 'local-user',
+        evidence: [{ evidenceId: 'not-captured', kind: 'photo' }],
+        rule: createRuntimeCompletionRule(2),
+        nowIso: '2026-08-11T00:03:00.000Z',
+      }),
+    ).toThrow('active step attempt');
+    expect(() =>
+      completeRuntimeStep({
+        session: active,
+        stepId: 'step-1',
+        completionId: 'completion-1',
+        completedBy: 'local-user',
+        evidence: [{ evidenceId: 'evidence-1', kind: 'photo' }],
+        rule: createRuntimeCompletionRule(2),
+        nowIso: '2026-08-11T00:03:00.000Z',
+      }),
+    ).toThrow('at least 2 evidence items');
+  });
+
+  it('deeply rejects malformed persisted runtime state', () => {
+    const malformed = createRuntimeSession({
+      sessionId: 'session-4',
+      guideId: 'guide-4',
+      learnerId: 'local-user',
+      stepIds: ['step-1'],
+      nowIso: '2026-08-11T00:00:00.000Z',
+    });
+    malformed.attempts = [
+      {
+        attemptId: 'attempt-1',
+        stepId: 'step-1',
+        startedAtIso: 'not-a-date',
+        updatedAtIso: '2026-08-11T00:01:00.000Z',
+        status: 'in-progress',
+        evidenceIds: [],
+      },
+    ];
+    expect(isRuntimeSession(malformed)).toBe(false);
   });
 });

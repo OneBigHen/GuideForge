@@ -54,7 +54,7 @@
         "requiresExplicitAction"
       ],
       "properties": {
-        "minimumEvidenceCount": { "const": 1 },
+        "minimumEvidenceCount": { "type": "integer", "minimum": 1 },
         "allowedEvidenceKinds": {
           "type": "array",
           "items": { "enum": ["photo", "note", "signature", "measurement"] }

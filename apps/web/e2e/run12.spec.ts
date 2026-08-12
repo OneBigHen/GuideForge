@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 
 const ONE_PIXEL_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -56,6 +57,21 @@ test('completes, resumes offline, and exports a multi-step procedure report', as
   if (webkit) await context.setOffline(false);
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Procedure complete' })).toBeVisible();
+  const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export completion report' }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/-completion\.json$/);
+  const downloadPath = await download.path();
+  if (!downloadPath) throw new Error('completion report download has no local path');
+  const report = JSON.parse(await readFile(downloadPath, 'utf8')) as {
+    status: string;
+    completedSteps: number;
+    totalSteps: number;
+    evidence: { kind: string }[];
+  };
+  expect(report).toMatchObject({ status: 'completed', completedSteps: 2, totalSteps: 2 });
+  expect(report.evidence.map((item) => item.kind)).toEqual(
+    expect.arrayContaining(['photo', 'signature', 'note']),
+  );
   await expect(page.getByText(/Completion report exported/)).toBeVisible();
 });

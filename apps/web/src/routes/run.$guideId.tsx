@@ -1,5 +1,5 @@
 import { materializeSnapshot } from '@guideforge/collaboration';
-import type { RuntimeSession } from '@guideforge/guide-schema';
+import { runtimeProgress, type RuntimeSession } from '@guideforge/guide-schema';
 import type { EvidenceRecord } from '@guideforge/storage-web';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -81,14 +81,20 @@ function RunPage() {
     [snapshot],
   );
   const progress = runtime
-    ? {
-        completedSteps: runtime.completions.length,
-        totalSteps: runtime.stepIds.length,
-        currentStepId: runtime.stepIds[runtime.currentStepIndex] ?? null,
-      }
+    ? runtimeProgress(runtime)
     : { completedSteps: 0, totalSteps: steps.length, currentStepId: null };
   const step = steps.find((candidate) => candidate.stepId === progress.currentStepId) ?? null;
-  const stepEvidence = step ? evidence.filter((record) => record.stepId === step.stepId) : [];
+  const activeAttempt = step
+    ? runtime?.attempts.find(
+        (attempt) => attempt.stepId === step.stepId && attempt.status === 'in-progress',
+      )
+    : undefined;
+  const activeEvidenceIds = new Set(activeAttempt?.evidenceIds ?? []);
+  const stepEvidence = step
+    ? evidence.filter(
+        (record) => record.stepId === step.stepId && activeEvidenceIds.has(record.evidenceId),
+      )
+    : [];
   const task = step ? snapshot?.tasks.find((candidate) => candidate.taskId === step.taskId) : null;
   const taskIndex = task && snapshot ? snapshot.tasks.indexOf(task) : -1;
   const stepIndex = task && step ? task.stepIds.indexOf(step.stepId) : -1;
@@ -104,6 +110,7 @@ function RunPage() {
   const visibleSceneNodes = stepState
     ? (snapshot?.scene.nodes.filter((node) => stepState.visibleNodeIds.includes(node.nodeId)) ?? [])
     : [];
+  const verificationChecks = step?.verification ?? [];
 
   async function refreshEvidence() {
     setEvidence(await listEvidence(guideId));
@@ -244,24 +251,56 @@ function RunPage() {
               {camera ? ` · Camera: ${camera.name}` : ' · No camera assigned'}
             </p>
             {visibleSceneNodes.length > 0 && (
-              <ul className="chip-list" aria-label="Visible scene items">
+              <ul className="scene-spatial-tree" aria-label="Visible scene items">
                 {visibleSceneNodes.map((node) => (
-                  <li key={node.nodeId} className="chip">
-                    {node.name}
+                  <li key={node.nodeId}>
+                    <strong>{node.name}</strong>
+                    <span>
+                      Position: {node.transform.position.x.toFixed(2)},{' '}
+                      {node.transform.position.y.toFixed(2)}, {node.transform.position.z.toFixed(2)}
+                    </span>
                   </li>
                 ))}
               </ul>
             )}
+            {camera && (
+              <p>
+                Camera position: {camera.position.x.toFixed(2)}, {camera.position.y.toFixed(2)},{' '}
+                {camera.position.z.toFixed(2)} · target: {camera.target.x.toFixed(2)},{' '}
+                {camera.target.y.toFixed(2)}, {camera.target.z.toFixed(2)}
+              </p>
+            )}
             {stepAnnotations.length > 0 && (
-              <ul className="chip-list" aria-label="Step annotations">
+              <ul className="scene-spatial-tree" aria-label="Step annotations">
                 {stepAnnotations.map((annotation) => (
-                  <li key={annotation.annotationId} className="chip">
-                    {annotation.text}
+                  <li key={annotation.annotationId}>
+                    <strong>{annotation.text}</strong>
+                    <span>
+                      Anchor:{' '}
+                      {annotation.targetPoint
+                        ? `${annotation.targetPoint.x.toFixed(2)}, ${annotation.targetPoint.y.toFixed(2)}, ${annotation.targetPoint.z.toFixed(2)}`
+                        : 'node-local'}
+                    </span>
                   </li>
                 ))}
               </ul>
             )}
           </section>
+
+          {verificationChecks.length > 0 && (
+            <section className="runtime-verification" aria-labelledby="verification-title">
+              <h2 id="verification-title">Verification checks</h2>
+              <ul>
+                {verificationChecks.map((check) => (
+                  <li key={check.verificationId}>{check.text}</li>
+                ))}
+              </ul>
+              <p>
+                Capture at least one evidence item for each check before using the explicit
+                completion action.
+              </p>
+            </section>
+          )}
 
           <div className="evidence-block" aria-label="Evidence">
             <h2>Evidence</h2>
@@ -282,6 +321,7 @@ function RunPage() {
                 accept="image/jpeg,image/png,image/webp"
                 capture="environment"
                 aria-label="Procedure photo input"
+                tabIndex={-1}
                 onChange={(event) => {
                   const file = event.target.files?.[0];
                   event.currentTarget.value = '';

@@ -566,14 +566,17 @@ export interface EvidenceInput {
   attestation?: EvidenceRecord['attestation'];
 }
 
-export async function addEvidence(input: EvidenceInput): Promise<string> {
-  const evidenceId = uuidv4();
+function buildEvidenceRecord(
+  input: EvidenceInput,
+  evidenceId: string,
+  capturedAtIso = new Date().toISOString(),
+): EvidenceRecord {
   const record: EvidenceRecord = {
     evidenceId,
     guideId: input.guideId,
     stepId: input.stepId,
     kind: input.kind,
-    capturedAtIso: new Date().toISOString(),
+    capturedAtIso,
     actorId: 'local-user',
     ...(input.value !== undefined ? { value: input.value } : {}),
     ...(input.assetHash !== undefined ? { assetHash: input.assetHash } : {}),
@@ -581,6 +584,13 @@ export async function addEvidence(input: EvidenceInput): Promise<string> {
     ...(input.measurement !== undefined ? { measurement: input.measurement } : {}),
     ...(input.attestation !== undefined ? { attestation: input.attestation } : {}),
   };
+  if (!isEvidenceRecord(record)) throw new Error(`invalid ${input.kind} evidence record`);
+  return record;
+}
+
+export async function addEvidence(input: EvidenceInput): Promise<string> {
+  const evidenceId = uuidv4();
+  const record = buildEvidenceRecord(input, evidenceId);
   await db().evidence.put(record);
   return evidenceId;
 }
@@ -599,20 +609,43 @@ const EVIDENCE_KINDS = new Set<EvidenceRecord['kind']>([
 function isEvidenceRecord(value: unknown): value is EvidenceRecord {
   if (!value || typeof value !== 'object') return false;
   const record = value as Record<string, unknown>;
-  return (
+  if (!(
     typeof record.evidenceId === 'string' &&
+    record.evidenceId.length > 0 &&
     typeof record.guideId === 'string' &&
+    record.guideId.length > 0 &&
     typeof record.stepId === 'string' &&
+    record.stepId.length > 0 &&
     typeof record.kind === 'string' &&
     EVIDENCE_KINDS.has(record.kind as EvidenceRecord['kind']) &&
-    typeof record.capturedAtIso === 'string' &&
+    isIsoDate(record.capturedAtIso) &&
     typeof record.actorId === 'string' &&
+    record.actorId.length > 0 &&
     (record.value === undefined || typeof record.value === 'string') &&
     (record.assetHash === undefined ||
       (typeof record.assetHash === 'string' && /^[0-9a-f]{64}$/.test(record.assetHash))) &&
     (record.mimeType === undefined || typeof record.mimeType === 'string') &&
     (record.measurement === undefined || isRuntimeMeasurement(record.measurement)) &&
     (record.attestation === undefined || isRuntimeAttestation(record.attestation))
+  ))
+    return false;
+  if (record.kind === 'photo') {
+    return (
+      typeof record.assetHash === 'string' &&
+      /^[0-9a-f]{64}$/.test(record.assetHash) &&
+      typeof record.mimeType === 'string' &&
+      record.mimeType.startsWith('image/')
+    );
+  }
+  if (record.kind === 'note') return typeof record.value === 'string' && record.value.length > 0;
+  if (record.kind === 'measurement') {
+    return record.measurement !== undefined && typeof record.value === 'string';
+  }
+  return (
+    typeof record.assetHash === 'string' &&
+    /^[0-9a-f]{64}$/.test(record.assetHash) &&
+    record.mimeType === 'application/json' &&
+    record.attestation !== undefined
   );
 }
 
@@ -639,12 +672,87 @@ function isRuntimeAttestation(value: unknown): value is RuntimeAttestation {
     typeof attestation.publicKeyJwk === 'object' &&
     attestation.publicKeyJwk !== null &&
     typeof attestation.signatureHex === 'string' &&
+    attestation.signatureHex.length >= 2 &&
+    attestation.signatureHex.length % 2 === 0 &&
     /^[0-9a-f]+$/.test(attestation.signatureHex)
   );
 }
 
+function isIsoDate(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && !Number.isNaN(Date.parse(value));
+}
+
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function hexToBytes(value: string): Uint8Array {
+  const bytes = new Uint8Array(value.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+async function verifyRuntimeAttestationArtifact(input: {
+  attestation: RuntimeAttestation;
+  artifactBytes: Uint8Array;
+  guideId: string;
+  stepId: string;
+  sessionIds?: ReadonlySet<string>;
+}): Promise<boolean> {
+  try {
+    const artifact = JSON.parse(new TextDecoder().decode(input.artifactBytes)) as Record<
+      string,
+      unknown
+    >;
+    const artifactAttestation = {
+      algorithm: artifact.algorithm,
+      signerId: artifact.signerId,
+      payloadHash: artifact.payloadHash,
+      publicKeyJwk: artifact.publicKeyJwk,
+      signatureHex: artifact.signatureHex,
+    };
+    if (
+      new TextDecoder().decode(canonicalJson(artifactAttestation)) !==
+      new TextDecoder().decode(canonicalJson(input.attestation))
+    ) {
+      return false;
+    }
+    if (typeof artifact.payload !== 'string') return false;
+    const payload = JSON.parse(artifact.payload) as Record<string, unknown>;
+    if (
+      payload.type !== 'guideforge-procedure-attestation' ||
+      payload.guideId !== input.guideId ||
+      payload.stepId !== input.stepId ||
+      payload.signerId !== input.attestation.signerId ||
+      typeof payload.sessionId !== 'string' ||
+      (input.sessionIds !== undefined && !input.sessionIds.has(payload.sessionId))
+    ) {
+      return false;
+    }
+    if (
+      (await webSha256(new TextEncoder().encode(artifact.payload))) !==
+      input.attestation.payloadHash
+    ) {
+      return false;
+    }
+    const publicKey = await crypto.subtle.importKey(
+      'jwk',
+      input.attestation.publicKeyJwk as JsonWebKey,
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      false,
+      ['verify'],
+    );
+    return await crypto.subtle.verify(
+      { name: 'ECDSA', hash: 'SHA-256' },
+      publicKey,
+      hexToBytes(input.attestation.signatureHex) as unknown as BufferSource,
+      new TextEncoder().encode(artifact.payload),
+    );
+  } catch {
+    return false;
+  }
 }
 
 function flattenStepIds(snapshot: GuideSnapshot): string[] {
@@ -655,15 +763,23 @@ async function persistRuntimeSession(
   session: OpenGuideSession,
   runtime: RuntimeSession,
 ): Promise<void> {
-  await session.db.runtimeSessions.put(runtime);
-  await session.db.runtimeBlobs.put({
+  const blob = {
     id: `${session.guideId}:session-${runtime.sessionId}`,
     guideId: session.guideId,
     path: `session-${runtime.sessionId}`,
     bytes: canonicalJson(runtime),
     mimeType: 'application/json',
     extension: 'json',
-  });
+  };
+  await session.db.transaction(
+    'rw',
+    session.db.runtimeSessions,
+    session.db.runtimeBlobs,
+    async () => {
+      await session.db.runtimeSessions.put(runtime);
+      await session.db.runtimeBlobs.put(blob);
+    },
+  );
 }
 
 /** Load the current local learner session or create it once for this guide. */
@@ -696,11 +812,30 @@ async function addRuntimeEvidence(
   runtime: RuntimeSession,
   input: EvidenceInput,
 ): Promise<{ evidenceId: string; runtime: RuntimeSession }> {
-  const evidenceId = await addEvidence(input);
   const nowIso = new Date().toISOString();
   const active = beginRuntimeStep(runtime, input.stepId, uuidv4(), nowIso);
+  const evidenceId = uuidv4();
+  const record = buildEvidenceRecord(input, evidenceId, nowIso);
   const next = recordRuntimeEvidence(active, input.stepId, evidenceId, nowIso);
-  await persistRuntimeSession(session, next);
+  const blob = {
+    id: `${session.guideId}:session-${next.sessionId}`,
+    guideId: session.guideId,
+    path: `session-${next.sessionId}`,
+    bytes: canonicalJson(next),
+    mimeType: 'application/json',
+    extension: 'json',
+  };
+  await session.db.transaction(
+    'rw',
+    session.db.evidence,
+    session.db.runtimeSessions,
+    session.db.runtimeBlobs,
+    async () => {
+      await session.db.evidence.put(record);
+      await session.db.runtimeSessions.put(next);
+      await session.db.runtimeBlobs.put(blob);
+    },
+  );
   return { evidenceId, runtime: next };
 }
 
@@ -751,16 +886,23 @@ export async function captureRuntimePhoto(
   const sanitized = sanitizePhoto(new Uint8Array(await file.arrayBuffer()), mimeType);
   const extension =
     sanitized.mimeType === 'image/jpeg' ? 'jpg' : (sanitized.mimeType.split('/')[1] ?? 'bin');
+  const hash = (await webSha256(sanitized.bytes)) as ContentHash;
+  const existed = await session.assets.has(hash);
   const meta = await session.assets.put(sanitized.bytes, sanitized.mimeType, extension);
-  const result = await addRuntimeEvidence(session, runtime, {
-    guideId: session.guideId,
-    stepId,
-    kind: 'photo',
-    assetHash: meta.hash,
-    mimeType: sanitized.mimeType,
-    value: `${sanitized.width} × ${sanitized.height}px; metadata stripped: ${sanitized.metadataRemoved ? 'yes' : 'no'}`,
-  });
-  return { ...result, assetHash: meta.hash };
+  try {
+    const result = await addRuntimeEvidence(session, runtime, {
+      guideId: session.guideId,
+      stepId,
+      kind: 'photo',
+      assetHash: meta.hash,
+      mimeType: sanitized.mimeType,
+      value: `${sanitized.width} × ${sanitized.height}px; metadata stripped: ${sanitized.metadataRemoved ? 'yes' : 'no'}`,
+    });
+    return { ...result, assetHash: meta.hash };
+  } catch (error) {
+    if (!existed) await session.assets.remove(meta.hash);
+    throw error;
+  }
 }
 
 export async function createRuntimeAttestation(
@@ -806,17 +948,24 @@ export async function createRuntimeAttestation(
     ...attestation,
     payload: new TextDecoder().decode(payloadBytes),
   });
+  const hash = (await webSha256(artifactBytes)) as ContentHash;
+  const existed = await session.assets.has(hash);
   const meta = await session.assets.put(artifactBytes, 'application/json', 'json');
-  const result = await addRuntimeEvidence(session, runtime, {
-    guideId: session.guideId,
-    stepId,
-    kind: 'signature',
-    value: 'Local device attestation',
-    assetHash: meta.hash,
-    mimeType: 'application/json',
-    attestation,
-  });
-  return { ...result, assetHash: meta.hash };
+  try {
+    const result = await addRuntimeEvidence(session, runtime, {
+      guideId: session.guideId,
+      stepId,
+      kind: 'signature',
+      value: 'Local device attestation',
+      assetHash: meta.hash,
+      mimeType: 'application/json',
+      attestation,
+    });
+    return { ...result, assetHash: meta.hash };
+  } catch (error) {
+    if (!existed) await session.assets.remove(meta.hash);
+    throw error;
+  }
 }
 
 export async function completeRuntimeStepForGuide(
@@ -828,9 +977,33 @@ export async function completeRuntimeStepForGuide(
   const step = snapshot.steps.find((candidate) => candidate.stepId === stepId);
   if (!step) throw new Error(`unknown guide step: ${stepId}`);
   const active = beginRuntimeStep(runtime, stepId, uuidv4(), new Date().toISOString());
-  const evidence = (await listEvidence(session.guideId)).filter(
-    (record) => record.stepId === stepId,
+  const attempt = active.attempts.find(
+    (candidate) => candidate.stepId === stepId && candidate.status === 'in-progress',
   );
+  if (!attempt) throw new Error(`no active attempt for step: ${stepId}`);
+  const evidence = (await listEvidence(session.guideId)).filter(
+    (record) => record.stepId === stepId && attempt.evidenceIds.includes(record.evidenceId),
+  );
+  for (const record of evidence) {
+    if (record.assetHash && !(await session.assets.has(record.assetHash as ContentHash))) {
+      throw new Error(`missing evidence asset: ${record.evidenceId}`);
+    }
+    if (record.kind === 'signature' && record.attestation && record.assetHash) {
+      const artifactBytes = await session.assets.get(record.assetHash as ContentHash);
+      if (
+        !artifactBytes ||
+        !(await verifyRuntimeAttestationArtifact({
+          attestation: record.attestation,
+          artifactBytes,
+          guideId: session.guideId,
+          stepId,
+          sessionIds: new Set([active.sessionId]),
+        }))
+      ) {
+        throw new Error(`invalid attestation evidence: ${record.evidenceId}`);
+      }
+    }
+  }
   const next = completeRuntimeStep({
     session: active,
     stepId,
@@ -849,7 +1022,10 @@ export async function exportRuntimeCompletionReport(
   runtime: RuntimeSession,
 ): Promise<{ bytes: Uint8Array; filename: string }> {
   const snapshot = materializeSnapshot(session.working);
-  const evidence = await listEvidence(session.guideId);
+  const sessionEvidenceIds = new Set(runtime.attempts.flatMap((attempt) => attempt.evidenceIds));
+  const evidence = (await listEvidence(session.guideId)).filter((record) =>
+    sessionEvidenceIds.has(record.evidenceId),
+  );
   const stepTitles = Object.fromEntries(
     snapshot.steps.map((step) => [step.stepId, step.instructionText]),
   );
@@ -1296,6 +1472,62 @@ export async function importDraft(bytes: Uint8Array): Promise<ImportDraftResult>
     throw new Error('import: runtime files present without inclusion policy');
   }
 
+  const evidenceById = new Map<string, EvidenceRecord>();
+  for (const record of evidence) {
+    if (evidenceById.has(record.evidenceId)) {
+      throw new Error(`import: duplicate evidence id ${record.evidenceId}`);
+    }
+    evidenceById.set(record.evidenceId, record);
+  }
+  const packageAssetsByHash = new Map(packageAssets.map((asset) => [asset.hash, asset.entry.data]));
+  const importedRuntimeSessions: RuntimeSession[] = [];
+  for (const file of runtimeFiles.filter(
+    (candidate) => candidate.path.startsWith('session-') && candidate.extension === 'json',
+  )) {
+    const parsed = parsePackageJson(file.entry.data, `runtime/evidence/${file.path}.json`);
+    if (!isRuntimeSession(parsed) || parsed.guideId !== snapshot.guideId) {
+      throw new Error(`import: invalid runtime session ${file.path}`);
+    }
+    importedRuntimeSessions.push(parsed);
+  }
+  const importedSessionIds = new Set(importedRuntimeSessions.map((session) => session.sessionId));
+  for (const runtime of importedRuntimeSessions) {
+    for (const attempt of runtime.attempts) {
+      for (const evidenceId of attempt.evidenceIds) {
+        const record = evidenceById.get(evidenceId);
+        if (record?.stepId !== attempt.stepId) {
+          throw new Error(`import: runtime evidence provenance mismatch ${evidenceId}`);
+        }
+      }
+    }
+    for (const completion of runtime.completions) {
+      for (const evidenceId of completion.evidenceIds) {
+        const record = evidenceById.get(evidenceId);
+        if (record?.stepId !== completion.stepId) {
+          throw new Error(`import: completion evidence provenance mismatch ${evidenceId}`);
+        }
+      }
+    }
+  }
+  for (const record of evidence.filter((candidate) => candidate.kind === 'signature')) {
+    if (!record.assetHash || !record.attestation) {
+      throw new Error(`import: incomplete attestation evidence ${record.evidenceId}`);
+    }
+    const artifactBytes = packageAssetsByHash.get(record.assetHash);
+    if (
+      !artifactBytes ||
+      !(await verifyRuntimeAttestationArtifact({
+        attestation: record.attestation,
+        artifactBytes,
+        guideId: snapshot.guideId,
+        stepId: record.stepId,
+        sessionIds: importedSessionIds,
+      }))
+    ) {
+      throw new Error(`import: invalid attestation evidence ${record.evidenceId}`);
+    }
+  }
+
   const sourceBytes: { sha256: ContentHash; bytes: Uint8Array }[] = [];
   if (manifest.sourceCount !== undefined && manifest.sourceCount !== snapshot.sources.length) {
     throw new Error('import: manifest source count mismatch');
@@ -1447,15 +1679,7 @@ export async function importDraft(bytes: Uint8Array): Promise<ImportDraftResult>
         extension,
       })),
     );
-    for (const file of runtimeFiles.filter(
-      (candidate) => candidate.path.startsWith('session-') && candidate.extension === 'json',
-    )) {
-      const parsed = parsePackageJson(file.entry.data, `runtime/evidence/${file.path}.json`);
-      if (!isRuntimeSession(parsed) || parsed.guideId !== guideId) {
-        throw new Error(`import: invalid runtime session ${file.path}`);
-      }
-      await db().runtimeSessions.put(parsed);
-    }
+    for (const runtime of importedRuntimeSessions) await db().runtimeSessions.put(runtime);
   }
   await persistence.provider.destroy();
   working.doc.destroy();

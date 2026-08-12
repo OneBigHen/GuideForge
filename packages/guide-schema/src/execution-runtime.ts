@@ -19,7 +19,7 @@ export interface RuntimeAttestation {
 }
 
 export interface RuntimeCompletionRule {
-  minimumEvidenceCount: 1;
+  minimumEvidenceCount: number;
   allowedEvidenceKinds: RuntimeEvidenceKind[];
   verificationCount: number;
   requiresExplicitAction: true;
@@ -102,10 +102,13 @@ export interface RuntimeCompletionReport {
 const ALLOWED_EVIDENCE_KINDS: RuntimeEvidenceKind[] = ['photo', 'note', 'signature', 'measurement'];
 
 export function createRuntimeCompletionRule(verificationCount = 0): RuntimeCompletionRule {
+  const normalizedVerificationCount = Number.isInteger(verificationCount)
+    ? Math.max(0, verificationCount)
+    : 0;
   return {
-    minimumEvidenceCount: 1,
+    minimumEvidenceCount: Math.max(1, normalizedVerificationCount),
     allowedEvidenceKinds: [...ALLOWED_EVIDENCE_KINDS],
-    verificationCount,
+    verificationCount: normalizedVerificationCount,
     requiresExplicitAction: true,
   };
 }
@@ -199,7 +202,10 @@ export function evaluateRuntimeCompletion(
   evidence: readonly { kind: RuntimeEvidenceKind }[],
 ): { ok: boolean; reason: string | null } {
   if (evidence.length < rule.minimumEvidenceCount) {
-    return { ok: false, reason: 'capture at least one evidence item before completing this step' };
+    return {
+      ok: false,
+      reason: `capture at least ${rule.minimumEvidenceCount} evidence item${rule.minimumEvidenceCount === 1 ? '' : 's'} before completing this step`,
+    };
   }
   if (evidence.some((item) => !rule.allowedEvidenceKinds.includes(item.kind))) {
     return { ok: false, reason: 'this step contains an unsupported evidence kind' };
@@ -225,6 +231,14 @@ export function completeRuntimeStep(input: {
     (candidate) => candidate.stepId === input.stepId && candidate.status === 'in-progress',
   );
   if (!attempt) throw new Error(`no active attempt for step: ${input.stepId}`);
+  const attemptEvidenceIds = new Set(attempt.evidenceIds);
+  const completionEvidenceIds = input.evidence.map((item) => item.evidenceId);
+  if (
+    new Set(completionEvidenceIds).size !== completionEvidenceIds.length ||
+    completionEvidenceIds.some((evidenceId) => !attemptEvidenceIds.has(evidenceId))
+  ) {
+    throw new Error('completion evidence must belong to the active step attempt');
+  }
   const decision = evaluateRuntimeCompletion(input.rule, input.evidence);
   if (!decision.ok) throw new Error(decision.reason ?? 'step completion rejected');
 
@@ -305,19 +319,139 @@ export function buildRuntimeCompletionReport(input: {
 export function isRuntimeSession(value: unknown): value is RuntimeSession {
   if (!value || typeof value !== 'object') return false;
   const record = value as Record<string, unknown>;
-  return (
+  if (
     record.runtimeVersion === EXECUTION_RUNTIME_VERSION &&
     typeof record.sessionId === 'string' &&
+    record.sessionId.length > 0 &&
     typeof record.guideId === 'string' &&
+    record.guideId.length > 0 &&
     typeof record.learnerId === 'string' &&
-    Array.isArray(record.stepIds) &&
-    record.stepIds.every((stepId) => typeof stepId === 'string') &&
+    record.learnerId.length > 0 &&
     typeof record.currentStepIndex === 'number' &&
+    Array.isArray(record.stepIds) &&
     Array.isArray(record.attempts) &&
     Array.isArray(record.completions) &&
     (record.status === 'in-progress' || record.status === 'completed') &&
-    typeof record.createdAtIso === 'string' &&
-    typeof record.updatedAtIso === 'string' &&
-    (record.completedAtIso === null || typeof record.completedAtIso === 'string')
+    isIsoDate(record.createdAtIso) &&
+    isIsoDate(record.updatedAtIso) &&
+    (record.completedAtIso === null || isIsoDate(record.completedAtIso))
+  ) {
+    const stepIds = record.stepIds;
+    const currentStepIndex = record.currentStepIndex;
+    const attempts = record.attempts;
+    const completions = record.completions;
+    if (
+      !stepIds.every(
+        (stepId): stepId is string => typeof stepId === 'string' && stepId.length > 0,
+      ) ||
+      new Set(stepIds).size !== stepIds.length ||
+      !Number.isInteger(currentStepIndex) ||
+      currentStepIndex < 0 ||
+      currentStepIndex > stepIds.length
+    ) {
+      return false;
+    }
+    const stepIdSet = new Set(stepIds);
+    const attemptIds = new Set<string>();
+    for (const value of attempts) {
+      if (!isStepAttempt(value, stepIdSet) || attemptIds.has(value.attemptId)) return false;
+      attemptIds.add(value.attemptId);
+    }
+    const completionIds = new Set<string>();
+    const completedStepIds = new Set<string>();
+    for (const value of completions) {
+      if (!isStepCompletion(value, stepIdSet, attempts, attemptIds)) return false;
+      if (completionIds.has(value.completionId) || completedStepIds.has(value.stepId)) return false;
+      completionIds.add(value.completionId);
+      completedStepIds.add(value.stepId);
+    }
+    if (record.status === 'completed') {
+      return (
+        currentStepIndex === stepIds.length &&
+        record.completedAtIso !== null &&
+        completedStepIds.size === stepIds.length
+      );
+    }
+    return record.completedAtIso === null;
+  }
+  return false;
+}
+
+function isIsoDate(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && !Number.isNaN(Date.parse(value));
+}
+
+function isStepAttempt(value: unknown, stepIds: ReadonlySet<string>): value is StepAttempt {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.attemptId === 'string' &&
+    record.attemptId.length > 0 &&
+    typeof record.stepId === 'string' &&
+    stepIds.has(record.stepId) &&
+    isIsoDate(record.startedAtIso) &&
+    isIsoDate(record.updatedAtIso) &&
+    (record.status === 'in-progress' || record.status === 'completed') &&
+    Array.isArray(record.evidenceIds) &&
+    new Set(record.evidenceIds).size === record.evidenceIds.length &&
+    record.evidenceIds.every(
+      (evidenceId) => typeof evidenceId === 'string' && evidenceId.length > 0,
+    )
+  );
+}
+
+function isRuntimeCompletionRule(value: unknown): value is RuntimeCompletionRule {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  const minimumEvidenceCount = record.minimumEvidenceCount;
+  const verificationCount = record.verificationCount;
+  return (
+    typeof minimumEvidenceCount === 'number' &&
+    Number.isInteger(minimumEvidenceCount) &&
+    minimumEvidenceCount >= 1 &&
+    Array.isArray(record.allowedEvidenceKinds) &&
+    record.allowedEvidenceKinds.every((kind) =>
+      ALLOWED_EVIDENCE_KINDS.includes(kind as RuntimeEvidenceKind),
+    ) &&
+    typeof verificationCount === 'number' &&
+    Number.isInteger(verificationCount) &&
+    verificationCount >= 0 &&
+    minimumEvidenceCount === Math.max(1, verificationCount) &&
+    record.requiresExplicitAction === true
+  );
+}
+
+function isStepCompletion(
+  value: unknown,
+  stepIds: ReadonlySet<string>,
+  attempts: readonly unknown[],
+  attemptIds: ReadonlySet<string>,
+): value is StepCompletion {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  const attempt = attempts.find(
+    (candidate) =>
+      candidate &&
+      typeof candidate === 'object' &&
+      (candidate as Record<string, unknown>).attemptId === record.attemptId,
+  ) as StepAttempt | undefined;
+  const evidenceIds = Array.isArray(record.evidenceIds) ? record.evidenceIds : [];
+  return (
+    typeof record.completionId === 'string' &&
+    record.completionId.length > 0 &&
+    typeof record.attemptId === 'string' &&
+    attemptIds.has(record.attemptId) &&
+    attempt?.status === 'completed' &&
+    typeof record.stepId === 'string' &&
+    stepIds.has(record.stepId) &&
+    attempt.stepId === record.stepId &&
+    isIsoDate(record.completedAtIso) &&
+    typeof record.completedBy === 'string' &&
+    record.completedBy.length > 0 &&
+    new Set(evidenceIds).size === evidenceIds.length &&
+    evidenceIds.every(
+      (evidenceId) => typeof evidenceId === 'string' && attempt.evidenceIds.includes(evidenceId),
+    ) &&
+    isRuntimeCompletionRule(record.rule)
   );
 }

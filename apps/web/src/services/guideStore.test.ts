@@ -1,4 +1,6 @@
+import type { ContentHash } from '@guideforge/domain';
 import 'fake-indexeddb/auto';
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { webcrypto } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
@@ -155,5 +157,60 @@ describe('guide store local-first workflow', () => {
       await session.db.runtimeBlobs.get(`${session.guideId}:session-${completed.sessionId}`),
     ).toBeDefined();
     expect(restored.guideId).toBe(session.guideId);
+
+    const restoredSession = await openGuide(restored.guideId);
+    const restoredSignature = (await listEvidence(restored.guideId)).find(
+      (record) => record.kind === 'signature',
+    );
+    const restoredArtifact = await restoredSession.assets.get(
+      restoredSignature!.assetHash as ContentHash,
+    );
+    const artifact = JSON.parse(new TextDecoder().decode(restoredArtifact!)) as {
+      payload: string;
+      publicKeyJwk: JsonWebKey;
+      signatureHex: string;
+    };
+    const publicKey = await crypto.subtle.importKey(
+      'jwk',
+      artifact.publicKeyJwk,
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      false,
+      ['verify'],
+    );
+    const signatureBytes = Uint8Array.from(
+      artifact.signatureHex.match(/../g)!.map((pair) => Number.parseInt(pair, 16)),
+    );
+    expect(
+      await crypto.subtle.verify(
+        { name: 'ECDSA', hash: 'SHA-256' },
+        publicKey,
+        signatureBytes as unknown as BufferSource,
+        new TextEncoder().encode(artifact.payload),
+      ),
+    ).toBe(true);
+    await closeGuide(restoredSession);
+
+    const tampered = unzipSync(backup.bytes);
+    const evidencePath = 'runtime/evidence/index.json';
+    const tamperedEvidence = JSON.parse(strFromU8(tampered[evidencePath]!)) as {
+      attestation?: { signatureHex: string };
+    }[];
+    const tamperedSignature = tamperedEvidence.find((record) => record.attestation);
+    tamperedSignature!.attestation!.signatureHex = `${tamperedSignature!.attestation!.signatureHex.slice(0, -2)}00`;
+    const tamperedEvidenceBytes = strToU8(JSON.stringify(tamperedEvidence));
+    tampered[evidencePath] = tamperedEvidenceBytes;
+    const manifest = JSON.parse(strFromU8(tampered['manifest.json']!)) as {
+      entries: { path: string; sha256: string; sizeBytes: number }[];
+    };
+    const evidenceEntry = manifest.entries.find((entry) => entry.path === evidencePath)!;
+    const digest = await crypto.subtle.digest('SHA-256', tamperedEvidenceBytes);
+    evidenceEntry.sha256 = Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, '0'),
+    ).join('');
+    evidenceEntry.sizeBytes = tamperedEvidenceBytes.length;
+    tampered['manifest.json'] = strToU8(JSON.stringify(manifest));
+    await expect(importDraft(zipSync(tampered, { level: 0 }))).rejects.toThrow(
+      'invalid attestation evidence',
+    );
   });
 });

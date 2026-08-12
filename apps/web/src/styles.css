@@ -702,6 +702,43 @@ body {
   font-size: 0.875rem;
 }
 
+.scene-spatial-tree,
+.runtime-verification ul {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.scene-spatial-tree li {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.scene-spatial-tree span {
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+}
+
+.runtime-verification {
+  border-left: 3px solid var(--color-primary);
+  padding-left: var(--space-3);
+}
+
+.runtime-verification h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.runtime-verification p {
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
 .evidence-actions {
   display: flex;
   gap: var(--space-2);
@@ -762,6 +799,10 @@ body {
   min-height: 32px;
   padding: var(--space-1) var(--space-3);
   font-size: 0.8125rem;
+}
+
+.run-layout .button--small {
+  min-height: var(--touch-target);
 }
 
 /* ---- Responsive: tablet (portrait) and phone ---- */

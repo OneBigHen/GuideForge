@@ -1,6 +1,10 @@
 import { createPhotoTo3DJob } from '@guideforge/assets';
 import type { ContentHash, EntityId } from '@guideforge/domain';
-import { createEmptyTraining, startTrainingSession } from '@guideforge/guide-schema';
+import {
+  createEmptyTraining,
+  createRuntimeSession,
+  startTrainingSession,
+} from '@guideforge/guide-schema';
 import 'fake-indexeddb/auto';
 import { beforeAll, describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
@@ -108,6 +112,22 @@ describe('storage-web Dexie metadata', () => {
     });
     await db.photoJobs.put(job);
     expect(await db.photoJobs.get(job.jobId)).toMatchObject({ status: 'blocked' });
+  });
+
+  it('persists a versioned procedure runtime session in the v10 store', async () => {
+    const runtime = createRuntimeSession({
+      sessionId: 'runtime-v10',
+      guideId: GUIDE_ID,
+      learnerId: 'learner-1',
+      stepIds: ['step-1'],
+      nowIso: '2026-01-01T00:00:00.000Z',
+    });
+    await db.runtimeSessions.put(runtime);
+    expect(await db.runtimeSessions.get(runtime.sessionId)).toMatchObject({
+      runtimeVersion: 1,
+      guideId: GUIDE_ID,
+      status: 'in-progress',
+    });
   });
 });
 

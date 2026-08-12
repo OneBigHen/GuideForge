@@ -92,12 +92,12 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 ## Execution and evidence
 
-| Requirement                               | Current source/test evidence                                                                                                        | Status            |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| Procedure player renders authored steps   | `/run/:guideId` renders ordered authored steps, current scene state/camera/annotations, and offline status                          | verified narrowly |
-| Real step completion state                | Versioned `RuntimeSession` with `StepAttempt`/`StepCompletion`; progress derives from completions and explicit evidence rule        | verified narrowly |
-| Real photo/signature/measurement evidence | Native camera/file input with sanitized content hash, verified local ECDSA attestation artifact, typed measurement and note records | verified narrowly |
-| 3D step state, resume, offline report     | Dexie v10 runtime resume, service-worker offline reload, full backup/import, and JSON completion report E2E                         | verified narrowly |
+| Requirement                               | Current source/test evidence                                                                                                                                 | Status            |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------- |
+| Procedure player renders authored steps   | `/run/:guideId` renders ordered authored steps, authored verification checks, scene transforms/camera/annotations, and offline status                        | verified narrowly |
+| Real step completion state                | Versioned `RuntimeSession` with `StepAttempt`/`StepCompletion`; progress derives from active-attempt evidence, authored check count, and explicit completion | verified narrowly |
+| Real photo/signature/measurement evidence | Native camera/file input with sanitized content hash, cryptographically verified local ECDSA artifact on restore, typed measurement and note records         | verified narrowly |
+| 3D step state, resume, offline report     | Dexie v10 runtime resume, deep imported-session validation, service-worker offline reload, full backup/import, and downloaded JSON report E2E                | verified narrowly |
 
 ## Assets and 3D
 
@@ -169,3 +169,8 @@ local-asset-first resolution, explicit proxy fallback, stable-seed bounded
 layout, semantic graph/constraints, cameras, step states, annotations,
 validation, and canonical editor acceptance. Live provider asset quality, mesh
 observations, rendered overlays, and physical-device input remain unverified.
+Phase 12 is verified narrowly for review-hardened local execution, including
+attempt-scoped evidence, deep runtime validation, attestation restore checks,
+report JSON inspection, and procedure-player Axe coverage. Physical camera,
+trusted identity, external signature verification, browser quota recovery, and
+real-device offline reload remain unverified.
