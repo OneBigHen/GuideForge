@@ -83,7 +83,10 @@ describe('worker-documents provider endpoint SSRF guard', () => {
     globalThis.fetch = (_input: RequestInfo | URL, init?: RequestInit) => {
       captured = {
         headers: new Headers(init?.headers),
-        body: JSON.parse(String(init?.body)) as Record<string, unknown>,
+        body: JSON.parse(typeof init?.body === 'string' ? init.body : '{}') as Record<
+          string,
+          unknown
+        >,
       };
       return Promise.resolve(
         new Response(
