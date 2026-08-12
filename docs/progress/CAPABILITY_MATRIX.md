@@ -120,13 +120,13 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 ## Devices, storage, release, reliability
 
-| Requirement                                   | Current source/test evidence                                                                                                                                                       | Status            |
-| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| Real iPad/iPhone/Pencil/camera/PWA tests      | Phase 13 dashboard/job/backup flow and 18/18 Axe scans pass in desktop/iPad/iPhone emulation; real device unavailable here                                                         | blocked           |
-| Persistence/quota/backup/restore              | Settings reads live quota/persistence state; near-quota and persistence-request tests, hash-verified corrupted-blob reads, offline reload, full backup/import, and release recovery drill pass; physical browser deletion/recovery remains open | verified narrowly |
-| PWA production deploy                         | Manifest, Apple metadata, service-worker generation, checked-in CSP/cache/security-header policy, and candidate packaging pass; external HTTPS deploy/install lifecycle not proven | verified narrowly |
-| Tauri artifacts/signing/upgrade/rollback      | Linux x86_64 `.deb` builds; Windows/macOS matrix and signing/notarization are explicit external targets; manifest verification and data-preserving recovery drill pass             | verified narrowly |
-| Golden micropipette/pump/filter certification | Phase 16 has not yet run the three real-source golden corpus                                                                                                                        | missing           |
+| Requirement                                   | Current source/test evidence                                                                                                                                                                                                                                         | Status            |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Real iPad/iPhone/Pencil/camera/PWA tests      | Phase 13 dashboard/job/backup flow and 18/18 Axe scans pass in desktop/iPad/iPhone emulation; real device unavailable here                                                                                                                                           | blocked           |
+| Persistence/quota/backup/restore              | Settings reads live quota/persistence state; near-quota and persistence-request tests, hash-verified corrupted-blob reads, offline reload, full backup/import, and release recovery drill pass; physical browser deletion/recovery remains open                      | verified narrowly |
+| PWA production deploy                         | Manifest, Apple metadata, service-worker generation, checked-in CSP/cache/security-header policy, and candidate packaging pass; external HTTPS deploy/install lifecycle not proven                                                                                   | verified narrowly |
+| Tauri artifacts/signing/upgrade/rollback      | Linux x86_64 `.deb` builds; Windows/macOS matrix and signing/notarization are explicit external targets; manifest verification and data-preserving recovery drill pass                                                                                               | verified narrowly |
+| Golden micropipette/pump/filter certification | Phase 16 table-driven 3/3 local certification passes source/citation, training/mastery, runtime evidence, spatial validation, procedural assets, package reports, clean-profile import, and semantic comparison; real provider corpus/GPU/physical gates remain open | verified narrowly |
 
 ## Phase certification
 
@@ -192,3 +192,9 @@ offline shell, a 1.047s desktop cold-shell p95 pass, a forced 125/125 workspace
 gate, and a clean 78-pass/6-skip browser run. Strix was inconclusive because
 the local CLI was unavailable; live providers, network penetration, physical
 recovery, and DNS/egress enforcement remain external gates.
+Phase 16 is verified narrowly for the shared golden path: all three required
+project shapes pass the data-driven local ingestion, citation, training,
+offline mastery, typed evidence, spatial, procedural-asset, report, backup,
+clean-profile import, and semantic comparison harness. Real Docling/OCR/ASR/
+VLM/DeepSeek sources, photo-generated mesh quality, GPU inference, physical
+devices, and deployment remain unverified.
