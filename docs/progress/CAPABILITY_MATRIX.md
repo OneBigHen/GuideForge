@@ -114,8 +114,8 @@ not implemented; `blocked` means external hardware/provider access is needed.
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
 | Durable surface anchors                    | Schema v5 `SurfaceAttachment`, v4 migration, mesh-local/barycentric fields, Yjs persistence, transform-stability/rebind tests, and scene editor correction/review controls                   | verified narrowly |
 | Arrows/callouts/measurements/step-state UI | Annotation kinds include arrows, labels, callouts, highlights, and paths; measurement and step-state commands/UI plus accessible DOM alternatives; live overlay rendering remains unverified | verified narrowly |
-| Semantic AI spatial compiler               | No complete planner/compiler/critic gate                                                                                                                                                     | missing           |
-| Deterministic transforms and cameras       | Scene-core/editor tests cover local transforms/cameras                                                                                                                                       | partial           |
+| Semantic AI spatial compiler               | `@guideforge/spatial-compiler`: equipment requirements, semantic relations, asset resolution, stable-seed bounded solver, validation, cameras, annotations, step states, and typed scene commands; micropipette tests plus 6/6 scene browser acceptance | verified narrowly |
+| Deterministic transforms and cameras       | Stable-seed workspace/collision solver and camera candidates materialize through the canonical scene editor; physical/rendered camera proof remains open                                                                                              | verified narrowly |
 
 ## Devices, storage, release, reliability
 
@@ -164,3 +164,8 @@ attachments, v4 migration, transform stability, correction/review controls,
 annotation/measurement/step-state persistence, package round trip, and 6/6
 scene-editor browser acceptance. Live multiview vision, mesh raycast,
 rendered overlays, and physical-device input remain unverified.
+Phase 11 is verified narrowly for the deterministic compiler, licensed
+local-asset-first resolution, explicit proxy fallback, stable-seed bounded
+layout, semantic graph/constraints, cameras, step states, annotations,
+validation, and canonical editor acceptance. Live provider asset quality, mesh
+observations, rendered overlays, and physical-device input remain unverified.

@@ -59,6 +59,12 @@ test('spatial editor: undo/redo, isolate, layers, annotations', async ({ page })
     'aria-pressed',
     'true',
   );
+
+  // Phase 11: compile the current procedure into the canonical editable scene.
+  await page.getByRole('button', { name: 'Compile spatial guide' }).click();
+  await expect(page.getByRole('status', { name: 'Spatial compiler result' })).toContainText(
+    'nodes',
+  );
 });
 
 // Phase 04: asset library — procedural scientific templates appear in the

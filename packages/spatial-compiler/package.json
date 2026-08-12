@@ -1,0 +1,27 @@
+{
+  "name": "@guideforge/spatial-compiler",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "format:check": "prettier --check src"
+  },
+  "dependencies": {
+    "@guideforge/assets": "workspace:*",
+    "@guideforge/commands": "workspace:*",
+    "@guideforge/domain": "workspace:*",
+    "@guideforge/guide-schema": "workspace:*",
+    "@guideforge/scene-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

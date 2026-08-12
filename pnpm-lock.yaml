@@ -405,6 +405,9 @@ importers:
       '@guideforge/scene-react':
         specifier: workspace:*
         version: link:../../packages/scene-react
+      '@guideforge/spatial-compiler':
+        specifier: workspace:*
+        version: link:../../packages/spatial-compiler
       '@guideforge/storage-web':
         specifier: workspace:*
         version: link:../../packages/storage-web
@@ -810,6 +813,34 @@ importers:
       '@types/three':
         specifier: 'catalog:'
         version: 0.185.1
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@types/node@26.1.2)(jsdom@27.2.0)(vite@8.2.0(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.1)(tsx@4.23.5)(yaml@2.9.0))
+
+  packages/spatial-compiler:
+    dependencies:
+      '@guideforge/assets':
+        specifier: workspace:*
+        version: link:../assets
+      '@guideforge/commands':
+        specifier: workspace:*
+        version: link:../commands
+      '@guideforge/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@guideforge/guide-schema':
+        specifier: workspace:*
+        version: link:../guide-schema
+      '@guideforge/scene-core':
+        specifier: workspace:*
+        version: link:../scene-core
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.2
       typescript:
         specifier: 'catalog:'
         version: 6.0.3

@@ -25,6 +25,7 @@
     "@guideforge/package-gforge": "workspace:*",
     "@guideforge/scene-core": "workspace:*",
     "@guideforge/scene-react": "workspace:*",
+    "@guideforge/spatial-compiler": "workspace:*",
     "@guideforge/storage-web": "workspace:*",
     "@guideforge/synthesis": "workspace:*",
     "@guideforge/telemetry": "workspace:*",

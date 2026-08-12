@@ -1,8 +1,10 @@
 import {
   generateProceduralGlb,
   PROCEDURAL_TEMPLATES,
+  type AssetMetadata,
   type ProceduralTemplate,
 } from '@guideforge/assets';
+import { guideSceneToSceneState, materializeSnapshot } from '@guideforge/collaboration';
 import type { GuideCommand } from '@guideforge/commands';
 import type { EntityId } from '@guideforge/domain';
 import {
@@ -19,6 +21,7 @@ import {
   type Vec3,
 } from '@guideforge/scene-core';
 import { SceneViewport } from '@guideforge/scene-react';
+import { compileSpatialGuide, type SpatialCompilation } from '@guideforge/spatial-compiler';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useEffect, useMemo, useState } from 'react';
 import { closeGuide, openGuide, type OpenGuideSession } from '../services/guideStore';
@@ -82,6 +85,9 @@ function SceneEditorPage() {
   const [assetHashes, setAssetHashes] = useState<string[]>([]);
   const [assetError, setAssetError] = useState<string | null>(null);
   const [assetQuery, setAssetQuery] = useState('');
+  const [spatialCompilation, setSpatialCompilation] = useState<SpatialCompilation | null>(null);
+  const [spatialCompiling, setSpatialCompiling] = useState(false);
+  const [spatialError, setSpatialError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -469,6 +475,48 @@ function SceneEditorPage() {
     }
   }
 
+  async function handleCompileSpatialGuide() {
+    if (!session || spatialCompiling) return;
+    setSpatialCompiling(true);
+    setSpatialError(null);
+    try {
+      const rows = await session.db.assets.orderBy('hash').toArray();
+      const assets = rows.filter(
+        (row) => typeof (row as unknown as { name?: unknown }).name === 'string',
+      ) as unknown as AssetMetadata[];
+      const result = compileSpatialGuide({
+        snapshot: materializeSnapshot(session.working),
+        assets,
+        seed: guideId,
+      });
+      for (const generated of result.proceduralAssets) {
+        if (await session.db.assets.get(generated.contentHash)) continue;
+        await session.assets.put(
+          generateProceduralGlb(generated.template),
+          'model/gltf-binary',
+          'glb',
+        );
+        setAssetHashes((hashes) =>
+          hashes.includes(generated.contentHash) ? hashes : [...hashes, generated.contentHash],
+        );
+      }
+      const next = guideSceneToSceneState(result.scene);
+      setUndoStack((stack) => [...stack, scene]);
+      setRedoStack([]);
+      session.working.doc.transact(
+        () => saveSceneToWorkingDoc(session, next),
+        'guideforge:spatial-compile',
+      );
+      setScene(next);
+      setSelected([]);
+      setSpatialCompilation(result);
+    } catch (err) {
+      setSpatialError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSpatialCompiling(false);
+    }
+  }
+
   const selectedNode = selected.length === 1 ? scene.nodes.get(selected[0] as EntityId) : null;
   const health = useMemo(() => evaluateSceneHealth(scene), [scene]);
   const assetUrl = useMemo(() => makeAssetUrlResolver(new Map()), []);
@@ -486,8 +534,30 @@ function SceneEditorPage() {
           <Link to="/edit/$guideId" params={{ guideId }} className="button button--small">
             Back to guide
           </Link>
+          <button
+            type="button"
+            className="button button--small"
+            onClick={() => void handleCompileSpatialGuide()}
+            disabled={!loaded || spatialCompiling}
+          >
+            {spatialCompiling ? 'Compiling…' : 'Compile spatial guide'}
+          </button>
         </div>
       </div>
+
+      {spatialError && (
+        <p role="alert" className="error-text">
+          Spatial compiler: {spatialError}
+        </p>
+      )}
+      {spatialCompilation && (
+        <p role="status" aria-label="Spatial compiler result" className="health-banner">
+          Spatial compiler: {spatialCompilation.scene.nodes.length} nodes,{' '}
+          {spatialCompilation.scene.cameras.length} cameras,{' '}
+          {spatialCompilation.scene.annotations.length} annotations ·{' '}
+          {spatialCompilation.validation.warnings.length} proxy/warning(s)
+        </p>
+      )}
 
       {contextLost && (
         <p role="alert" className="error-text">
