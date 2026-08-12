@@ -7,11 +7,15 @@
  * any external provider (Phase 04 gate).
  */
 import {
+  ASSET_PROVIDERS,
   decideLicense,
   generateProceduralGlb,
+  inspectModel,
+  planAssetSearch,
   PROCEDURAL_TEMPLATES,
   searchAssets,
   type AssetMetadata,
+  type AssetProviderId,
   type ProceduralTemplate,
   type SearchResult,
 } from '@guideforge/assets';
@@ -23,6 +27,7 @@ export interface AssetLibraryEntry {
   meta: AssetMetaRecord;
   metadata: AssetMetadata | null;
   licenseBlocks: string[];
+  conversionRequired: boolean;
 }
 
 export class AssetLibrary {
@@ -42,6 +47,15 @@ export class AssetLibrary {
     return searchAssets(assets, { text, ...(opts?.format ? { format: opts.format } : {}) });
   }
 
+  async searchPlan(text: string, providerIds?: AssetProviderId[]) {
+    const metas = await this.db.assets.orderBy('hash').toArray();
+    return planAssetSearch(
+      metas.map((meta) => this.toMetadata(meta)),
+      text,
+      providerIds ?? (Object.keys(ASSET_PROVIDERS) as AssetProviderId[]),
+    );
+  }
+
   /** Import a GLB/GLTF/OBJ/STL file into the content store + metadata. */
   async importBytes(
     bytes: Uint8Array,
@@ -49,10 +63,20 @@ export class AssetLibrary {
     mimeType: string,
     extension: string,
   ): Promise<AssetLibraryEntry> {
-    const meta = await this.store.put(bytes, mimeType, extension);
-    const metadata = this.buildMetadata(meta, name, { kind: 'import' });
-    await this.db.assets.put({ ...meta, ...metadata });
-    return this.toEntry(meta);
+    const normalizedExtension = extension.replace(/^\./, '').toLowerCase();
+    if (!['glb', 'gltf', 'obj', 'stl', 'step'].includes(normalizedExtension)) {
+      throw new Error(`unsupported asset format: ${extension}`);
+    }
+    const inspection = inspectModel(
+      bytes,
+      normalizedExtension as 'glb' | 'gltf' | 'obj' | 'stl' | 'step',
+    );
+    if (!inspection.safe) throw new Error(`unsafe asset import: ${inspection.issues.join('; ')}`);
+    const meta = await this.store.put(bytes, mimeType, normalizedExtension);
+    const metadata = this.buildMetadata(meta, name, { kind: 'import' }, inspection);
+    const row = { ...meta, ...metadata };
+    await this.db.assets.put(row);
+    return this.toEntry(row);
   }
 
   /** Create a procedural scientific template asset (deterministic GLB). */
@@ -60,14 +84,20 @@ export class AssetLibrary {
     const info = PROCEDURAL_TEMPLATES[template];
     const bytes = generateProceduralGlb(template);
     const meta = await this.store.put(bytes, 'model/gltf-binary', 'glb');
-    const metadata = this.buildMetadata(meta, info.displayName, {
-      kind: 'procedural',
-      attribution: 'GuideForge procedural template',
-      licenseId: 'CC0',
-      licenseText: 'Generated locally; no external source.',
-    });
-    await this.db.assets.put({ ...meta, ...metadata });
-    return this.toEntry(meta);
+    const metadata = this.buildMetadata(
+      meta,
+      info.displayName,
+      {
+        kind: 'procedural',
+        attribution: 'GuideForge procedural template',
+        licenseId: 'CC0',
+        licenseText: 'Generated locally; no external source.',
+      },
+      inspectModel(bytes, 'glb'),
+    );
+    const row = { ...meta, ...metadata };
+    await this.db.assets.put(row);
+    return this.toEntry(row);
   }
 
   /** Resolve an asset hash to its bytes (for scene attachment / preview). */
@@ -78,7 +108,14 @@ export class AssetLibrary {
   private toEntry(meta: AssetMetaRecord): AssetLibraryEntry {
     const metadata = this.tryMetadata(meta);
     const licenseBlocks = metadata ? decideLicense(metadata.origin).blocks : [];
-    return { hash: meta.hash, meta, metadata, licenseBlocks };
+    return {
+      hash: meta.hash,
+      meta,
+      metadata,
+      licenseBlocks,
+      conversionRequired:
+        metadata?.format === 'obj' || metadata?.format === 'stl' || metadata?.format === 'step',
+    };
   }
 
   private toMetadata(meta: AssetMetaRecord): AssetMetadata {
@@ -95,6 +132,7 @@ export class AssetLibrary {
     meta: AssetMetaRecord,
     name: string,
     origin: AssetMetadata['origin'],
+    inspection?: ReturnType<typeof inspectModel>,
   ): AssetMetadata {
     const assetId = (meta.hash.slice(0, 8) +
       '-' +
@@ -124,8 +162,8 @@ export class AssetLibrary {
       sizeBytes: meta.sizeBytes,
       dimensionsMeters: null,
       origin,
-      reviewState: origin.kind === 'procedural' ? 'generated-draft' : 'visually-reviewed',
-      geometryHealth: null,
+      reviewState: origin.kind === 'procedural' ? 'generated-draft' : 'proxy',
+      geometryHealth: inspection?.geometryHealth ?? null,
       semanticAliases: [],
       semanticAnchors: [],
       usedByProjectIds: [],

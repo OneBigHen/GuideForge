@@ -144,7 +144,7 @@ function normalized(value: string): string {
 
 function stringArray(value: unknown): string[] | null {
   if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) return null;
-  return value as string[];
+  return value;
 }
 
 function scoreItem(item: AssessmentItem, response: TrainingResponse): boolean {

@@ -1106,6 +1106,95 @@ body {
   font-size: 0.8125rem;
 }
 
+/* ---- Asset manager ---- */
+
+.asset-manager {
+  max-width: 1400px;
+  display: grid;
+  gap: var(--space-4);
+}
+
+.asset-manager__header,
+.asset-manager__section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.asset-manager__header h1 {
+  margin: var(--space-3) 0 0;
+}
+
+.asset-manager__header .button input {
+  display: none;
+}
+
+.asset-manager__panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+}
+
+.asset-manager__panel h2,
+.asset-manager__card h3 {
+  margin: 0;
+}
+
+.asset-manager__templates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.asset-manager__providers {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  padding-left: 1.25rem;
+}
+
+.asset-manager__providers li {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.asset-manager__providers span,
+.asset-card__meta {
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+}
+
+.asset-manager__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.asset-manager__card {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+}
+
+.asset-manager__card p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.asset-card__warning {
+  color: #92400e;
+  font-size: 0.875rem;
+}
+
 @media (max-width: 560px) {
   .training-player__header,
   .training-player__exports,

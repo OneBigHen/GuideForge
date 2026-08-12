@@ -101,12 +101,12 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 ## Assets and 3D
 
-| Requirement                                          | Current source/test evidence                                         | Status            |
-| ---------------------------------------------------- | -------------------------------------------------------------------- | ----------------- |
-| Blank/unknown/GPL license fails closed               | Asset license tests pass                                             | verified narrowly |
-| Asset manager/previews/health/providers/STEP-OBJ-STL | Local procedural/GLB path exists; provider/converter path incomplete | partial           |
-| Local photo-to-3D GPU wizard                         | No production local GPU path                                         | missing           |
-| Hunyuan/license gate/Blender/scale/provenance        | No complete live evidence                                            | missing           |
+| Requirement                                          | Current source/test evidence                                                                                                                                                                                | Status            |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Blank/unknown/GPL license fails closed               | Asset license tests pass                                                                                                                                                                                    | verified narrowly |
+| Asset manager/previews/health/providers/STEP-OBJ-STL | `/assets` local-first manager, safe GLB/glTF inspection, provider request contracts, license blocks, and explicit companion-conversion metadata; external download/conversion/derivatives remain unverified | verified narrowly |
+| Local photo-to-3D GPU wizard                         | No production local GPU path                                                                                                                                                                                | missing           |
+| Hunyuan/license gate/Blender/scale/provenance        | No complete live evidence                                                                                                                                                                                   | missing           |
 
 ## Spatial intelligence
 

@@ -65,6 +65,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             Library
           </Link>
           <Link
+            to="/assets"
+            className="nav-link"
+            activeProps={{ className: 'nav-link nav-link--active' }}
+          >
+            Assets
+          </Link>
+          <Link
             to="/settings"
             className="nav-link"
             activeProps={{ className: 'nav-link nav-link--active' }}
@@ -92,6 +99,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Link>
           <Link to="/library" onClick={() => setMenuOpen(false)}>
             Library
+          </Link>
+          <Link to="/assets" onClick={() => setMenuOpen(false)}>
+            Assets
           </Link>
           <Link to="/settings" onClick={() => setMenuOpen(false)}>
             Settings

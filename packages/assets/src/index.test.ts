@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   decideLicense,
   generateProceduralGlb,
+  inspectGlb,
+  inspectModel,
+  planAssetSearch,
   PROCEDURAL_TEMPLATES,
   searchAssets,
   tokenize,
@@ -88,6 +91,18 @@ describe('assets: license policy', () => {
     ).toBeGreaterThan(0);
   });
 
+  it('fails closed when a license is missing or explicitly unlicensed', () => {
+    for (const origin of [
+      { kind: 'provider' as const },
+      { kind: 'provider' as const, licenseId: 'UNLICENSED' },
+    ]) {
+      const decision = decideLicense(origin);
+      expect(decision.allowPackageEmbedding).toBe(false);
+      expect(decision.allowPublicRedistribution).toBe(false);
+      expect(decision.blocks[0]).toContain('unknown license');
+    }
+  });
+
   it('blocks share-alike embedding in public releases', () => {
     const d = decideLicense(
       { kind: 'provider', licenseId: 'CC-BY-SA-4.0' },
@@ -122,6 +137,26 @@ describe('assets: procedural templates', () => {
   it('marks generated assets as approximations (not dimensionally verified)', () => {
     const balance = PROCEDURAL_TEMPLATES['balance-proxy'];
     expect(balance.description).toContain('approximation');
+  });
+
+  it('inspects generated GLB bytes and rejects external glTF resources', () => {
+    const inspection = inspectGlb(generateProceduralGlb('simple-pipette'));
+    expect(inspection.safe).toBe(true);
+    expect(inspection.geometryHealth?.triangleCount).toBe(12);
+    expect(
+      inspectModel(
+        new TextEncoder().encode('{"buffers":[{"uri":"https://evil.test/a.bin"}]}'),
+        'gltf',
+      ).safe,
+    ).toBe(false);
+  });
+
+  it('plans local-first provider requests with normalized bounded queries', () => {
+    const plan = planAssetSearch([asset('Pipette')], '  micropipette<script>  ');
+    expect(plan.local).toHaveLength(0);
+    expect(plan.providers).toHaveLength(5);
+    expect(plan.providers[0]?.query).toBe('micropipette script');
+    expect(plan.providers[0]?.url).not.toContain('<');
   });
 });
 

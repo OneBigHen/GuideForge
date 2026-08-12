@@ -40,7 +40,7 @@ export interface GeometryHealth {
   vertexCount: number;
   materialCount: number;
   textureCount: number;
-  nonManifoldEdges: number;
+  nonManifoldEdges: number | null;
   /** Estimated bounding box in meters. */
   boundsMeters: { x: number; y: number; z: number } | null;
   issues: string[];
@@ -106,7 +106,7 @@ export function decideLicense(
     blocks: [],
   };
 
-  if (license === 'CC0' || license === 'CC0-1.0' || license === 'UNLICENSED' || license === '') {
+  if (license === 'CC0' || license === 'CC0-1.0') {
     // CC0 = public domain dedication; no restrictions.
     decision.requiresAttribution = false;
     return decision;
@@ -219,6 +219,308 @@ export function searchAssets(
   }
 
   return results.sort((a, b) => b.score - a.score).slice(0, limit);
+}
+
+// ---------------------------------------------------------------------------
+// Safe model inspection and provider search contracts
+// ---------------------------------------------------------------------------
+
+export interface ModelInspection {
+  format: 'glb' | 'gltf' | 'obj' | 'stl' | 'step';
+  safe: boolean;
+  requiresCompanionConversion: boolean;
+  companionTool: 'FreeCAD' | 'Blender' | null;
+  geometryHealth: GeometryHealth | null;
+  issues: string[];
+}
+
+export class AssetImportError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AssetImportError';
+  }
+}
+
+interface GltfDocument {
+  buffers?: { uri?: unknown; byteLength?: unknown }[];
+  images?: { uri?: unknown }[];
+  meshes?: {
+    primitives?: { mode?: unknown; indices?: unknown; attributes?: { POSITION?: unknown } }[];
+  }[];
+  accessors?: {
+    bufferView?: unknown;
+    componentType?: unknown;
+    count?: unknown;
+    type?: unknown;
+    min?: unknown;
+    max?: unknown;
+  }[];
+  materials?: unknown[];
+  textures?: unknown[];
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function asDocument(value: unknown): GltfDocument {
+  if (!isObject(value)) throw new AssetImportError('glTF JSON root must be an object');
+  return value;
+}
+
+function numberArray(value: unknown, length: number): number[] | null {
+  return Array.isArray(value) &&
+    value.length === length &&
+    value.every((item) => typeof item === 'number')
+    ? value
+    : null;
+}
+
+function inspectGltfDocument(document: GltfDocument, format: 'glb' | 'gltf'): ModelInspection {
+  const issues: string[] = [];
+  const externalResources = [
+    ...(document.buffers ?? []).map((buffer) => buffer.uri),
+    ...(document.images ?? []).map((image) => image.uri),
+  ].filter((uri) => uri !== undefined);
+  if (externalResources.length > 0) issues.push('external glTF resources are not allowed');
+
+  const accessors = document.accessors ?? [];
+  let triangleCount = 0;
+  let vertexCount = 0;
+  let minBounds: [number, number, number] | null = null;
+  let maxBounds: [number, number, number] | null = null;
+  for (const mesh of document.meshes ?? []) {
+    for (const primitive of mesh.primitives ?? []) {
+      const positionIndex =
+        typeof primitive.attributes?.POSITION === 'number' ? primitive.attributes.POSITION : null;
+      const position = positionIndex === null ? undefined : accessors[positionIndex];
+      if (position && typeof position.count === 'number') vertexCount += position.count;
+      const index =
+        typeof primitive.indices === 'number' ? accessors[primitive.indices] : undefined;
+      const count =
+        typeof index?.count === 'number'
+          ? index.count
+          : typeof position?.count === 'number'
+            ? position.count
+            : 0;
+      if ((primitive.mode ?? 4) === 4) triangleCount += Math.floor(count / 3);
+      const min = numberArray(position?.min, 3);
+      const max = numberArray(position?.max, 3);
+      if (min && max) {
+        minBounds = minBounds
+          ? [
+              Math.min(minBounds[0], min[0]!),
+              Math.min(minBounds[1], min[1]!),
+              Math.min(minBounds[2], min[2]!),
+            ]
+          : [min[0]!, min[1]!, min[2]!];
+        maxBounds = maxBounds
+          ? [
+              Math.max(maxBounds[0], max[0]!),
+              Math.max(maxBounds[1], max[1]!),
+              Math.max(maxBounds[2], max[2]!),
+            ]
+          : [max[0]!, max[1]!, max[2]!];
+      }
+    }
+  }
+  if ((document.meshes ?? []).length === 0) issues.push('model contains no meshes');
+  const geometryHealth: GeometryHealth = {
+    triangleCount,
+    vertexCount,
+    materialCount: document.materials?.length ?? 0,
+    textureCount: document.textures?.length ?? 0,
+    nonManifoldEdges: null,
+    boundsMeters:
+      minBounds && maxBounds
+        ? {
+            x: maxBounds[0] - minBounds[0],
+            y: maxBounds[1] - minBounds[1],
+            z: maxBounds[2] - minBounds[2],
+          }
+        : null,
+    issues: [...issues, 'non-manifold topology was not computed in the browser importer'],
+  };
+  return {
+    format,
+    safe: issues.length === 0,
+    requiresCompanionConversion: false,
+    companionTool: null,
+    geometryHealth,
+    issues: geometryHealth.issues,
+  };
+}
+
+function readGlbJson(bytes: Uint8Array): GltfDocument {
+  if (bytes.length < 20) throw new AssetImportError('GLB is shorter than its header');
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (view.getUint32(0, true) !== 0x46546c67) throw new AssetImportError('GLB magic is invalid');
+  if (view.getUint32(4, true) !== 2) throw new AssetImportError('only GLB version 2 is supported');
+  const declaredLength = view.getUint32(8, true);
+  if (declaredLength !== bytes.length)
+    throw new AssetImportError('GLB length does not match the file');
+  let offset = 12;
+  let json: string | null = null;
+  while (offset + 8 <= bytes.length) {
+    const length = view.getUint32(offset, true);
+    const type = view.getUint32(offset + 4, true);
+    const start = offset + 8;
+    const end = start + length;
+    if (end > bytes.length) throw new AssetImportError('GLB chunk exceeds the file bounds');
+    if (type === 0x4e4f534a) {
+      json = new TextDecoder().decode(bytes.subarray(start, end)).replace(/\0+$/g, '').trim();
+    }
+    offset = end;
+  }
+  if (!json) throw new AssetImportError('GLB JSON chunk is missing');
+  try {
+    return asDocument(JSON.parse(json) as unknown);
+  } catch (error) {
+    if (error instanceof AssetImportError) throw error;
+    throw new AssetImportError('GLB JSON chunk is invalid');
+  }
+}
+
+export function inspectGlb(bytes: Uint8Array): ModelInspection {
+  return inspectGltfDocument(readGlbJson(bytes), 'glb');
+}
+
+export function inspectGltf(bytes: Uint8Array): ModelInspection {
+  let document: GltfDocument;
+  try {
+    document = asDocument(JSON.parse(new TextDecoder().decode(bytes)) as unknown);
+  } catch {
+    throw new AssetImportError('glTF JSON is invalid');
+  }
+  return inspectGltfDocument(document, 'gltf');
+}
+
+/** Inspect first; raw CAD/mesh formats remain explicit companion-conversion inputs. */
+export function inspectModel(
+  bytes: Uint8Array,
+  format: ModelInspection['format'],
+): ModelInspection {
+  if (format === 'glb') return inspectGlb(bytes);
+  if (format === 'gltf') return inspectGltf(bytes);
+  return {
+    format,
+    safe: true,
+    requiresCompanionConversion: true,
+    companionTool: format === 'step' ? 'FreeCAD' : 'Blender',
+    geometryHealth: null,
+    issues: [
+      `${format.toUpperCase()} requires companion conversion to a canonical GLB before scene use`,
+    ],
+  };
+}
+
+export type AssetProviderId = 'poly-haven' | 'nih-3d' | 'freecad-library' | 'kenney' | 'quaternius';
+
+export interface AssetProviderDescriptor {
+  id: AssetProviderId;
+  name: string;
+  homepage: string;
+  searchBaseUrl: string;
+  defaultLicenseId: string | null;
+  formats: ('glb' | 'gltf' | 'obj' | 'stl' | 'step')[];
+  licenseNote: string;
+}
+
+export const ASSET_PROVIDERS: Record<AssetProviderId, AssetProviderDescriptor> = {
+  'poly-haven': {
+    id: 'poly-haven',
+    name: 'Poly Haven',
+    homepage: 'https://polyhaven.com',
+    searchBaseUrl: 'https://polyhaven.com/models',
+    defaultLicenseId: 'CC0',
+    formats: ['glb', 'gltf'],
+    licenseNote: 'Provider metadata is CC0; preserve the source link in attribution reports.',
+  },
+  'nih-3d': {
+    id: 'nih-3d',
+    name: 'NIH 3D',
+    homepage: 'https://3d.nih.gov',
+    searchBaseUrl: 'https://3d.nih.gov/search',
+    defaultLicenseId: null,
+    formats: ['glb', 'gltf', 'stl'],
+    licenseNote: 'Verify the individual record license before download or embedding.',
+  },
+  'freecad-library': {
+    id: 'freecad-library',
+    name: 'FreeCAD Library',
+    homepage: 'https://github.com/FreeCAD/FreeCAD-library',
+    searchBaseUrl: 'https://github.com/FreeCAD/FreeCAD-library/search',
+    defaultLicenseId: null,
+    formats: ['step', 'stl'],
+    licenseNote: 'Verify the individual library record and convert through the companion.',
+  },
+  kenney: {
+    id: 'kenney',
+    name: 'Kenney',
+    homepage: 'https://kenney.nl/assets',
+    searchBaseUrl: 'https://kenney.nl/assets',
+    defaultLicenseId: 'CC0',
+    formats: ['glb', 'gltf'],
+    licenseNote: 'Asset pages are public-domain/CC0; do not imply Kenney endorsement.',
+  },
+  quaternius: {
+    id: 'quaternius',
+    name: 'Quaternius',
+    homepage: 'https://quaternius.com',
+    searchBaseUrl: 'https://quaternius.com',
+    defaultLicenseId: 'CC0',
+    formats: ['glb', 'gltf', 'obj'],
+    licenseNote: 'Provider FAQ states CC0; preserve the source page in provenance.',
+  },
+};
+
+export interface ProviderSearchRequest {
+  providerId: AssetProviderId;
+  query: string;
+  url: string;
+}
+
+export interface AssetSearchPlan {
+  local: SearchResult[];
+  providers: ProviderSearchRequest[];
+}
+
+export function normalizeProviderQuery(query: string): string {
+  return query
+    .trim()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 128);
+}
+
+export function buildProviderSearchRequest(
+  providerId: AssetProviderId,
+  query: string,
+): ProviderSearchRequest {
+  const provider = ASSET_PROVIDERS[providerId];
+  const normalizedQuery = normalizeProviderQuery(query);
+  if (!normalizedQuery) throw new Error('provider search query is empty');
+  return {
+    providerId,
+    query: normalizedQuery,
+    url: `${provider.searchBaseUrl}?q=${encodeURIComponent(normalizedQuery)}`,
+  };
+}
+
+/** Local-first planning is explicit; network adapters can consume these allowlisted requests. */
+export function planAssetSearch(
+  assets: AssetMetadata[],
+  query: string,
+  providerIds: AssetProviderId[] = Object.keys(ASSET_PROVIDERS) as AssetProviderId[],
+): AssetSearchPlan {
+  const local = searchAssets(assets, { text: query });
+  return {
+    local,
+    providers: normalizeProviderQuery(query)
+      ? providerIds.map((providerId) => buildProviderSearchRequest(providerId, query))
+      : [],
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -77,6 +77,11 @@ function LibraryPage() {
   return (
     <section aria-labelledby="library-title">
       <h1 id="library-title">Guide library</h1>
+      <p>
+        <Link to="/assets" className="button button--ghost button--small">
+          Open asset manager
+        </Link>
+      </p>
 
       <div className="library-actions">
         <label className="field">
