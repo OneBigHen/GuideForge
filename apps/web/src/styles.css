@@ -994,6 +994,134 @@ body {
   }
 }
 
+/* ---- Training player ---- */
+
+.training-player {
+  max-width: 760px;
+  margin: 0 auto;
+  display: grid;
+  gap: var(--space-4);
+}
+
+.training-player__header,
+.training-player__exports,
+.training-player__status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.training-player__header {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.training-player__header h1 {
+  margin: var(--space-3) 0 0;
+}
+
+.training-player__status,
+.training-player__result,
+.training-player__history,
+.training-player__card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+}
+
+.training-player__status--mastered {
+  border-color: #16a34a;
+  color: #166534;
+}
+
+.training-player__status--remediation,
+.training-player__status--failed {
+  border-color: #f59e0b;
+  color: #92400e;
+}
+
+.training-player__status span {
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+.training-player__card {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.training-player__card h2,
+.training-player__result h2,
+.training-player__history h2 {
+  margin: 0;
+}
+
+.training-player__progress {
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+.training-choice-list {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.training-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.training-choice:has(input:checked) {
+  border-color: #0f766e;
+  background: color-mix(in srgb, #14b8a6 10%, var(--color-surface));
+}
+
+.training-choice input {
+  margin-top: 0.2rem;
+}
+
+.training-player__result {
+  display: grid;
+  gap: var(--space-3);
+  border-color: #f59e0b;
+}
+
+.training-player__history ol {
+  margin-bottom: 0;
+}
+
+.training-player__cmi5 {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+}
+
+@media (max-width: 560px) {
+  .training-player__header,
+  .training-player__exports,
+  .training-player__exports .button {
+    width: 100%;
+  }
+
+  .training-player__exports .button {
+    justify-content: center;
+  }
+
+  .training-player__card {
+    padding: var(--space-3);
+  }
+}
+
 /* ---- Release / interop ---- */
 
 .release-note {

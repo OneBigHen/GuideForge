@@ -41,4 +41,19 @@ test('training studio generates and reviews a source-grounded program', async ({
   await expect(prompt).toHaveValue('Which documented action comes first?');
   await page.getByRole('button', { name: 'Mark reviewed' }).click();
   await expect(page.getByLabel('Training quality report').getByText('1 reviewed')).toBeVisible();
+
+  await page.getByRole('link', { name: 'Training player' }).click();
+  await expect(page.getByRole('heading', { name: 'Training player' })).toBeVisible();
+  await page.getByRole('radio').nth(1).check();
+  await page.getByRole('button', { name: 'Save answer' }).click();
+  await page.getByRole('button', { name: 'Submit assessment' }).click();
+  await expect(page.getByRole('heading', { name: 'More practice required' })).toBeVisible();
+  await expect(page.getByText(/Remediation activities:/)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Start retest' }).click();
+  await page.getByRole('radio').nth(0).check();
+  await page.getByRole('button', { name: 'Save answer' }).click();
+  await page.getByRole('button', { name: 'Submit assessment' }).click();
+  await expect(page.getByRole('heading', { name: 'Mastery achieved' })).toBeVisible();
+  await expect(page.getByText('Mastered', { exact: true })).toBeVisible();
 });

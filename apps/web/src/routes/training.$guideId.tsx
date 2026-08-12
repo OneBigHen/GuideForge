@@ -180,6 +180,13 @@ function TrainingPage() {
           >
             Procedure player
           </Link>
+          <Link
+            to="/training/player/$guideId"
+            params={{ guideId }}
+            className="button button--ghost button--small"
+          >
+            Training player
+          </Link>
           <button
             type="button"
             className="button"

@@ -1,4 +1,5 @@
 import type { EntityId } from '@guideforge/domain';
+import { createEmptyTraining, startTrainingSession } from '@guideforge/guide-schema';
 import 'fake-indexeddb/auto';
 import { beforeAll, describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
@@ -79,6 +80,20 @@ describe('storage-web Dexie metadata', () => {
     expect(sources).toHaveLength(1);
     expect(sources[0]?.sha256).toBe(row.sha256);
     expect(sources[0]?.regions[0]?.contentHash).toHaveLength(64);
+  });
+
+  it('persists a resumable training session in the v8 store', async () => {
+    const session = startTrainingSession(
+      createEmptyTraining(),
+      GUIDE_ID,
+      'learner-1',
+      '2026-01-01T00:00:00.000Z',
+    );
+    await db.trainingSessions.put(session);
+    expect(await db.trainingSessions.get(session.sessionId)).toMatchObject({
+      guideId: GUIDE_ID,
+      status: 'in-progress',
+    });
   });
 });
 

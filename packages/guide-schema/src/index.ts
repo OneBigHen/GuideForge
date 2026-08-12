@@ -536,6 +536,8 @@ export function isGuideStep(value: unknown): value is GuideStep {
 }
 
 export * from './training.js';
+export * from './training-runtime.js';
+export * from './training-interop.js';
 
 export {
   migrateLegacySourceRecord,

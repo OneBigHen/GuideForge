@@ -14,6 +14,7 @@ import {
   migrateLegacySourceRecord,
   type GuideSource,
   type LegacySourceRecord,
+  type TrainingSession,
 } from '@guideforge/guide-schema';
 import Dexie, { type Table } from 'dexie';
 import { IndexeddbPersistence } from 'y-indexeddb';
@@ -81,6 +82,9 @@ export interface EvidenceRecord {
   mimeType?: string;
 }
 
+/** Offline learner progress; the canonical training graph stays in Yjs. */
+export type TrainingSessionRecord = TrainingSession;
+
 /** AI proposal awaiting human review. */
 export interface AiProposalRecord {
   proposalId: string;
@@ -127,6 +131,7 @@ export class GuideForgeDb extends Dexie {
   evidence!: Table<EvidenceRecord, string>;
   proposals!: Table<AiProposalRecord, string>;
   sources!: Table<SourceRecord, string>;
+  trainingSessions!: Table<TrainingSessionRecord, string>;
 
   constructor() {
     super('guideforge');
@@ -192,6 +197,19 @@ export class GuideForgeDb extends Dexie {
       sources: 'sourceId, guideId, sha256, receivedAtIso',
       reports: 'id, guideId, path',
       runtimeBlobs: 'id, guideId, path',
+    });
+    // v8: resumable, offline training attempts and deterministic mastery.
+    this.version(8).stores({
+      guides: 'guideId, title, updatedAtIso, lifecycleState',
+      assets: 'hash, mimeType, sizeBytes',
+      assetBlobs: 'hash',
+      sourceBlobs: 'sha256',
+      evidence: 'evidenceId, guideId, stepId, capturedAtIso',
+      proposals: 'proposalId, guideId, status, createdAtIso',
+      sources: 'sourceId, guideId, sha256, receivedAtIso',
+      reports: 'id, guideId, path',
+      runtimeBlobs: 'id, guideId, path',
+      trainingSessions: 'sessionId, guideId, learnerId, status, updatedAtIso',
     });
   }
 }

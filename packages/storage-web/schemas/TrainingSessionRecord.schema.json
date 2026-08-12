@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://guideforge.dev/schemas/TrainingSessionRecord.schema.json",
+  "title": "GuideForge offline training session",
+  "type": "object",
+  "required": [
+    "sessionId",
+    "guideId",
+    "learnerId",
+    "blueprintId",
+    "itemIds",
+    "responses",
+    "currentItemIndex",
+    "attempts",
+    "status",
+    "createdAtIso",
+    "updatedAtIso"
+  ],
+  "properties": {
+    "sessionId": { "type": "string", "minLength": 1 },
+    "guideId": { "type": "string", "minLength": 1 },
+    "learnerId": { "type": "string", "minLength": 1 },
+    "blueprintId": { "anyOf": [{ "type": "null" }, { "type": "string", "minLength": 1 }] },
+    "itemIds": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "responses": {
+      "type": "object",
+      "additionalProperties": {
+        "type": ["string", "number", "null", "array"]
+      }
+    },
+    "currentItemIndex": { "type": "integer", "minimum": 0 },
+    "attempts": { "type": "array", "items": { "$ref": "#/$defs/TrainingAttempt" } },
+    "status": { "enum": ["in-progress", "remediation", "failed", "mastered"] },
+    "createdAtIso": { "type": "string", "format": "date-time" },
+    "updatedAtIso": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "TrainingAttempt": {
+      "type": "object",
+      "required": [
+        "attemptId",
+        "attemptNumber",
+        "startedAtIso",
+        "submittedAtIso",
+        "itemResults",
+        "objectiveOutcomes",
+        "score",
+        "passed",
+        "criticalItemsPassed",
+        "remediationActivityIds",
+        "status"
+      ],
+      "properties": {
+        "attemptId": { "type": "string", "minLength": 1 },
+        "attemptNumber": { "type": "integer", "minimum": 1 },
+        "startedAtIso": { "type": "string", "format": "date-time" },
+        "submittedAtIso": { "type": "string", "format": "date-time" },
+        "itemResults": { "type": "array", "items": { "$ref": "#/$defs/TrainingItemResult" } },
+        "objectiveOutcomes": { "type": "array", "items": { "$ref": "#/$defs/TrainingObjectiveOutcome" } },
+        "score": { "type": "number", "minimum": 0, "maximum": 1 },
+        "passed": { "type": "boolean" },
+        "criticalItemsPassed": { "type": "integer", "minimum": 0 },
+        "remediationActivityIds": { "type": "array", "items": { "type": "string" } },
+        "status": { "enum": ["remediation", "failed", "mastered"] }
+      },
+      "additionalProperties": false
+    },
+    "TrainingItemResult": {
+      "type": "object",
+      "required": ["itemId", "objectiveId", "response", "correct", "score", "remediationActivityIds"],
+      "properties": {
+        "itemId": { "type": "string", "minLength": 1 },
+        "objectiveId": { "type": "string", "minLength": 1 },
+        "response": { "type": ["string", "number", "null", "array"] },
+        "correct": { "type": "boolean" },
+        "score": { "type": "number", "minimum": 0, "maximum": 1 },
+        "remediationActivityIds": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "TrainingObjectiveOutcome": {
+      "type": "object",
+      "required": ["objectiveId", "itemIds", "score", "passed"],
+      "properties": {
+        "objectiveId": { "type": "string", "minLength": 1 },
+        "itemIds": { "type": "array", "items": { "type": "string" } },
+        "score": { "type": "number", "minimum": 0, "maximum": 1 },
+        "passed": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

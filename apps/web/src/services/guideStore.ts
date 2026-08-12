@@ -20,9 +20,16 @@ import type { GuideCommand } from '@guideforge/commands';
 import { GUIDE_COMMAND_TYPES } from '@guideforge/commands';
 import type { AssetReference, ContentHash, EntityId } from '@guideforge/domain';
 import {
+  answerTrainingItem,
+  beginTrainingRetest,
   isGuideSnapshot,
   migrateToCurrent,
+  startTrainingSession,
+  submitTrainingAttempt,
   type GuideSnapshot,
+  type TrainingAttemptResult,
+  type TrainingResponse,
+  type TrainingSession,
   type TrainingState,
 } from '@guideforge/guide-schema';
 import { importMsGuide as msImport } from '@guideforge/interop-ms-guide';
@@ -336,6 +343,66 @@ export async function reviewAssessmentItem(
     occurredAt: new Date().toISOString(),
     payload: { itemId, reviewState },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Offline training runtime (attempts are local records, not canonical edits)
+// ---------------------------------------------------------------------------
+
+export async function loadTrainingSession(
+  guideSession: OpenGuideSession,
+  learnerId = 'local-user',
+): Promise<TrainingSession> {
+  const existing = await guideSession.db.trainingSessions
+    .where('guideId')
+    .equals(guideSession.guideId)
+    .filter((record) => record.learnerId === learnerId)
+    .first();
+  if (existing) return existing;
+  const snapshot = materializeSnapshot(guideSession.working);
+  const runtime = startTrainingSession(snapshot.training, guideSession.guideId, learnerId);
+  await guideSession.db.trainingSessions.put(runtime);
+  return runtime;
+}
+
+export async function saveTrainingSession(
+  guideSession: OpenGuideSession,
+  runtime: TrainingSession,
+): Promise<void> {
+  await guideSession.db.transaction('rw', guideSession.db.trainingSessions, async () => {
+    await guideSession.db.trainingSessions.put(runtime);
+  });
+}
+
+export async function recordTrainingAnswer(
+  guideSession: OpenGuideSession,
+  runtime: TrainingSession,
+  itemId: string,
+  response: TrainingResponse,
+): Promise<TrainingSession> {
+  const next = answerTrainingItem(runtime, itemId as TrainingSession['itemIds'][number], response);
+  await saveTrainingSession(guideSession, next);
+  return next;
+}
+
+export async function submitOfflineTrainingAttempt(
+  guideSession: OpenGuideSession,
+  runtime: TrainingSession,
+): Promise<TrainingAttemptResult> {
+  const snapshot = materializeSnapshot(guideSession.working);
+  const result = submitTrainingAttempt(snapshot.training, runtime);
+  await saveTrainingSession(guideSession, result.session);
+  return result;
+}
+
+export async function startOfflineTrainingRetest(
+  guideSession: OpenGuideSession,
+  runtime: TrainingSession,
+): Promise<TrainingSession> {
+  const snapshot = materializeSnapshot(guideSession.working);
+  const next = beginTrainingRetest(snapshot.training, runtime);
+  await saveTrainingSession(guideSession, next);
+  return next;
 }
 
 export async function removeStep(

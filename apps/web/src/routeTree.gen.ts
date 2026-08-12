@@ -17,6 +17,7 @@ import { Route as RunGuideIdRouteImport } from './routes/run.$guideId'
 import { Route as SceneGuideIdRouteImport } from './routes/scene.$guideId'
 import { Route as SourcesGuideIdRouteImport } from './routes/sources.$guideId'
 import { Route as TrainingGuideIdRouteImport } from './routes/training.$guideId'
+import { Route as TrainingPlayerGuideIdRouteImport } from './routes/training.player.$guideId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -58,6 +59,11 @@ const TrainingGuideIdRoute = TrainingGuideIdRouteImport.update({
   path: '/training/$guideId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TrainingPlayerGuideIdRoute = TrainingPlayerGuideIdRouteImport.update({
+  id: '/training/player/$guideId',
+  path: '/training/player/$guideId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -68,6 +74,7 @@ export interface FileRoutesByFullPath {
   '/scene/$guideId': typeof SceneGuideIdRoute
   '/sources/$guideId': typeof SourcesGuideIdRoute
   '/training/$guideId': typeof TrainingGuideIdRoute
+  '/training/player/$guideId': typeof TrainingPlayerGuideIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -78,6 +85,7 @@ export interface FileRoutesByTo {
   '/scene/$guideId': typeof SceneGuideIdRoute
   '/sources/$guideId': typeof SourcesGuideIdRoute
   '/training/$guideId': typeof TrainingGuideIdRoute
+  '/training/player/$guideId': typeof TrainingPlayerGuideIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -89,6 +97,7 @@ export interface FileRoutesById {
   '/scene/$guideId': typeof SceneGuideIdRoute
   '/sources/$guideId': typeof SourcesGuideIdRoute
   '/training/$guideId': typeof TrainingGuideIdRoute
+  '/training/player/$guideId': typeof TrainingPlayerGuideIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -101,6 +110,7 @@ export interface FileRouteTypes {
     | '/scene/$guideId'
     | '/sources/$guideId'
     | '/training/$guideId'
+    | '/training/player/$guideId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -111,6 +121,7 @@ export interface FileRouteTypes {
     | '/scene/$guideId'
     | '/sources/$guideId'
     | '/training/$guideId'
+    | '/training/player/$guideId'
   id:
     | '__root__'
     | '/'
@@ -121,6 +132,7 @@ export interface FileRouteTypes {
     | '/scene/$guideId'
     | '/sources/$guideId'
     | '/training/$guideId'
+    | '/training/player/$guideId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -132,6 +144,7 @@ export interface RootRouteChildren {
   SceneGuideIdRoute: typeof SceneGuideIdRoute
   SourcesGuideIdRoute: typeof SourcesGuideIdRoute
   TrainingGuideIdRoute: typeof TrainingGuideIdRoute
+  TrainingPlayerGuideIdRoute: typeof TrainingPlayerGuideIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -192,6 +205,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TrainingGuideIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/training/player/$guideId': {
+      id: '/training/player/$guideId'
+      path: '/training/player/$guideId'
+      fullPath: '/training/player/$guideId'
+      preLoaderRoute: typeof TrainingPlayerGuideIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -204,6 +224,7 @@ const rootRouteChildren: RootRouteChildren = {
   SceneGuideIdRoute: SceneGuideIdRoute,
   SourcesGuideIdRoute: SourcesGuideIdRoute,
   TrainingGuideIdRoute: TrainingGuideIdRoute,
+  TrainingPlayerGuideIdRoute: TrainingPlayerGuideIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
