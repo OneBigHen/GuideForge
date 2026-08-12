@@ -52,16 +52,16 @@ ffmpeg/ffprobe 5.1.9, Tesseract 5.3.0, and Poppler 22.12.0. Temporary model
 caches and generated fixtures remain under `/tmp` and are not repository
 inputs.
 
-| Real input / path | Result | Evidence |
-| --- | --- | --- |
-| Digital PDF, SHA-256 `7c44126f…` | complete through `ingestMultimodal`; text-layer route; 3 citable page regions; 1 table; quality 1.0 | runtime receipt reported `docling-slim` 2.119.0 after the receipt fix |
-| Embedded-image PDF, SHA-256 `7fcf6220…` | 5 OCR/text regions; quality 1.0; no figure object or page image | the bridge did not satisfy the figure extraction requirement |
-| Scanned-image PDF, SHA-256 `ff056d18…` | CPU OCR run was stopped with exit 130 after sustained paging and exhausted swap | no complete OCR receipt is claimed |
-| DOCX, SHA-256 `e4089de0…` | 2 citable paragraphs and 1 table; quality 1.0 | real Docling bridge |
-| CSV / XLSX | table objects returned, but 0 citable text blocks and quality 0.67 with coverage warning | not a golden citation pass |
-| PNG, SHA-256 `97c12559…` | 1 OCR region; quality 1.0 | real Docling bridge |
-| WAV, SHA-256 `a3efa09b…` | 2 timestamped speech regions; `ffprobe` and Whisper 1.2.1 receipts; quality 1.0 | tiny CPU model misheard “microliters” and “aspirate” |
-| MP4, SHA-256 `8c899cea…` | complete through `ingestMultimodal`; 2 speech regions and 4 ffmpeg keyframes; 3 provider receipts; quality 1.0 | real `WhisperMediaConverter.asConverter()` path |
+| Real input / path                       | Result                                                                                                         | Evidence                                                              |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Digital PDF, SHA-256 `7c44126f…`        | complete through `ingestMultimodal`; text-layer route; 3 citable page regions; 1 table; quality 1.0            | runtime receipt reported `docling-slim` 2.119.0 after the receipt fix |
+| Embedded-image PDF, SHA-256 `7fcf6220…` | 5 OCR/text regions; quality 1.0; no figure object or page image                                                | the bridge did not satisfy the figure extraction requirement          |
+| Scanned-image PDF, SHA-256 `ff056d18…`  | CPU OCR run was stopped with exit 130 after sustained paging and exhausted swap                                | no complete OCR receipt is claimed                                    |
+| DOCX, SHA-256 `e4089de0…`               | 2 citable paragraphs and 1 table; quality 1.0                                                                  | real Docling bridge                                                   |
+| CSV / XLSX                              | table objects returned, but 0 citable text blocks and quality 0.67 with coverage warning                       | not a golden citation pass                                            |
+| PNG, SHA-256 `97c12559…`                | 1 OCR region; quality 1.0                                                                                      | real Docling bridge                                                   |
+| WAV, SHA-256 `a3efa09b…`                | 2 timestamped speech regions; `ffprobe` and Whisper 1.2.1 receipts; quality 1.0                                | tiny CPU model misheard “microliters” and “aspirate”                  |
+| MP4, SHA-256 `8c899cea…`                | complete through `ingestMultimodal`; 2 speech regions and 4 ffmpeg keyframes; 3 provider receipts; quality 1.0 | real `WhisperMediaConverter.asConverter()` path                       |
 
 The local Ollama OpenAI-compatible VLM probe also ran against the existing
 `qwen3-vl:2b-instruct-q4_K_M` model and returned HTTP 500 because Ollama
@@ -70,9 +70,16 @@ fallback pass is claimed. The local Strix wrapper remained inconclusive because
 the Strix CLI was not installed or cached; the running `strix` container is a
 camera-discovery service, not the required security scanner.
 
+The hosted VLM transport was separately exercised against a rendered PNG page
+through OpenRouter's `google/gemini-3.5-flash-lite` vision model. It returned
+the exact safety and torque text with an `openrouter-vlm` receipt. This proves
+the hosted adapter and credential boundary, but not the complete hard-page
+fallback because the Docling audit fixture still emitted no page image for the
+route that needs it.
+
 The bridge now records the runtime `docling` or `docling-slim` distribution
 version, and assembled conversion receipts prefer that runtime version over
-the configured fallback. The worker test suite is 21/21, with worker
+the configured fallback. The worker test suite is 22/22, with worker
 typecheck, lint, format, and `git diff --check` passing after this change.
 
 ## Gate decision

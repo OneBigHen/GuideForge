@@ -46,6 +46,15 @@ beforeAll(async () => {
       logLevel: 'silent',
       ...(process.env.DEEPSEEK_API_KEY ? { deepSeekApiKey: process.env.DEEPSEEK_API_KEY } : {}),
       ...(process.env.DEEPSEEK_MODEL ? { deepSeekModel: process.env.DEEPSEEK_MODEL } : {}),
+      ...(process.env.OPENROUTER_API_KEY
+        ? {
+            modelProvider: 'openrouter' as const,
+            openRouterApiKey: process.env.OPENROUTER_API_KEY,
+            ...(process.env.OPENROUTER_MODEL
+              ? { openRouterModel: process.env.OPENROUTER_MODEL }
+              : {}),
+          }
+        : {}),
     },
     { db, roomTickets: tickets },
   );
@@ -540,4 +549,49 @@ describe('control plane API', () => {
     expect(body.receipt.model).toBe('synthesis-rules-v1');
     expect(body.plan.coverage.citedRegions).toBe(1);
   });
+
+  it(
+    'source synthesis endpoint returns a live OpenRouter transport receipt when configured',
+    { timeout: 90_000 },
+    async () => {
+      if (!process.env.OPENROUTER_API_KEY) return;
+      const author = await login('77777777-7777-4777-8777-777777777777');
+      const sourceHash = 'b'.repeat(64);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/guides/guide-openrouter/source-synthesis',
+        headers: { cookie: `gf_session=${author}`, origin: TEST_ORIGIN },
+        payload: {
+          guideId: 'guide-openrouter',
+          sources: [
+            {
+              sourceHash,
+              originalFilename: 'manual.txt',
+              detectedType: 'text/plain',
+              sizeBytes: 80,
+              regions: [
+                {
+                  regionId: 'reg-openrouter',
+                  sourceHash,
+                  pageIndex: 0,
+                  structuralPath: 'p:1',
+                  excerpt: 'Disconnect power before opening the housing.',
+                  kind: 'paragraph',
+                },
+              ],
+            },
+          ],
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = bodyOf<{
+        mode: string;
+        receipt: { provider: string; model: string; status: string };
+      }>(res);
+      expect(body.mode).toBe('deepseek');
+      expect(body.receipt.provider).toBe('openrouter');
+      expect(body.receipt.model).toBe('deepseek/deepseek-v4-flash-0731');
+      expect(body.receipt.status).toBe('complete');
+    },
+  );
 });

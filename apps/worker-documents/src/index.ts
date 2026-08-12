@@ -397,10 +397,15 @@ export interface VlmPageProvider {
 }
 
 /** OpenAI-compatible VLM adapter. It is only called for the hard-page route. */
+export const DEFAULT_OPENROUTER_VLM_MODEL = 'google/gemini-3.5-flash-lite';
+
 export class OpenAiCompatibleVlmProvider implements VlmPageProvider {
   private readonly baseUrl: string;
   private readonly apiKey: string | undefined;
   private readonly model: string;
+  private readonly referer: string | undefined;
+  private readonly appName: string | undefined;
+  private readonly providerName: string;
 
   constructor(
     options: {
@@ -408,20 +413,38 @@ export class OpenAiCompatibleVlmProvider implements VlmPageProvider {
       apiKey?: string;
       model?: string;
       allowedHosts?: readonly string[];
+      referer?: string;
+      appName?: string;
     } = {},
   ) {
-    const configuredBaseUrl = options.baseUrl ?? process.env.VLM_BASE_URL ?? '';
+    const configuredApiKey =
+      options.apiKey ?? process.env.VLM_API_KEY ?? process.env.OPENROUTER_API_KEY;
+    const openRouterDefaults =
+      !options.baseUrl && !process.env.VLM_BASE_URL && Boolean(configuredApiKey);
+    const configuredBaseUrl =
+      options.baseUrl ??
+      process.env.VLM_BASE_URL ??
+      (openRouterDefaults ? 'https://openrouter.ai/api/v1' : '');
+    const configuredAllowedHosts = (process.env.VLM_ALLOWED_HOSTS ?? '')
+      .split(',')
+      .map((host) => host.trim())
+      .filter(Boolean);
     const allowedHosts =
       options.allowedHosts ??
-      (process.env.VLM_ALLOWED_HOSTS ?? '')
-        .split(',')
-        .map((host) => host.trim())
-        .filter(Boolean);
+      (openRouterDefaults ? ['openrouter.ai', ...configuredAllowedHosts] : configuredAllowedHosts);
     this.baseUrl = configuredBaseUrl
       ? validateProviderBaseUrl(configuredBaseUrl, { allowedHosts, allowLoopback: true })
       : '';
-    this.apiKey = options.apiKey ?? process.env.VLM_API_KEY;
-    this.model = options.model ?? process.env.VLM_MODEL ?? 'Qwen2-VL-7B-Instruct';
+    this.apiKey = configuredApiKey;
+    this.model =
+      options.model ??
+      process.env.VLM_MODEL ??
+      process.env.OPENROUTER_VLM_MODEL ??
+      (openRouterDefaults ? DEFAULT_OPENROUTER_VLM_MODEL : 'Qwen2-VL-7B-Instruct');
+    this.referer = options.referer ?? process.env.OPENROUTER_REFERER;
+    this.appName = options.appName ?? process.env.OPENROUTER_APP_NAME;
+    const hostname = this.baseUrl ? new URL(this.baseUrl).hostname : '';
+    this.providerName = hostname === 'openrouter.ai' ? 'openrouter-vlm' : 'vlm-openai-compatible';
   }
 
   async extractPage(args: {
@@ -430,12 +453,15 @@ export class OpenAiCompatibleVlmProvider implements VlmPageProvider {
     mimeType: string;
   }): Promise<{ text: string; provider: ProviderReceipt }> {
     if (!this.baseUrl) throw new ProviderUnavailableError('VLM_BASE_URL is not configured');
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+      ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}),
+    };
+    if (this.referer) headers['HTTP-Referer'] = this.referer;
+    if (this.appName) headers['X-OpenRouter-Title'] = this.appName;
     const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}),
-      },
+      headers,
       body: JSON.stringify({
         model: this.model,
         temperature: 0,
@@ -476,11 +502,11 @@ export class OpenAiCompatibleVlmProvider implements VlmPageProvider {
     return {
       text,
       provider: {
-        provider: 'vlm-openai-compatible',
+        provider: this.providerName,
         version: body.model ?? this.model,
         status: 'used',
         checkedAtIso: new Date().toISOString(),
-        details: { pageIndex: args.pageIndex },
+        details: { pageIndex: args.pageIndex, model: body.model ?? this.model },
       },
     };
   }

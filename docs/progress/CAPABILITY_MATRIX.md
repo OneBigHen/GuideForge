@@ -62,25 +62,25 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 ## Real multimodal ingestion
 
-| Requirement                                           | Current source signal                                                           | Status            |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------- | ----------------- |
+| Requirement                                           | Current source signal                                                                                                                                                      | Status            |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
 | Digital PDF, scanned PDF/OCR, tables, figures/bboxes  | Real CPU Docling: digital PDF 3 regions/1 table and embedded-image OCR regions passed; scanned OCR timed out under host paging and no figure object/page image was emitted | partial           |
-| DOCX/PPTX/XLSX and image intake                       | Real DOCX 2 regions/1 table and PNG 1 region passed; CSV/XLSX returned tables but 0 citable blocks with quality warning | partial           |
-| Real audio ASR and video timestamps                   | Real faster-whisper 1.2.1 produced timestamped speech; MP4 path completed with 4 ffmpeg keyframes and receipts; semantic accuracy remains unproven | partial           |
-| VLM hard-page fallback                                | Real local Ollama qwen3-vl probe returned HTTP 500 for host memory refusal; no fallback pass | partial           |
-| Quality report, cancellation, partial/revision impact | Quality/provider receipts and 28 ingestion tests                                | verified narrowly |
-| Source Studio upload/regions/receipts/conflicts       | Failed binary state, locator navigation, and 24 web tests                       | partial           |
+| DOCX/PPTX/XLSX and image intake                       | Real DOCX 2 regions/1 table and PNG 1 region passed; CSV/XLSX returned tables but 0 citable blocks with quality warning                                                    | partial           |
+| Real audio ASR and video timestamps                   | Real faster-whisper 1.2.1 produced timestamped speech; MP4 path completed with 4 ffmpeg keyframes and receipts; semantic accuracy remains unproven                         | partial           |
+| VLM hard-page fallback                                | Real local Ollama qwen3-vl probe returned HTTP 500 for host memory refusal; no fallback pass                                                                               | partial           |
+| Quality report, cancellation, partial/revision impact | Quality/provider receipts and 28 ingestion tests                                                                                                                           | verified narrowly |
+| Source Studio upload/regions/receipts/conflicts       | Failed binary state, locator navigation, and 24 web tests                                                                                                                  | partial           |
 
 ## AI and synthesis
 
-| Requirement                                               | Current source/test evidence                                                 | Status            |
-| --------------------------------------------------------- | ---------------------------------------------------------------------------- | ----------------- |
-| Real DeepSeek Source Studio synthesis                     | Server `SynthesisGateway` and endpoint are wired; no live key on this host   | unverified        |
-| Explicit offline fallback                                 | `offline-rules` / `synthesis-rules-v1` is separately labeled and tested      | verified narrowly |
-| Multi-source citations and SHA-256 integrity              | Request validation, source-hash citations, and SHA-256 excerpt tests         | verified narrowly |
-| Deep schema/unit/value gates                              | Runtime output schema, citation, numeric/unit grounding, and repair tests    | verified narrowly |
-| Bounded repair, profiles, cache/cost receipt, hard budget | 17 gateway tests cover profiles, cache, receipts, budget refusal, and repair | verified narrowly |
-| AI proposes; owner accepts/signs/masters                  | Proposal tests cover pending/accept path                                     | partial           |
+| Requirement                                               | Current source/test evidence                                                                                                                                                                                             | Status            |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------- |
+| Real DeepSeek Source Studio synthesis                     | Live OpenRouter-hosted `deepseek/deepseek-v4-flash-0731` source probe and API endpoint return cited schema-valid output with `provider: openrouter`; golden multi-source corpus and official-direct endpoint remain open | verified narrowly |
+| Explicit offline fallback                                 | `offline-rules` / `synthesis-rules-v1` is separately labeled and tested                                                                                                                                                  | verified narrowly |
+| Multi-source citations and SHA-256 integrity              | Request validation, source-hash citations, and SHA-256 excerpt tests                                                                                                                                                     | verified narrowly |
+| Deep schema/unit/value gates                              | Runtime output schema, citation, numeric/unit grounding, and repair tests                                                                                                                                                | verified narrowly |
+| Bounded repair, profiles, cache/cost receipt, hard budget | 19 gateway tests plus live OpenRouter usage/cost receipt cover profiles, cache, budget refusal, and repair                                                                                                               | verified narrowly |
+| AI proposes; owner accepts/signs/masters                  | Proposal tests cover pending/accept path                                                                                                                                                                                 | partial           |
 
 ## Training
 
@@ -144,9 +144,11 @@ stability fix `64bc8671073e88f765ff68fa52ee11c805688cc3`; GitHub run
 `31533935448` passed on the implementation and `31535994450` passed the fix
 (check and Playwright). The Phase 03 gate is verified in clean test storage and emulated
 browsers; physical devices, native OS keychains, and live providers remain
-unproven. Phase 04–05 remain active and unverified; historical reports do not
-change their status. Phase 04 now has real CPU Docling/Whisper/ffmpeg smoke
-evidence and runtime receipts, but its Pack golden-provider gate remains
+unproven. Phase 04 remains active and unverified; Phase 05 is verified narrowly
+for the live OpenRouter-hosted DeepSeek path, while its golden multi-source and
+official-direct provider gates remain open. Historical reports do not change
+their status. Phase 04 now has real CPU Docling/Whisper/ffmpeg smoke
+evidence and a hosted OpenRouter VLM transport probe, but its Pack golden-provider gate remains
 **UNVERIFIED** because scanned OCR, figure/page-image extraction, CSV/XLSX
 citation coverage, VLM fallback, and the required golden corpus remain open.
 Phase 06 is verified

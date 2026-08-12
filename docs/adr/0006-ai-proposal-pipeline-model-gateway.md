@@ -1,6 +1,6 @@
 # ADR 0006 — AI Proposal Pipeline and Model Gateway
 
-**Status:** Accepted (amended 2026-08-05: DeepSeek is the primary provider; Docling is a local Python venv)
+**Status:** Accepted (amended 2026-08-12: OpenRouter-hosted DeepSeek is the current self-hosted transport; Docling is a local Python venv)
 **Date:** 2026-08-04
 **Owners:** GuideForge build agent
 **Related phase/issue:** Phase 06
@@ -37,6 +37,14 @@ usage accounting.
   unreachable (offline authoring).
 
 ## Current official documentation
+
+### Current single-user deployment override (2026-08-12)
+
+The current Compose deployment selects OpenRouter explicitly with
+`GUIDEFORGE_MODEL_PROVIDER=openrouter` and keeps `OPENROUTER_API_KEY` on the
+server. The semantic model remains DeepSeek and receipts preserve
+`provider: openrouter`; the official DeepSeek adapter remains available by
+selecting `deepseek`.
 
 Verified via registry metadata and live calls 2026-08-04/05:
 

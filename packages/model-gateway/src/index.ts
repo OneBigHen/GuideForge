@@ -63,6 +63,35 @@ export const DEEPSEEK_MODEL_PROFILES: Readonly<Record<string, DeepSeekModelProfi
 };
 
 /**
+ * OpenRouter-hosted DeepSeek profiles. These IDs and prices are pinned from
+ * the OpenRouter model catalog; the transport is OpenRouter, not the official
+ * DeepSeek endpoint.
+ */
+export const OPENROUTER_DEEPSEEK_MODEL_PROFILES: Readonly<Record<string, DeepSeekModelProfile>> = {
+  'deepseek/deepseek-v4-flash-0731': {
+    id: 'deepseek/deepseek-v4-flash-0731',
+    contextWindow: 1_048_576,
+    maxOutputTokens: 384_000,
+    inputCostUsdPerMillion: 0.08,
+    outputCostUsdPerMillion: 0.18,
+    cacheReadCostUsdPerMillion: 0.016,
+    providerApiVersion: 'chat-completions-json-schema',
+    docsUrl: 'https://openrouter.ai/docs/structured-outputs',
+    verifiedAtIso: '2026-08-12T00:00:00.000Z',
+  },
+};
+
+export const DEFAULT_OPENROUTER_DEEPSEEK_MODEL = 'deepseek/deepseek-v4-flash-0731';
+
+export function getOpenRouterDeepSeekModelProfile(
+  model = DEFAULT_OPENROUTER_DEEPSEEK_MODEL,
+): DeepSeekModelProfile {
+  const profile = OPENROUTER_DEEPSEEK_MODEL_PROFILES[model];
+  if (!profile) throw new Error(`unsupported OpenRouter DeepSeek model profile: ${model}`);
+  return profile;
+}
+
+/**
  * Validate a server-side provider endpoint before it reaches fetch().
  *
  * Provider URLs are deployment configuration, not request data. Requiring an
@@ -276,6 +305,92 @@ export interface OpenRouterAdapterConfig {
   baseUrl?: string;
   /** strict JSON schema enforcement via response_format */
   structuredOutputs?: boolean;
+  referer?: string;
+  appName?: string;
+  maxOutputTokens?: number;
+}
+
+const EXTRACTION_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    schemaVersion: { type: 'integer', const: 1 },
+    guideId: { type: 'string' },
+    tasks: {
+      type: 'array',
+      minItems: 1,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          taskId: { type: 'string' },
+          title: { type: 'string' },
+          steps: {
+            type: 'array',
+            minItems: 1,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                stepId: { type: 'string' },
+                taskId: { type: 'string' },
+                action: { type: 'string' },
+                warnings: { type: 'array', items: { type: 'string' } },
+                prerequisites: { type: 'array', items: { type: 'string' } },
+                tools: { type: 'array', items: { type: 'string' } },
+                parts: { type: 'array', items: { type: 'string' } },
+                values: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    properties: {
+                      label: { type: 'string' },
+                      value: { type: 'string' },
+                      unit: { type: ['string', 'null'] },
+                    },
+                    required: ['label', 'value', 'unit'],
+                  },
+                },
+                conditions: { type: 'array', items: { type: 'string' } },
+                verificationSteps: { type: 'array', items: { type: 'string' } },
+                citations: { type: 'array', items: { type: 'string' }, minItems: 1 },
+                uncertaintyReason: { type: ['string', 'null'] },
+              },
+              required: [
+                'stepId',
+                'taskId',
+                'action',
+                'warnings',
+                'prerequisites',
+                'tools',
+                'parts',
+                'values',
+                'conditions',
+                'verificationSteps',
+                'citations',
+                'uncertaintyReason',
+              ],
+            },
+          },
+        },
+        required: ['taskId', 'title', 'steps'],
+      },
+    },
+  },
+  required: ['schemaVersion', 'guideId', 'tasks'],
+} as const;
+
+interface OpenRouterCompletionBody {
+  model?: string;
+  choices?: { message?: { content?: string | Record<string, unknown> } }[];
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    prompt_cache_hit_tokens?: number;
+    prompt_tokens_details?: { cached_tokens?: number };
+    cost?: number;
+  };
 }
 
 export class OpenRouterAdapter implements ModelAdapter {
@@ -284,11 +399,19 @@ export class OpenRouterAdapter implements ModelAdapter {
   readonly available: boolean;
   private readonly baseUrl: string;
   private readonly apiKey: string;
+  private readonly structuredOutputs: boolean;
+  private readonly referer: string | undefined;
+  private readonly appName: string | undefined;
+  private readonly maxOutputTokens: number;
 
   constructor(config: OpenRouterAdapterConfig) {
-    this.model = config.model ?? 'anthropic/claude-sonnet-4.5';
+    this.model = config.model ?? process.env.OPENROUTER_MODEL ?? DEFAULT_OPENROUTER_DEEPSEEK_MODEL;
     this.apiKey = config.apiKey;
-    this.available = config.apiKey.length > 0;
+    this.available = config.apiKey.trim().length > 0;
+    this.structuredOutputs = config.structuredOutputs ?? true;
+    this.referer = config.referer;
+    this.appName = config.appName;
+    this.maxOutputTokens = config.maxOutputTokens ?? 4096;
     this.baseUrl = validateProviderBaseUrl(config.baseUrl ?? 'https://openrouter.ai/api/v1', {
       allowedHosts: ['openrouter.ai'],
     });
@@ -301,47 +424,65 @@ export class OpenRouterAdapter implements ModelAdapter {
       throw new Error('OpenRouter adapter is not configured (no API key)');
     }
     const started = Date.now();
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+      authorization: `Bearer ${this.apiKey}`,
+    };
+    if (this.referer) headers['HTTP-Referer'] = this.referer;
+    if (this.appName) headers['X-OpenRouter-Title'] = this.appName;
+    const body: Record<string, unknown> = {
+      model: this.model,
+      provider: { require_parameters: true },
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Extract work instructions as strict JSON. Cite only the supplied source region IDs. ' +
+            'Do not invent procedures, values, warnings, or citations.',
+        },
+        { role: 'user', content: JSON.stringify(request.chunks) },
+      ],
+      max_tokens: Math.min(request.maxOutputTokens ?? this.maxOutputTokens, this.maxOutputTokens),
+      temperature: 0,
+      reasoning: { exclude: true },
+    };
+    if (this.structuredOutputs) {
+      body.response_format = {
+        type: 'json_schema',
+        json_schema: {
+          name: 'guideforge_extraction',
+          strict: true,
+          schema: EXTRACTION_JSON_SCHEMA,
+        },
+      };
+    } else {
+      body.response_format = { type: 'json_object' };
+    }
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${
-          this.apiKey.length > 0 ? this.apiKey : (process.env.OPENROUTER_API_KEY ?? '')
-        }`,
-      },
-      body: JSON.stringify({
-        model: this.model,
-        response_format: { type: 'json_schema', json_schema: { name: 'extraction', strict: true } },
-        messages: [
-          {
-            role: 'system',
-            content: 'Extract work instructions as strict JSON. Cite source regions.',
-          },
-          { role: 'user', content: JSON.stringify(request.chunks) },
-        ],
-      }),
+      headers,
+      body: JSON.stringify(body),
     });
     if (!response.ok) {
-      throw new Error(`openrouter http ${response.status}`);
+      const detail = await response.text().catch(() => '');
+      throw new Error(`openrouter http ${response.status}: ${detail.slice(0, 300)}`);
     }
-    const body = (await response.json()) as {
-      choices?: { message?: { content?: string } }[];
-      usage?: {
-        prompt_tokens: number;
-        completion_tokens: number;
-        total_tokens: number;
-        prompt_cache_hit_tokens?: number;
-      };
-    };
-    const content = body.choices?.[0]?.message?.content;
+    const completion = (await response.json()) as OpenRouterCompletionBody;
+    const content = completion.choices?.[0]?.message?.content;
     if (!content) throw new Error('openrouter empty content');
-    const output = JSON.parse(content) as unknown;
+    const output = typeof content === 'string' ? (JSON.parse(content) as unknown) : content;
     if (!isExtractionOutput(output)) throw new Error('openrouter output failed schema validation');
+    const cacheTokens =
+      completion.usage?.prompt_cache_hit_tokens ??
+      completion.usage?.prompt_tokens_details?.cached_tokens ??
+      0;
     return {
       output,
       usage: makeReceipt(this, request, {
-        inputTokens: body.usage?.prompt_tokens ?? 0,
-        outputTokens: body.usage?.completion_tokens ?? 0,
+        inputTokens: completion.usage?.prompt_tokens ?? 0,
+        outputTokens: completion.usage?.completion_tokens ?? 0,
+        cacheTokens,
+        providerCostUsd: completion.usage?.cost ?? 0,
         latencyMs: Date.now() - started,
       }),
     };

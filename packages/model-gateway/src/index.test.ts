@@ -7,6 +7,7 @@ import {
   FakeModelAdapter,
   ModelGateway,
   OpenRouterAdapter,
+  getOpenRouterDeepSeekModelProfile,
   validateProviderBaseUrl,
   type ModelAdapter,
 } from './index.js';
@@ -132,6 +133,98 @@ describe('ModelGateway with fake adapter', () => {
   it('OpenRouter adapter is unavailable without a key', () => {
     const adapter = new OpenRouterAdapter({ apiKey: '' });
     expect(adapter.available).toBe(false);
+  });
+
+  it('OpenRouter sends the complete strict extraction schema and usage receipt', async () => {
+    const adapter = new OpenRouterAdapter({
+      apiKey: 'sk-or-test',
+      model: 'deepseek/deepseek-v4-flash-0731',
+      referer: 'http://localhost:1420',
+      appName: 'GuideForge test',
+    });
+    const output = {
+      schemaVersion: 1,
+      guideId: '',
+      tasks: [
+        {
+          taskId: 'task-1',
+          title: 'Procedure',
+          steps: [
+            {
+              stepId: 'step-1',
+              taskId: 'task-1',
+              action: 'Disconnect power.',
+              warnings: [],
+              prerequisites: [],
+              tools: [],
+              parts: [],
+              values: [],
+              conditions: [],
+              verificationSteps: ['Confirm power is disconnected.'],
+              citations: ['reg-1'],
+              uncertaintyReason: null,
+            },
+          ],
+        },
+      ],
+    };
+    const originalFetch = globalThis.fetch;
+    let captured: { headers: Headers; body: Record<string, unknown> } | undefined;
+    globalThis.fetch = (_input: RequestInfo | URL, init?: RequestInit) => {
+      captured = {
+        headers: new Headers(init?.headers),
+        body: JSON.parse(String(init?.body)) as Record<string, unknown>,
+      };
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            model: 'deepseek/deepseek-v4-flash-0731',
+            choices: [{ message: { content: JSON.stringify(output) } }],
+            usage: {
+              prompt_tokens: 100,
+              completion_tokens: 40,
+              prompt_cache_hit_tokens: 10,
+              cost: 0.00001,
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+    };
+    try {
+      const result = await adapter.extract(request());
+      expect(result.output).toEqual(output);
+      expect(result.usage.provider).toBe('openrouter');
+      expect(result.usage.providerCostUsd).toBe(0.00001);
+      expect(result.usage.cacheTokens).toBe(10);
+      expect(captured?.headers.get('authorization')).toBe('Bearer sk-or-test');
+      expect(captured?.headers.get('http-referer')).toBe('http://localhost:1420');
+      expect(captured?.headers.get('x-openrouter-title')).toBe('GuideForge test');
+      expect(captured?.body).toMatchObject({
+        model: 'deepseek/deepseek-v4-flash-0731',
+        provider: { require_parameters: true },
+        reasoning: { exclude: true },
+        response_format: {
+          type: 'json_schema',
+          json_schema: { name: 'guideforge_extraction', strict: true },
+        },
+      });
+      const schema = (
+        captured?.body.response_format as {
+          json_schema: { schema: { properties: Record<string, unknown> } };
+        }
+      ).json_schema.schema;
+      expect(schema.properties.tasks).toBeDefined();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('has a current pinned OpenRouter DeepSeek profile', () => {
+    const profile = getOpenRouterDeepSeekModelProfile();
+    expect(profile.id).toBe('deepseek/deepseek-v4-flash-0731');
+    expect(profile.providerApiVersion).toBe('chat-completions-json-schema');
+    expect(profile.inputCostUsdPerMillion).toBe(0.08);
   });
 
   it('direct adapter falls back to deterministic extraction when available', async () => {

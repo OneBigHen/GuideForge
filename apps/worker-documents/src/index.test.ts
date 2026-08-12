@@ -76,6 +76,49 @@ describe('worker-documents provider endpoint SSRF guard', () => {
       }),
     ).toBeInstanceOf(OpenAiCompatibleVlmProvider);
   });
+
+  it('supports OpenRouter vision transport with attribution headers', async () => {
+    const originalFetch = globalThis.fetch;
+    let captured: { headers: Headers; body: Record<string, unknown> } | undefined;
+    globalThis.fetch = (_input: RequestInfo | URL, init?: RequestInit) => {
+      captured = {
+        headers: new Headers(init?.headers),
+        body: JSON.parse(String(init?.body)) as Record<string, unknown>,
+      };
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            model: 'google/gemini-3.5-flash-lite',
+            choices: [{ message: { content: 'Disconnect power.' } }],
+          }),
+          { status: 200 },
+        ),
+      );
+    };
+    try {
+      const provider = new OpenAiCompatibleVlmProvider({
+        apiKey: 'sk-or-test',
+        model: 'google/gemini-3.5-flash-lite',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        allowedHosts: ['openrouter.ai'],
+        referer: 'http://localhost:1420',
+        appName: 'GuideForge test',
+      });
+      const result = await provider.extractPage({
+        pageIndex: 0,
+        imageBase64: 'aGVsbG8=',
+        mimeType: 'image/jpeg',
+      });
+      expect(result.provider.provider).toBe('openrouter-vlm');
+      expect(result.provider.version).toBe('google/gemini-3.5-flash-lite');
+      expect(captured?.headers.get('authorization')).toBe('Bearer sk-or-test');
+      expect(captured?.headers.get('http-referer')).toBe('http://localhost:1420');
+      expect(captured?.headers.get('x-openrouter-title')).toBe('GuideForge test');
+      expect(captured?.body).toMatchObject({ model: 'google/gemini-3.5-flash-lite' });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
 
 describe('worker-documents extraction pipeline', () => {

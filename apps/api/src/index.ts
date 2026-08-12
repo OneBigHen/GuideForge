@@ -11,7 +11,16 @@ import jwt from '@fastify/jwt';
 import swagger from '@fastify/swagger';
 import { structuralChunking, type SourceRegion } from '@guideforge/ai-contracts';
 import { isContentHash, type ContentHash } from '@guideforge/domain';
-import { DeepSeekAdapter, getDeepSeekModelProfile, ModelGateway } from '@guideforge/model-gateway';
+import {
+  DeepSeekAdapter,
+  DEFAULT_OPENROUTER_DEEPSEEK_MODEL,
+  getDeepSeekModelProfile,
+  getOpenRouterDeepSeekModelProfile,
+  ModelGateway,
+  OpenRouterAdapter,
+  type DeepSeekModelProfile,
+  type ModelAdapter,
+} from '@guideforge/model-gateway';
 import {
   SynthesisGateway,
   validateSynthesisRequest,
@@ -39,11 +48,50 @@ export interface ApiConfig {
   /** Server-side DeepSeek API key (never exposed to the browser). */
   deepSeekApiKey?: string;
   deepSeekModel?: string;
+  /** Semantic model transport. OpenRouter is explicit and never a fake fallback. */
+  modelProvider?: 'deepseek' | 'openrouter';
+  /** Server-side OpenRouter API key (never exposed to the browser). */
+  openRouterApiKey?: string;
+  openRouterModel?: string;
+  openRouterReferer?: string;
+  openRouterAppName?: string;
 }
 
 export interface ServerDeps {
   db?: NodePgDatabase<typeof schema>;
   roomTickets?: RoomTicketService;
+}
+
+type SemanticProvider = 'deepseek' | 'openrouter';
+
+function configuredSemanticProvider(config: ApiConfig): SemanticProvider {
+  return config.modelProvider ?? (config.openRouterApiKey ? 'openrouter' : 'deepseek');
+}
+
+function configuredSemanticProfile(config: ApiConfig): DeepSeekModelProfile {
+  if (configuredSemanticProvider(config) === 'openrouter') {
+    return getOpenRouterDeepSeekModelProfile(
+      config.openRouterModel ?? DEFAULT_OPENROUTER_DEEPSEEK_MODEL,
+    );
+  }
+  return getDeepSeekModelProfile(config.deepSeekModel);
+}
+
+function configuredModelAdapter(config: ApiConfig): ModelAdapter | undefined {
+  if (configuredSemanticProvider(config) === 'openrouter') {
+    if (!config.openRouterApiKey) return undefined;
+    return new OpenRouterAdapter({
+      apiKey: config.openRouterApiKey,
+      model: config.openRouterModel ?? DEFAULT_OPENROUTER_DEEPSEEK_MODEL,
+      ...(config.openRouterReferer ? { referer: config.openRouterReferer } : {}),
+      ...(config.openRouterAppName ? { appName: config.openRouterAppName } : {}),
+    });
+  }
+  if (!config.deepSeekApiKey) return undefined;
+  return new DeepSeekAdapter({
+    apiKey: config.deepSeekApiKey,
+    ...(config.deepSeekModel ? { model: config.deepSeekModel } : {}),
+  });
 }
 
 export async function buildServer(
@@ -356,15 +404,8 @@ export async function buildServer(
     for (const c of chunks) regions.set(c.region.regionId, c.region);
 
     // Gateway: real DeepSeek only when configured; no silent fake fallback.
-    const adapters =
-      config.deepSeekApiKey && config.deepSeekApiKey.length > 0
-        ? [
-            new DeepSeekAdapter({
-              apiKey: config.deepSeekApiKey,
-              ...(config.deepSeekModel ? { model: config.deepSeekModel } : {}),
-            }),
-          ]
-        : [];
+    const adapter = configuredModelAdapter(config);
+    const adapters = adapter ? [adapter] : [];
     const gateway = new ModelGateway(adapters);
     const response = await gateway.run({
       sourceHash,
@@ -483,27 +524,22 @@ export async function buildServer(
       maxCostUsd: boundedNumber(body.maxCostUsd, 0.25, 0, 0.25),
     };
 
-    let profile: ReturnType<typeof getDeepSeekModelProfile> | undefined;
+    let profile: DeepSeekModelProfile | undefined;
+    const provider = configuredSemanticProvider(config);
     try {
-      profile = getDeepSeekModelProfile(config.deepSeekModel);
+      profile = configuredSemanticProfile(config);
     } catch (err) {
       if (mode === 'deepseek') {
         return reply.code(503).send({ error: err instanceof Error ? err.message : String(err) });
       }
     }
-    const modelGateway =
-      mode === 'deepseek' && config.deepSeekApiKey
-        ? new ModelGateway([
-            new DeepSeekAdapter({
-              apiKey: config.deepSeekApiKey,
-              ...(config.deepSeekModel ? { model: config.deepSeekModel } : {}),
-            }),
-          ])
-        : undefined;
+    const adapter = mode === 'deepseek' ? configuredModelAdapter(config) : undefined;
+    const modelGateway = adapter ? new ModelGateway([adapter]) : undefined;
     const synthesis = new SynthesisGateway({
       mode,
       ...(modelGateway ? { modelGateway } : {}),
       ...(profile ? { profile } : {}),
+      ...(mode === 'deepseek' ? { provider } : {}),
       budget,
     });
     const result = await synthesis.run(request);

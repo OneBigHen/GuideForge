@@ -31,6 +31,8 @@ export interface SynthesisGatewayOptions {
   mode: SynthesisGatewayMode;
   modelGateway?: ModelGateway;
   profile?: DeepSeekModelProfile;
+  /** Transport provider used for the semantic DeepSeek model. */
+  provider?: 'deepseek' | 'openrouter';
   promptVersion?: string;
   budget?: Partial<SynthesisBudget>;
   /** Injectable for tests; the default is a bounded per-process cache. */
@@ -121,6 +123,7 @@ export class SynthesisGateway {
     }
 
     const profile = this.options.profile ?? getDeepSeekModelProfile();
+    const provider = this.options.provider ?? 'deepseek';
     const inputTokens = estimateRequestTokens(request);
     if (inputTokens > this.budget.maxInputTokens) {
       return this.failed({
@@ -155,7 +158,7 @@ export class SynthesisGateway {
         mode: 'deepseek',
         plan: cached,
         receipt: this.receipt({
-          provider: 'deepseek',
+          provider,
           model: profile.id,
           profileVerifiedAtIso: profile.verifiedAtIso,
           providerApiVersion: profile.providerApiVersion,
@@ -182,7 +185,7 @@ export class SynthesisGateway {
         promptVersion,
         inputTokens,
         latencyMs: Date.now() - started,
-        error: 'DeepSeek synthesis gateway is not configured',
+        error: `${provider} DeepSeek synthesis gateway is not configured`,
       });
     }
 
@@ -225,7 +228,7 @@ export class SynthesisGateway {
       usage.cacheTokens,
     );
     const baseReceipt = {
-      provider: 'deepseek',
+      provider,
       model: profile.id,
       profileVerifiedAtIso: profile.verifiedAtIso,
       providerApiVersion: profile.providerApiVersion,
@@ -254,7 +257,7 @@ export class SynthesisGateway {
       };
     }
     if (!response.ok || !response.output) {
-      const error = response.error ?? 'DeepSeek synthesis failed';
+      const error = response.error ?? `${provider} DeepSeek synthesis failed`;
       return {
         ok: false,
         mode: 'deepseek',
@@ -321,7 +324,7 @@ export class SynthesisGateway {
       ok: false,
       mode: input.mode,
       receipt: this.receipt({
-        provider: 'deepseek',
+        provider: this.options.provider ?? 'deepseek',
         model: input.profile.id,
         profileVerifiedAtIso: input.profile.verifiedAtIso,
         providerApiVersion: input.profile.providerApiVersion,

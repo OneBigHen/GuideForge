@@ -1,5 +1,10 @@
 import type { ContentHash } from '@guideforge/domain';
-import { DeepSeekAdapter, ModelGateway } from '@guideforge/model-gateway';
+import {
+  DeepSeekAdapter,
+  getOpenRouterDeepSeekModelProfile,
+  ModelGateway,
+  OpenRouterAdapter,
+} from '@guideforge/model-gateway';
 import { describe, expect, it } from 'vitest';
 import { SynthesisGateway, type SynthesisSource } from './index.js';
 
@@ -71,7 +76,11 @@ function modelOutput(values: unknown[] = []): object {
   };
 }
 
-function gatewayWithOutput(output: object, calls: { count: number }) {
+function gatewayWithOutput(
+  output: object,
+  calls: { count: number },
+  provider: 'deepseek' | 'openrouter' = 'deepseek',
+) {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (_input: RequestInfo | URL, _init?: RequestInit) => {
     calls.count += 1;
@@ -90,11 +99,20 @@ function gatewayWithOutput(output: object, calls: { count: number }) {
       ),
     );
   };
-  const adapter = new DeepSeekAdapter({ apiKey: 'test-key', model: 'deepseek-v4-flash' });
+  const adapter =
+    provider === 'openrouter'
+      ? new OpenRouterAdapter({
+          apiKey: 'test-key',
+          model: 'deepseek/deepseek-v4-flash-0731',
+        })
+      : new DeepSeekAdapter({ apiKey: 'test-key', model: 'deepseek-v4-flash' });
   return {
     synthesis: new SynthesisGateway({
       mode: 'deepseek',
       modelGateway: new ModelGateway([adapter]),
+      ...(provider === 'openrouter'
+        ? { provider, profile: getOpenRouterDeepSeekModelProfile() }
+        : {}),
       cache: new Map(),
     }),
     restore: () => {
@@ -127,6 +145,20 @@ describe('SynthesisGateway', () => {
       expect(result.plan?.output.guideId).toBe('g');
       expect(result.plan?.coverage.citedRegions).toBe(1);
       expect(result.receipt.providerCostUsd).toBeGreaterThan(0);
+      expect(calls.count).toBe(1);
+    } finally {
+      adapter.restore();
+    }
+  });
+
+  it('records OpenRouter as the transport for an OpenRouter-hosted DeepSeek model', async () => {
+    const calls = { count: 0 };
+    const adapter = gatewayWithOutput(modelOutput(), calls, 'openrouter');
+    try {
+      const result = await adapter.synthesis.run({ guideId: 'g', sources: sources() });
+      expect(result.ok).toBe(true);
+      expect(result.receipt.provider).toBe('openrouter');
+      expect(result.receipt.model).toBe('deepseek/deepseek-v4-flash-0731');
       expect(calls.count).toBe(1);
     } finally {
       adapter.restore();
