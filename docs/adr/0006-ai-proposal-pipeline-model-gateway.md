@@ -66,9 +66,10 @@ Verified via registry metadata and live calls 2026-08-04/05:
    never arbitrary token windows.
 4. **Extraction contract**: strict `ExtractionOutput` JSON Schema; model
    output must validate before any proposal is created.
-5. **ModelGateway**: ordered provider fallback; `DeepSeekAdapter` is the
-   primary real provider (server-side key); `OpenRouterAdapter` remains
-   available for self-hosted deployments that prefer it;
+5. **ModelGateway**: ordered provider fallback; the current single-user
+   deployment uses `OpenRouterAdapter` for the semantic DeepSeek model and
+   hosted VLM, while `DeepSeekAdapter` remains available for direct official
+   API deployments;
    `DirectModelAdapter` is a seam for local models; ZDR policy routes to
    privacy-safe providers and never relaxes automatically.
 6. **Citation gate**: an actionable claim is invalid unless it cites ≥1 valid
@@ -96,8 +97,9 @@ Rejected: loses structure, harms citation quality and determinism.
 
 ### Alternative D — OpenRouter as the only provider
 
-Superseded: DeepSeek is now primary (verified live); OpenRouter kept as an
-optional server-side adapter for deployments that require it.
+Rejected as an architectural constraint: OpenRouter is the current transport,
+but the provider-independent gateway keeps direct DeepSeek and offline rules
+available without silently switching between them.
 
 ## Consequences
 

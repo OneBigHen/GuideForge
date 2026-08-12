@@ -39,9 +39,9 @@ as proof.
 | `@guideforge/model-gateway` tests               | 19 passed                                                                                                            |
 | `@guideforge/synthesis` tests                   | 19 passed, including OpenRouter receipts, multi-source, cache, budget, repair, exception, and explicit offline tests |
 | `@guideforge/api` tests                         | 19 passed without a key; 19 passed with the live OpenRouter API test                                                 |
-| `@guideforge/worker-documents` tests            | 22 passed, including the OpenRouter VLM transport contract                                                           |
+| `@guideforge/worker-documents` tests            | 25 passed, including the OpenRouter VLM transport and PDF fallback contracts                                         |
 | `@guideforge/companion` tests                   | 13 passed, including serialized GPU leases                                                                           |
-| `@guideforge/web` tests                         | 24 passed                                                                                                            |
+| `@guideforge/web` tests                         | 32 passed                                                                                                            |
 | Model/synthesis/API/worker/companion typechecks | Passed                                                                                                               |
 
 ## Provider boundary

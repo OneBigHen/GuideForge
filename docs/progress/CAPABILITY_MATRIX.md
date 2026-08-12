@@ -1,6 +1,6 @@
 # GuideForge Capability Matrix — Current Production Re-audit
 
-Audited SHA: `0a6765dd3d01ccb5c8844b35732351e76d48117f`; production-pack parent
+Audited SHA: `43af4fc3af292664dec97cbdadd12a4086b4d62a`; production-pack parent
 SHA was `abefa7475d52931957721b571df828c364c7e924`.
 Audit date: 2026-08-12
 Authority: GuideForge Production Readiness Pack, `ACCEPTANCE_MATRIX.md`
@@ -62,14 +62,14 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 ## Real multimodal ingestion
 
-| Requirement                                           | Current source signal                                                                                                                                                      | Status            |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| Digital PDF, scanned PDF/OCR, tables, figures/bboxes  | Real CPU Docling: digital PDF 3 regions/1 table and embedded-image OCR regions passed; scanned OCR timed out under host paging and no figure object/page image was emitted | partial           |
-| DOCX/PPTX/XLSX and image intake                       | Real DOCX 2 regions/1 table and PNG 1 region passed; CSV/XLSX returned tables but 0 citable blocks with quality warning                                                    | partial           |
-| Real audio ASR and video timestamps                   | Real faster-whisper 1.2.1 produced timestamped speech; MP4 path completed with 4 ffmpeg keyframes and receipts; semantic accuracy remains unproven                         | partial           |
-| VLM hard-page fallback                                | Real local Ollama qwen3-vl probe returned HTTP 500 for host memory refusal; no fallback pass                                                                               | partial           |
-| Quality report, cancellation, partial/revision impact | Quality/provider receipts and 28 ingestion tests                                                                                                                           | verified narrowly |
-| Source Studio upload/regions/receipts/conflicts       | Failed binary state, locator navigation, and 24 web tests                                                                                                                  | partial           |
+| Requirement                                           | Current source signal                                                                                                                                                         | Status            |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Digital PDF, scanned PDF/OCR, tables, figures/bboxes  | Real CPU Docling: digital PDF 3 regions/1 table; worker now emits citable table blocks, Poppler page images, and bounded XML figure bboxes, but the golden rerun remains open | partial           |
+| DOCX/PPTX/XLSX and image intake                       | Real DOCX 2 regions/1 table and PNG 1 region passed; CSV/XLSX table metadata now becomes citable blocks, with golden rerun pending                                            | partial           |
+| Real audio ASR and video timestamps                   | Real faster-whisper 1.2.1 produced timestamped speech; MP4 path completed with 4 ffmpeg keyframes and receipts; semantic accuracy remains unproven                            | partial           |
+| VLM hard-page fallback                                | OpenRouter hosted VLM transport passed; Poppler pages now feed the fallback after missing/failed Docling, but no live golden scanned-PDF fallback receipt yet                 | partial           |
+| Quality report, cancellation, partial/revision impact | Quality/provider receipts and 28 ingestion tests                                                                                                                              | verified narrowly |
+| Source Studio upload/regions/receipts/conflicts       | Failed binary state, locator navigation, and 24 web tests                                                                                                                     | partial           |
 
 ## AI and synthesis
 
@@ -147,10 +147,11 @@ browsers; physical devices, native OS keychains, and live providers remain
 unproven. Phase 04 remains active and unverified; Phase 05 is verified narrowly
 for the live OpenRouter-hosted DeepSeek path, while its golden multi-source and
 official-direct provider gates remain open. Historical reports do not change
-their status. Phase 04 now has real CPU Docling/Whisper/ffmpeg smoke
-evidence and a hosted OpenRouter VLM transport probe, but its Pack golden-provider gate remains
-**UNVERIFIED** because scanned OCR, figure/page-image extraction, CSV/XLSX
-citation coverage, VLM fallback, and the required golden corpus remain open.
+their status. Phase 04 now has real CPU Docling/Whisper/ffmpeg smoke evidence,
+citable table blocks, Poppler PDF rendering/figure-geometry seams, and a hosted
+OpenRouter VLM transport probe, but its Pack golden-provider gate remains
+**UNVERIFIED** until the scanned/table/figure fallback corpus is rerun end to
+end.
 Phase 06 is verified
 narrowly on current commit `dbf992d`: the authoring graph, citation quality
 gate, canonical edit commands, and browser review path pass. Phase 07 is

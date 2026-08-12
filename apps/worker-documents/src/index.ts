@@ -92,6 +92,98 @@ export interface DocumentConverter {
   convert(bytes: Uint8Array, detectedType: string): Promise<DocumentConversionOutput>;
 }
 
+export function parsePdfFigureXml(xml: string, sourceHash: ContentHash): FigureRegion[] {
+  const figures: FigureRegion[] = [];
+  for (const pageMatch of xml.matchAll(/<page\b([^>]*)>([\s\S]*?)<\/page>/gi)) {
+    const pageAttrs = pageMatch[1] ?? '';
+    const pageNumber = Number(xmlAttribute(pageAttrs, 'number') ?? 1);
+    const pageIndex = Number.isInteger(pageNumber) && pageNumber > 0 ? pageNumber - 1 : 0;
+    const pageWidth = Number(xmlAttribute(pageAttrs, 'width'));
+    const pageHeight = Number(xmlAttribute(pageAttrs, 'height'));
+    const pageXml = pageMatch[2] ?? '';
+    let imageIndex = 0;
+    for (const imageMatch of pageXml.matchAll(/<image\b([^>]*)\/?\s*>/gi)) {
+      const attrs = imageMatch[1] ?? '';
+      const left = Number(xmlAttribute(attrs, 'left'));
+      const top = Number(xmlAttribute(attrs, 'top'));
+      const width = Number(xmlAttribute(attrs, 'width'));
+      const height = Number(xmlAttribute(attrs, 'height'));
+      const currentIndex = imageIndex++;
+      if (![left, top, width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
+        continue;
+      }
+      const isFullPage =
+        pageWidth > 0 &&
+        pageHeight > 0 &&
+        left <= 1 &&
+        top <= 1 &&
+        width >= pageWidth * 0.95 &&
+        height >= pageHeight * 0.95;
+      if (isFullPage) continue;
+      const structuralPath = `pdf/image:${pageIndex}:${currentIndex}`;
+      figures.push({
+        regionId: stableRegionId(sourceHash, pageIndex, `figure:${structuralPath}`),
+        sourceHash,
+        pageIndex,
+        structuralPath,
+        caption: '',
+        bbox: { left, top, width, height },
+      });
+    }
+  }
+  return figures;
+}
+
+function xmlAttribute(attrs: string, name: string): string | undefined {
+  return new RegExp(`${name}=["']([^"']*)["']`, 'i').exec(attrs)?.[1];
+}
+
+async function renderPdfPageImages(bytes: Uint8Array): Promise<{
+  pageCount: number;
+  pageImages: { pageIndex: number; dataBase64: string; mimeType: string }[];
+}> {
+  const { execFile } = await import('node:child_process');
+  const { mkdtemp, readFile, readdir, rm, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = await mkdtemp(join(tmpdir(), 'gforge-pdf-pages-'));
+  const inputPath = join(dir, 'input.pdf');
+  const prefix = join(dir, 'page');
+  await writeFile(inputPath, bytes);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      execFile(
+        process.env.PDFTOPPM ?? 'pdftoppm',
+        ['-jpeg', '-r', '120', inputPath, prefix],
+        { maxBuffer: 8 * 1024 * 1024, timeout: 60_000 },
+        (err, _stdout, stderr) => {
+          if (err) {
+            reject(new Error(`PDF page rendering failed: ${stderr.toString().slice(0, 300)}`));
+            return;
+          }
+          resolve();
+        },
+      );
+    });
+    const names = (await readdir(dir))
+      .filter((name) => /^page-\d+\.jpg$/.test(name))
+      .sort((a, b) => Number(/\d+/.exec(a)?.[0] ?? 0) - Number(/\d+/.exec(b)?.[0] ?? 0));
+    if (names.length === 0) throw new Error('PDF page rendering produced no images');
+    return {
+      pageCount: names.length,
+      pageImages: await Promise.all(
+        names.map(async (name, pageIndex) => ({
+          pageIndex,
+          dataBase64: (await readFile(join(dir, name))).toString('base64'),
+          mimeType: 'image/jpeg',
+        })),
+      ),
+    };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 /**
  * Real Docling converter backed by a local Python environment.
  *
@@ -186,7 +278,7 @@ export class DoclingConverter implements DocumentConverter {
           .update(serializeTable(table.header, table.rows))
           .digest('hex'),
       }));
-      const figures = (parsed.figures ?? []).map((figure) => ({
+      let figures = (parsed.figures ?? []).map((figure) => ({
         regionId: stableRegionId(sourceHash, figure.page, `figure:${figure.path}`),
         sourceHash,
         pageIndex: figure.page,
@@ -194,31 +286,90 @@ export class DoclingConverter implements DocumentConverter {
         caption: figure.caption,
         ...(figure.bbox ? { bbox: bboxFromArray(figure.bbox) } : {}),
       }));
-      const chars = parsed.blocks.reduce((sum, block) => sum + block.text.length, 0);
+      if (detectedType.includes('pdf') && figures.length === 0) {
+        try {
+          const xml = await new Promise<Uint8Array>((resolve, reject) => {
+            execFile(
+              process.env.PDFTOHTML ?? 'pdftohtml',
+              ['-q', '-xml', '-stdout', '-noroundcoord', inputPath],
+              { maxBuffer: 16 * 1024 * 1024, timeout: 60_000 },
+              (err, stdout, stderr) => {
+                if (err) {
+                  reject(new Error(stderr.toString().slice(0, 300) || err.message));
+                  return;
+                }
+                resolve(stdout as unknown as Uint8Array);
+              },
+            );
+          });
+          figures = parsePdfFigureXml(Buffer.from(xml as Buffer).toString('utf8'), sourceHash);
+        } catch {
+          // Figure extraction is additive; the primary Docling result remains authoritative.
+        }
+      }
+      const normalizedBlocks = parsed.blocks.map((b) => ({
+        kind: mapKind(b.kind),
+        text: b.text,
+        structuralPath: b.path,
+        pageIndex: b.page,
+        ...(b.bbox ? { locator: { kind: 'page' as const, pageIndex: b.page, bbox: b.bbox } } : {}),
+      }));
+      const existingBlockPaths = new Set(
+        normalizedBlocks.map((block) => `${block.pageIndex}:${block.structuralPath}`),
+      );
+      const tableBlocks = tables
+        .map((table) => ({
+          kind: 'table-row' as const,
+          text: serializeTable(table.header, table.rows),
+          structuralPath: table.structuralPath,
+          pageIndex: table.pageIndex,
+          ...(table.bbox
+            ? {
+                locator: {
+                  kind: 'page' as const,
+                  pageIndex: table.pageIndex,
+                  bbox: [
+                    table.bbox.left,
+                    table.bbox.top,
+                    table.bbox.left + table.bbox.width,
+                    table.bbox.top + table.bbox.height,
+                  ] as [number, number, number, number],
+                },
+              }
+            : {}),
+        }))
+        .filter(
+          (table) =>
+            table.text.length > 0 &&
+            !existingBlockPaths.has(`${table.pageIndex}:${table.structuralPath}`),
+        );
+      const blocks = [...normalizedBlocks, ...tableBlocks];
+      const chars = blocks.reduce((sum, block) => sum + block.text.length, 0);
       const route = decideOcrRoute({
         kind: detectFormat(`input${extensionFor(detectedType)}`, null).kind,
         hasTextLayer: chars > 0,
         charsPerPage: parsed.pageCount > 0 ? chars / parsed.pageCount : chars,
         pageCount: Math.max(1, parsed.pageCount),
       });
+      let pageImages = parsed.pageImages ?? [];
+      if (detectedType.includes('pdf') && pageImages.length === 0 && route !== 'text-layer') {
+        try {
+          pageImages = (await renderPdfPageImages(bytes)).pageImages;
+        } catch {
+          // Keep the provider's original output; callers still fail closed
+          // when the selected OCR/VLM route lacks citable evidence.
+        }
+      }
       return {
         pageCount: parsed.pageCount,
-        blocks: parsed.blocks.map((b) => ({
-          kind: mapKind(b.kind),
-          text: b.text,
-          structuralPath: b.path,
-          pageIndex: b.page,
-          ...(b.bbox
-            ? { locator: { kind: 'page' as const, pageIndex: b.page, bbox: b.bbox } }
-            : {}),
-        })),
+        blocks,
         tables,
         figures,
         ...(parsed.providers ? { providers: parsed.providers } : {}),
-        ...(parsed.pageImages ? { pageImages: parsed.pageImages } : {}),
+        ...(pageImages.length > 0 ? { pageImages } : {}),
         qualityReport: scoreConversionQuality({
           pages: parsed.pageCount,
-          regionCount: parsed.blocks.length,
+          regionCount: blocks.length,
           tableCount: tables.length,
           figureCount: figures.length,
           mediaSegmentCount: 0,
@@ -956,7 +1107,28 @@ export async function convertMultimodal(
   const useTextConverter = format.kind === 'text';
   const converter =
     converters.document ?? (useTextConverter ? new TextSourceConverter() : new DoclingConverter());
-  const output = await converter.convert(bytes, format.mimeType);
+  let output: DocumentConversionOutput;
+  try {
+    output = await converter.convert(bytes, format.mimeType);
+  } catch (error) {
+    if (format.kind !== 'pdf' || !converters.vlm) throw error;
+    const rendered = await renderPdfPageImages(bytes);
+    output = {
+      blocks: [],
+      pageCount: rendered.pageCount || source.pageCount,
+      pageImages: rendered.pageImages,
+      providers: [
+        {
+          provider: 'docling',
+          version: DOCLING_CONFIG.version,
+          status: 'failed',
+          checkedAtIso: new Date().toISOString(),
+          details: { fallback: 'poppler-page-render' },
+          error: error instanceof Error ? error.message : String(error),
+        },
+      ],
+    };
+  }
   let blocks = output.blocks;
   let providers = output.providers ?? [];
   const preliminaryRoute = decideOcrRoute({
@@ -965,7 +1137,10 @@ export async function convertMultimodal(
     charsPerPage: estimateCharsPerPage(blocks, output.pageCount),
     pageCount: Math.max(1, output.pageCount),
   });
-  if (preliminaryRoute === 'vlm-fallback') {
+  const useVlmFallback =
+    preliminaryRoute === 'vlm-fallback' ||
+    (preliminaryRoute === 'ocr' && blocks.length === 0 && (output.pageImages?.length ?? 0) > 0);
+  if (useVlmFallback) {
     if (!converters.vlm) {
       throw new ProviderUnavailableError(
         'VLM fallback required for hard pages but no VLM provider is configured',
