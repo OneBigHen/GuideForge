@@ -210,6 +210,40 @@ describe('worker-documents multimodal ingestion (Phase 05)', () => {
     expect(res.conflicts).toHaveLength(0);
   });
 
+  it('uses the runtime Docling provider version in the receipt', async () => {
+    const { source, bytes } = textSource('runtime.pdf', 'Runtime provider version evidence.');
+    const res = await ingestMultimodal({
+      source,
+      bytes,
+      converters: {
+        document: {
+          convert: () =>
+            Promise.resolve({
+              pageCount: 1,
+              blocks: [
+                {
+                  kind: 'paragraph' as const,
+                  text: 'Runtime provider version evidence.',
+                  structuralPath: 'doc/0',
+                  pageIndex: 0,
+                },
+              ],
+              providers: [
+                {
+                  provider: 'docling-slim',
+                  version: '2.119.0',
+                  status: 'used' as const,
+                  checkedAtIso: new Date().toISOString(),
+                },
+              ],
+            }),
+        },
+      },
+    });
+    expect(res.receipt.converterVersion).toBe('2.119.0');
+    expect(res.receipt.providers?.[0]?.provider).toBe('docling-slim');
+  });
+
   it('detects duplicate sources via conflict detection', async () => {
     const text = 'Identical procedure content.'.repeat(30);
     const { source: s1, bytes: b1 } = textSource('a.md', text);

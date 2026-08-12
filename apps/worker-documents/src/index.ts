@@ -97,9 +97,9 @@ export interface DocumentConverter {
  *
  * Runs `python -m docling` (via the configured interpreter) on a temp file
  * and reads back the normalized JSON (text blocks with bounding boxes,
- * reading order, page index, and structural labels). The OCR step is disabled
- * so conversion is deterministic and needs no model downloads; scanned pages
- * are reported as warnings by the caller.
+ * reading order, page index, and structural labels). OCR and table structure
+ * are enabled in the bridge; scanned pages still need a successful provider
+ * result before the caller can mark the conversion complete.
  *
  * Configuration:
  *   DOCLING_PYTHON  — path to the interpreter with `docling` installed
@@ -326,10 +326,15 @@ for page_no, page in page_items:
         image.save(stream, format='JPEG', quality=85)
         page_images.append({"pageIndex": int(page_no) - 1, "dataBase64": base64.b64encode(stream.getvalue()).decode('ascii'), "mimeType": "image/jpeg"})
 
+provider_name = 'docling'
 try:
     version = importlib.metadata.version('docling')
 except Exception:
-    version = 'unknown'
+    provider_name = 'docling-slim'
+    try:
+        version = importlib.metadata.version('docling-slim')
+    except Exception:
+        version = 'unknown'
 print(json.dumps({
     "pageCount": len(result.document.pages),
     "blocks": blocks,
@@ -337,7 +342,7 @@ print(json.dumps({
     "figures": figures,
     "pageImages": page_images,
     "providers": [{
-        "provider": "docling",
+        "provider": provider_name,
         "version": version,
         "status": "used",
         "checkedAtIso": datetime.now(timezone.utc).isoformat(),
@@ -984,7 +989,12 @@ export async function convertMultimodal(
     charsPerPage: blocks.length > 0 ? estimateCharsPerPage(blocks, pageCount) : 0,
     hasTextLayer: blocks.length > 0,
     converter: converterName,
-    converterVersion: converterName === 'docling' ? DOCLING_CONFIG.version : '1',
+    converterVersion:
+      converterName === 'docling'
+        ? (providers.find(
+            (provider) => provider.provider === 'docling' || provider.provider === 'docling-slim',
+          )?.version ?? DOCLING_CONFIG.version)
+        : '1',
     ...(providers.length > 0 ? { providers } : {}),
     qualityReport: scoreConversionQuality({
       pages: pageCount,

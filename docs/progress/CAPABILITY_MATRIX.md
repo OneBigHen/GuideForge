@@ -64,10 +64,10 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 | Requirement                                           | Current source signal                                                           | Status            |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------- | ----------------- |
-| Digital PDF, scanned PDF/OCR, tables, figures/bboxes  | Real Docling bridge enables OCR/table structure/bboxes; no live golden run here | partial           |
-| DOCX/PPTX/XLSX and image intake                       | Docling standard converter path and explicit browser companion failure          | partial           |
-| Real audio ASR and video timestamps                   | ffprobe + Whisper/ffmpeg adapter; no configured live model                      | partial           |
-| VLM hard-page fallback                                | OpenAI-compatible VLM adapter is wired only for hard pages; no live endpoint    | partial           |
+| Digital PDF, scanned PDF/OCR, tables, figures/bboxes  | Real CPU Docling: digital PDF 3 regions/1 table and embedded-image OCR regions passed; scanned OCR timed out under host paging and no figure object/page image was emitted | partial           |
+| DOCX/PPTX/XLSX and image intake                       | Real DOCX 2 regions/1 table and PNG 1 region passed; CSV/XLSX returned tables but 0 citable blocks with quality warning | partial           |
+| Real audio ASR and video timestamps                   | Real faster-whisper 1.2.1 produced timestamped speech; MP4 path completed with 4 ffmpeg keyframes and receipts; semantic accuracy remains unproven | partial           |
+| VLM hard-page fallback                                | Real local Ollama qwen3-vl probe returned HTTP 500 for host memory refusal; no fallback pass | partial           |
 | Quality report, cancellation, partial/revision impact | Quality/provider receipts and 28 ingestion tests                                | verified narrowly |
 | Source Studio upload/regions/receipts/conflicts       | Failed binary state, locator navigation, and 24 web tests                       | partial           |
 
@@ -145,9 +145,11 @@ stability fix `64bc8671073e88f765ff68fa52ee11c805688cc3`; GitHub run
 (check and Playwright). The Phase 03 gate is verified in clean test storage and emulated
 browsers; physical devices, native OS keychains, and live providers remain
 unproven. Phase 04–05 remain active and unverified; historical reports do not
-change their status. Phase 04's focused contracts and adapters are current-tree
-verified, but its Pack golden-provider gate remains **UNVERIFIED** because this
-host has no configured Docling, Whisper, or VLM runtime. Phase 06 is verified
+change their status. Phase 04 now has real CPU Docling/Whisper/ffmpeg smoke
+evidence and runtime receipts, but its Pack golden-provider gate remains
+**UNVERIFIED** because scanned OCR, figure/page-image extraction, CSV/XLSX
+citation coverage, VLM fallback, and the required golden corpus remain open.
+Phase 06 is verified
 narrowly on current commit `dbf992d`: the authoring graph, citation quality
 gate, canonical edit commands, and browser review path pass. Phase 07 is
 verified narrowly on the current tree for local deterministic runtime, Dexie
