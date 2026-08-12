@@ -134,6 +134,8 @@ export interface SpatialCameraCandidate {
   target: Vec3;
   score: number;
   stepId: EntityId | null;
+  visibleNodeIds: EntityId[];
+  occludedNodeIds: EntityId[];
 }
 
 export interface SpatialValidation {
@@ -314,26 +316,8 @@ function stepHints(snapshot: GuideSnapshot): EquipmentRequirementHint[] {
     }
   }
 
-  // Only known equipment vocabulary is promoted from prose; arbitrary nouns
-  // are not turned into scene nodes without an explicit tool/part or hint.
-  const prose = [
-    snapshot.title,
-    ...snapshot.tasks.map((task) => task.title),
-    ...snapshot.steps.map((step) => step.instructionText),
-  ].join(' ');
-  for (const entry of CATALOG) {
-    const matchingTerm = entry.terms.find((term) => normalize(prose).includes(normalize(term)));
-    if (matchingTerm) {
-      const stepIds = snapshot.steps
-        .filter((step) => normalize(step.instructionText).includes(normalize(matchingTerm)))
-        .map((step) => step.stepId);
-      hints.push({
-        name: matchingTerm,
-        ...(entry.role ? { role: entry.role } : {}),
-        stepIds: stepIds.length > 0 ? stepIds : snapshot.steps.map((step) => step.stepId),
-      });
-    }
-  }
+  // Procedure prose is not an equipment manifest. Only structured tools,
+  // parts, and explicit compiler hints become scene requirements.
   return hints;
 }
 
@@ -670,6 +654,7 @@ function solveLayout(
   requirements: readonly EquipmentRequirement[],
   resolvedAssets: readonly ResolvedAsset[],
   graph: SemanticSceneGraph,
+  constraints: readonly SpatialConstraint[],
   workspace: SpatialWorkspace,
   seed: string,
 ): SpatialPlacement[] {
@@ -746,11 +731,16 @@ function solveLayout(
         };
         if (!withinWorkspace(candidate, workspace)) continue;
         if (
-          placements.some(
-            (existing) =>
-              existing.role !== 'surface' &&
-              overlaps(candidate, existing, requirement.clearanceMeters),
-          )
+          placements.some((existing) => {
+            if (existing.role === 'surface') return false;
+            const constraint = constraints.find(
+              (item) =>
+                (item.kind === 'non-overlap' || item.kind === 'clear-zone') &&
+                ((item.firstId === candidate.semanticId && item.secondId === existing.semanticId) ||
+                  (item.firstId === existing.semanticId && item.secondId === candidate.semanticId)),
+            );
+            return overlaps(candidate, existing, constraint?.clearanceMeters ?? 0);
+          })
         )
           continue;
         chosen = candidate;
@@ -805,6 +795,7 @@ function cameraFor(
   placements: readonly SpatialPlacement[],
   workspace: SpatialWorkspace,
   visibleIds: readonly EntityId[],
+  direction: Vec3,
 ): SpatialCameraCandidate {
   const visible = placements.filter((placement) => visibleIds.includes(placement.nodeId));
   const group = visible.length > 0 ? visible : placements;
@@ -817,14 +808,82 @@ function cameraFor(
     { x: 0, y: 0, z: 0 },
   );
   const distance = Math.max(workspace.dimensionsMeters.x, workspace.dimensionsMeters.z, 0.4) * 1.4;
+  const position = {
+    x: center.x + direction.x * distance,
+    y: center.y + direction.y * distance,
+    z: center.z + direction.z * distance,
+  };
+  const visibleNodeIds = cameraVisibleNodeIds(position, center, group);
+  const occludedNodeIds = group
+    .map((placement) => placement.nodeId)
+    .filter((nodeId) => !visibleNodeIds.includes(nodeId));
   return {
     cameraId: stableId('camera', seed, stepId ?? 'overview'),
     name,
-    position: { x: center.x + distance, y: center.y + distance * 0.8, z: center.z + distance },
+    position,
     target: center,
-    score: visible.length > 0 ? 1 : 0.5,
+    score: visibleNodeIds.length / Math.max(1, group.length) - occludedNodeIds.length * 0.01,
     stepId,
+    visibleNodeIds,
+    occludedNodeIds,
   };
+}
+
+function segmentIntersectsAabb(from: Vec3, to: Vec3, placement: SpatialPlacement): boolean {
+  const min = {
+    x: placement.position.x - placement.dimensionsMeters.x / 2,
+    y: placement.position.y - placement.dimensionsMeters.y / 2,
+    z: placement.position.z - placement.dimensionsMeters.z / 2,
+  };
+  const max = {
+    x: placement.position.x + placement.dimensionsMeters.x / 2,
+    y: placement.position.y + placement.dimensionsMeters.y / 2,
+    z: placement.position.z + placement.dimensionsMeters.z / 2,
+  };
+  let near = 0;
+  let far = 1;
+  for (const axis of ['x', 'y', 'z'] as const) {
+    const delta = to[axis] - from[axis];
+    if (Math.abs(delta) < 1e-9) {
+      if (from[axis] < min[axis] || from[axis] > max[axis]) return false;
+      continue;
+    }
+    const t1 = (min[axis] - from[axis]) / delta;
+    const t2 = (max[axis] - from[axis]) / delta;
+    near = Math.max(near, Math.min(t1, t2));
+    far = Math.min(far, Math.max(t1, t2));
+    if (near > far) return false;
+  }
+  return far >= 0 && near <= 1;
+}
+
+function cameraVisibleNodeIds(
+  position: Vec3,
+  target: Vec3,
+  placements: readonly SpatialPlacement[],
+): EntityId[] {
+  const ordered = [...placements].sort(
+    (a, b) => distanceSquared(position, a.position) - distanceSquared(position, b.position),
+  );
+  const visible: EntityId[] = [];
+  for (const placement of ordered) {
+    const blocked = ordered.some(
+      (other) =>
+        other.nodeId !== placement.nodeId &&
+        distanceSquared(position, other.position) < distanceSquared(position, placement.position) &&
+        segmentIntersectsAabb(position, placement.position, other),
+    );
+    if (!blocked) visible.push(placement.nodeId);
+  }
+  // The target keeps the director stable when all candidates are sparse.
+  if (visible.length === 0 && placements.some((placement) => placement.position === target)) {
+    return [placements[0]!.nodeId];
+  }
+  return visible;
+}
+
+function distanceSquared(a: Vec3, b: Vec3): number {
+  return (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2;
 }
 
 function sceneNode(placement: SpatialPlacement): SceneNode {
@@ -967,21 +1026,33 @@ function makeCameras(
   requirements: readonly EquipmentRequirement[],
 ): SpatialCameraCandidate[] {
   const allIds = placements.map((placement) => placement.nodeId);
-  const cameras = [cameraFor(seed, 'Overview', null, placements, workspace, allIds)];
+  const directions: Vec3[] = [
+    { x: 1, y: 0.8, z: 1 },
+    { x: 0.1, y: 0.7, z: 1 },
+    { x: 1, y: 0.7, z: 0.1 },
+  ];
+  const rank = (stepId: EntityId | null, name: string, visibleIds: readonly EntityId[]) =>
+    directions
+      .map((direction, index) =>
+        cameraFor(
+          seed,
+          `${name} candidate ${index + 1}`,
+          stepId,
+          placements,
+          workspace,
+          visibleIds,
+          direction,
+        ),
+      )
+      .sort((a, b) => b.score - a.score || a.cameraId.localeCompare(b.cameraId))[0]!;
+  const cameras = [rank(null, 'Overview', allIds)];
   const stepRequirements = buildStepRequirementMap(requirements);
   for (const step of snapshot.steps) {
     const stepNodeIds = placements
       .filter((placement) => stepRequirements.get(placement.requirementId)?.has(step.stepId))
       .map((placement) => placement.nodeId);
     cameras.push(
-      cameraFor(
-        seed,
-        `Step: ${step.stepId}`,
-        step.stepId,
-        placements,
-        workspace,
-        stepNodeIds.length > 0 ? stepNodeIds : allIds,
-      ),
+      rank(step.stepId, `Step: ${step.stepId}`, stepNodeIds.length > 0 ? stepNodeIds : allIds),
     );
   }
   return cameras;
@@ -1077,6 +1148,7 @@ export function compileSceneCommands(
 export function validateSpatialScene(
   scene: GuideScene,
   placements: readonly SpatialPlacement[],
+  constraints: readonly SpatialConstraint[],
   workspace: SpatialWorkspace,
 ): SpatialValidation {
   const errors: string[] = [];
@@ -1095,7 +1167,18 @@ export function validateSpatialScene(
     for (let j = i + 1; j < placements.length; j += 1) {
       const first = placements[i]!;
       const second = placements[j]!;
-      if (first.role !== 'surface' && second.role !== 'surface' && overlaps(first, second, 0)) {
+      const constraint = constraints.find(
+        (item) =>
+          (item.kind === 'non-overlap' || item.kind === 'clear-zone') &&
+          ((item.firstId === first.semanticId && item.secondId === second.semanticId) ||
+            (item.firstId === second.semanticId && item.secondId === first.semanticId)),
+      );
+      if (
+        first.role !== 'surface' &&
+        second.role !== 'surface' &&
+        constraint &&
+        overlaps(first, second, constraint.clearanceMeters)
+      ) {
         collisionPairs.push([first.nodeId, second.nodeId]);
       }
     }
@@ -1103,6 +1186,25 @@ export function validateSpatialScene(
   if (outOfBoundsNodeIds.length > 0)
     errors.push(`${outOfBoundsNodeIds.length} node(s) exceed the workspace`);
   if (collisionPairs.length > 0) errors.push(`${collisionPairs.length} node pair(s) collide`);
+  const placementBySemanticId = new Map(
+    placements.map((placement) => [placement.semanticId, placement]),
+  );
+  for (const constraint of constraints) {
+    if (constraint.kind !== 'support') continue;
+    const placement = placementBySemanticId.get(constraint.firstId);
+    const surface = constraint.secondId
+      ? placementBySemanticId.get(constraint.secondId)
+      : undefined;
+    if (!placement || !surface) {
+      errors.push(`support constraint ${constraint.constraintId} has no surface`);
+      continue;
+    }
+    const placementBottom = placement.position.y - placement.dimensionsMeters.y / 2;
+    const surfaceTop = surface.position.y + surface.dimensionsMeters.y / 2;
+    if (Math.abs(placementBottom - surfaceTop) > 1e-6) {
+      errors.push(`node ${placement.nodeId} is not supported by ${surface.nodeId}`);
+    }
+  }
   for (const attachment of scene.surfaceAttachments) {
     if (!nodeIds.has(attachment.nodeId))
       errors.push(`attachment ${attachment.attachmentId} targets a missing node`);
@@ -1138,7 +1240,7 @@ export function compileSpatialGuide(input: SpatialCompileInput): SpatialCompilat
   );
   const graph = buildGraph(input.snapshot, requirements, seed);
   const constraints = compileConstraints(requirements, graph, workspace, seed);
-  const placements = solveLayout(requirements, resolvedAssets, graph, workspace, seed);
+  const placements = solveLayout(requirements, resolvedAssets, graph, constraints, workspace, seed);
   const { attachments, annotations } = buildAttachmentsAndAnnotations(seed, placements);
   const cameras = makeCameras(input.snapshot, seed, placements, workspace, requirements);
   const scene = buildSceneWithSteps(
@@ -1149,7 +1251,7 @@ export function compileSpatialGuide(input: SpatialCompileInput): SpatialCompilat
     annotations,
     requirements,
   );
-  const validation = validateSpatialScene(scene, placements, workspace);
+  const validation = validateSpatialScene(scene, placements, constraints, workspace);
   const criticIssues = input.visualCritic
     ? [...input.visualCritic({ scene, placements, graph })].slice(0, 32)
     : [];

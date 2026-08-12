@@ -10,18 +10,21 @@ typed scene commands without using LLM-produced final transforms.
 ## Delivered path
 
 - `@guideforge/spatial-compiler` extracts equipment from structured tools/parts
-  and a bounded known-equipment vocabulary, then adds a work-surface
-  requirement.
+  and explicit compiler hints, then adds a work-surface requirement. Procedure
+  prose is not promoted into equipment nodes.
 - Licensed local GLB/glTF metadata is resolved before explicit procedural
   proxies. Unknown assets fail closed when proxy fallback is disabled.
 - The graph records workspace, equipment, step, support, containment, use,
-  point-to, near, and clear-zone relationships. The solver uses a stable seed,
-  bounded candidate grid, workspace bounds, and non-overlap checks.
-- Camera candidates, deterministic surface attachments, arrow annotations,
-  per-step visibility/camera state, validation, and optional bounded critic
-  diagnostics are emitted as typed scene commands.
-- The spatial editor accepts the result through the existing Yjs-backed
-  canonical scene path and reports proxy/validation status.
+  point-to, near, and clear-zone relationships. The solver consumes compiled
+  workspace, support, non-overlap, and clear-zone constraints with a stable
+  seed and bounded candidate grid.
+- Three deterministic camera candidates are ranked per view using bounded
+  visibility and segment/AABB occlusion checks. Surface attachments, arrow
+  annotations, per-step visibility/camera state, validation, and optional
+  bounded critic diagnostics are emitted as typed scene commands.
+- The spatial editor maps stored asset metadata through `AssetLibrary`, blocks
+  invalid compilations, and applies the compiler's typed command list through
+  the scene command bus.
 
 ## Evidence
 
@@ -30,6 +33,7 @@ typed scene commands without using LLM-produced final transforms.
 | Spatial compiler tests | 3 passed: micropipette scene, deterministic seed/critic, missing-asset fail-closed path |
 | Spatial compiler typecheck/lint/format | Passed |
 | Web typecheck/lint | Passed |
+| Review follow-up | Corrected asset metadata adapter, validation gate, typed command application, consumed constraints, and deterministic camera ranking |
 | Scene browser acceptance | 6/6 desktop, iPad, and iPhone emulated projects passed |
 | Forced repository gate | `pnpm check --force`: 125/125 successful, 0 cached |
 | Canonical command application | Commands materialize nodes, cameras, attachments, annotations, and step state in scene-core tests |

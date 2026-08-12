@@ -1,10 +1,9 @@
 import {
   generateProceduralGlb,
   PROCEDURAL_TEMPLATES,
-  type AssetMetadata,
   type ProceduralTemplate,
 } from '@guideforge/assets';
-import { guideSceneToSceneState, materializeSnapshot } from '@guideforge/collaboration';
+import { materializeSnapshot } from '@guideforge/collaboration';
 import type { GuideCommand } from '@guideforge/commands';
 import type { EntityId } from '@guideforge/domain';
 import {
@@ -24,6 +23,7 @@ import { SceneViewport } from '@guideforge/scene-react';
 import { compileSpatialGuide, type SpatialCompilation } from '@guideforge/spatial-compiler';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useEffect, useMemo, useState } from 'react';
+import { AssetLibrary } from '../services/assetLibrary';
 import { closeGuide, openGuide, type OpenGuideSession } from '../services/guideStore';
 import {
   dispatchSceneCommand,
@@ -480,15 +480,17 @@ function SceneEditorPage() {
     setSpatialCompiling(true);
     setSpatialError(null);
     try {
-      const rows = await session.db.assets.orderBy('hash').toArray();
-      const assets = rows.filter(
-        (row) => typeof (row as unknown as { name?: unknown }).name === 'string',
-      ) as unknown as AssetMetadata[];
+      const assets = (await new AssetLibrary(session.db, session.assets).list()).flatMap((entry) =>
+        entry.metadata ? [entry.metadata] : [],
+      );
       const result = compileSpatialGuide({
         snapshot: materializeSnapshot(session.working),
         assets,
         seed: guideId,
       });
+      if (!result.validation.ok) {
+        throw new Error(`validation failed: ${result.validation.errors.join('; ')}`);
+      }
       for (const generated of result.proceduralAssets) {
         if (await session.db.assets.get(generated.contentHash)) continue;
         await session.assets.put(
@@ -500,13 +502,12 @@ function SceneEditorPage() {
           hashes.includes(generated.contentHash) ? hashes : [...hashes, generated.contentHash],
         );
       }
-      const next = guideSceneToSceneState(result.scene);
       setUndoStack((stack) => [...stack, scene]);
       setRedoStack([]);
-      session.working.doc.transact(
-        () => saveSceneToWorkingDoc(session, next),
-        'guideforge:spatial-compile',
-      );
+      let next = scene;
+      for (const command of result.commands) {
+        next = dispatchSceneCommand(session, command);
+      }
       setScene(next);
       setSelected([]);
       setSpatialCompilation(result);

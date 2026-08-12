@@ -14,9 +14,10 @@ reported fallback; unknown requirements fail validation when no renderable
 asset is available.
 
 The compiler is pure and does not mutate Yjs or ask a model for final XYZ
-transforms. The editor accepts its result through the existing canonical scene
-save path. A visual critic is an optional bounded diagnostic hook and cannot
-write scene state.
+transforms. The editor accepts its result by dispatching the compiler's typed
+scene commands through the canonical scene command bus, and refuses scenes
+that fail compiler validation. A visual critic is an optional bounded
+diagnostic hook and cannot write scene state.
 
 ## Consequences
 
