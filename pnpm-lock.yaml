@@ -835,6 +835,9 @@ importers:
 
   packages/storage-web:
     dependencies:
+      '@guideforge/assets':
+        specifier: workspace:*
+        version: link:../assets
       '@guideforge/domain':
         specifier: workspace:*
         version: link:../domain

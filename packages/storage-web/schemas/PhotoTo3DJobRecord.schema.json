@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://guideforge.local/schemas/PhotoTo3DJobRecord.schema.json",
+  "title": "PhotoTo3DJobRecord",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "jobId",
+    "sourceHashes",
+    "providerId",
+    "gpuProfileId",
+    "reuseKey",
+    "status",
+    "stage",
+    "resumeStatus",
+    "licenseAccepted",
+    "provenance",
+    "outputAssetHash",
+    "error",
+    "createdAtIso",
+    "updatedAtIso"
+  ],
+  "properties": {
+    "jobId": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+    "sourceHashes": {
+      "type": "array",
+      "minItems": 3,
+      "items": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+    },
+    "providerId": { "enum": ["hunyuan3d-2gp", "tripo-sr"] },
+    "gpuProfileId": { "enum": ["cpu", "cuda-8gb", "cuda-12gb", "metal-8gb"] },
+    "reuseKey": { "type": "string", "minLength": 1 },
+    "status": {
+      "enum": [
+        "blocked",
+        "queued",
+        "preprocessing",
+        "shape-draft",
+        "paused",
+        "awaiting-approval",
+        "texturing",
+        "cleaning",
+        "completed",
+        "cancelled",
+        "failed"
+      ]
+    },
+    "stage": { "enum": ["shape", "texture", "cleanup", "complete"] },
+    "resumeStatus": { "type": ["string", "null"] },
+    "licenseAccepted": { "type": "boolean" },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceHashes",
+        "provider",
+        "providerLicenseUrl",
+        "pipelineVersion",
+        "cleanupVersion"
+      ],
+      "properties": {
+        "sourceHashes": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        },
+        "provider": { "type": "string" },
+        "providerLicenseUrl": { "type": "string", "format": "uri" },
+        "pipelineVersion": { "type": "string" },
+        "cleanupVersion": { "type": ["string", "null"] }
+      }
+    },
+    "outputAssetHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "error": { "type": ["string", "null"] },
+    "createdAtIso": { "type": "string", "format": "date-time" },
+    "updatedAtIso": { "type": "string", "format": "date-time" }
+  }
+}

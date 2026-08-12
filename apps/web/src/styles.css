@@ -994,6 +994,59 @@ body {
   }
 }
 
+.photo-to-3d {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 920px;
+  margin: 0 auto;
+}
+
+.photo-to-3d__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.photo-to-3d__header h1 {
+  margin: var(--space-2) 0 var(--space-1);
+}
+
+.photo-to-3d__panel {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+}
+
+.photo-to-3d__panel h2 {
+  margin: 0;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.photo-job-list {
+  display: grid;
+  gap: var(--space-2);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.photo-job-list__item {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
 /* ---- Training player ---- */
 
 .training-player {

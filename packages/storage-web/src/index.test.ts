@@ -1,4 +1,5 @@
-import type { EntityId } from '@guideforge/domain';
+import { createPhotoTo3DJob } from '@guideforge/assets';
+import type { ContentHash, EntityId } from '@guideforge/domain';
 import { createEmptyTraining, startTrainingSession } from '@guideforge/guide-schema';
 import 'fake-indexeddb/auto';
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -94,6 +95,19 @@ describe('storage-web Dexie metadata', () => {
       guideId: GUIDE_ID,
       status: 'in-progress',
     });
+  });
+
+  it('persists a photo-to-3D job in the v9 store', async () => {
+    const job = createPhotoTo3DJob({
+      jobId: 'photo-job-1',
+      sourceHashes: ['a'.repeat(64), 'b'.repeat(64), 'c'.repeat(64)] as ContentHash[],
+      providerId: 'tripo-sr',
+      gpuProfileId: 'cpu',
+      licenseAccepted: false,
+      nowIso: '2026-01-01T00:00:00.000Z',
+    });
+    await db.photoJobs.put(job);
+    expect(await db.photoJobs.get(job.jobId)).toMatchObject({ status: 'blocked' });
   });
 });
 

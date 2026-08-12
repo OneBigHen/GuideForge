@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AssetsRouteImport } from './routes/assets'
 import { Route as LibraryRouteImport } from './routes/library'
+import { Route as PhotoTo3dRouteImport } from './routes/photo-to-3d'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as EditGuideIdRouteImport } from './routes/edit.$guideId'
 import { Route as RunGuideIdRouteImport } from './routes/run.$guideId'
@@ -33,6 +34,11 @@ const AssetsRoute = AssetsRouteImport.update({
 const LibraryRoute = LibraryRouteImport.update({
   id: '/library',
   path: '/library',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PhotoTo3dRoute = PhotoTo3dRouteImport.update({
+  id: '/photo-to-3d',
+  path: '/photo-to-3d',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -75,6 +81,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/assets': typeof AssetsRoute
   '/library': typeof LibraryRoute
+  '/photo-to-3d': typeof PhotoTo3dRoute
   '/settings': typeof SettingsRoute
   '/edit/$guideId': typeof EditGuideIdRoute
   '/run/$guideId': typeof RunGuideIdRoute
@@ -87,6 +94,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/assets': typeof AssetsRoute
   '/library': typeof LibraryRoute
+  '/photo-to-3d': typeof PhotoTo3dRoute
   '/settings': typeof SettingsRoute
   '/edit/$guideId': typeof EditGuideIdRoute
   '/run/$guideId': typeof RunGuideIdRoute
@@ -100,6 +108,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/assets': typeof AssetsRoute
   '/library': typeof LibraryRoute
+  '/photo-to-3d': typeof PhotoTo3dRoute
   '/settings': typeof SettingsRoute
   '/edit/$guideId': typeof EditGuideIdRoute
   '/run/$guideId': typeof RunGuideIdRoute
@@ -114,6 +123,7 @@ export interface FileRouteTypes {
     | '/'
     | '/assets'
     | '/library'
+    | '/photo-to-3d'
     | '/settings'
     | '/edit/$guideId'
     | '/run/$guideId'
@@ -126,6 +136,7 @@ export interface FileRouteTypes {
     | '/'
     | '/assets'
     | '/library'
+    | '/photo-to-3d'
     | '/settings'
     | '/edit/$guideId'
     | '/run/$guideId'
@@ -138,6 +149,7 @@ export interface FileRouteTypes {
     | '/'
     | '/assets'
     | '/library'
+    | '/photo-to-3d'
     | '/settings'
     | '/edit/$guideId'
     | '/run/$guideId'
@@ -151,6 +163,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AssetsRoute: typeof AssetsRoute
   LibraryRoute: typeof LibraryRoute
+  PhotoTo3dRoute: typeof PhotoTo3dRoute
   SettingsRoute: typeof SettingsRoute
   EditGuideIdRoute: typeof EditGuideIdRoute
   RunGuideIdRoute: typeof RunGuideIdRoute
@@ -181,6 +194,13 @@ declare module '@tanstack/react-router' {
       path: '/library'
       fullPath: '/library'
       preLoaderRoute: typeof LibraryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/photo-to-3d': {
+      id: '/photo-to-3d'
+      path: '/photo-to-3d'
+      fullPath: '/photo-to-3d'
+      preLoaderRoute: typeof PhotoTo3dRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -239,6 +259,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AssetsRoute: AssetsRoute,
   LibraryRoute: LibraryRoute,
+  PhotoTo3dRoute: PhotoTo3dRoute,
   SettingsRoute: SettingsRoute,
   EditGuideIdRoute: EditGuideIdRoute,
   RunGuideIdRoute: RunGuideIdRoute,

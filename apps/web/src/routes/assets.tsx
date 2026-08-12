@@ -72,6 +72,9 @@ function AssetsPage() {
           <Link to="/library" className="button button--ghost button--small">
             ← Library
           </Link>
+          <Link to="/photo-to-3d" className="button button--ghost button--small">
+            Photo to 3D
+          </Link>
           <h1 id="assets-title">Asset manager</h1>
           <p className="empty-hint">
             Local-first search, license gates, safe import, and provenance.

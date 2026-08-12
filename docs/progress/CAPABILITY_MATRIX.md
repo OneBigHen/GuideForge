@@ -105,8 +105,8 @@ not implemented; `blocked` means external hardware/provider access is needed.
 | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
 | Blank/unknown/GPL license fails closed               | Asset license tests pass                                                                                                                                                                                    | verified narrowly |
 | Asset manager/previews/health/providers/STEP-OBJ-STL | `/assets` local-first manager, safe GLB/glTF inspection, provider request contracts, license blocks, and explicit companion-conversion metadata; external download/conversion/derivatives remain unverified | verified narrowly |
-| Local photo-to-3D GPU wizard                         | No production local GPU path                                                                                                                                                                                | missing           |
-| Hunyuan/license gate/Blender/scale/provenance        | No complete live evidence                                                                                                                                                                                   | missing           |
+| Local photo-to-3D GPU wizard                         | `/photo-to-3d` multi-view wizard, JPEG/PNG/WebP sanitation, quality checks, Dexie v9 jobs, cancellation, and 3/3 browser acceptance; no GPU output                                                          | verified narrowly |
+| Hunyuan/license gate/Blender/scale/provenance        | Hunyuan3D-2GP/TripoSR contracts, license/VRAM gates, SQLite queue, reuse key, provenance, and validated Blender argv/LOD plan; provider inference and cleanup execution unverified                          | verified narrowly |
 
 ## Spatial intelligence
 
@@ -142,8 +142,8 @@ stability fix `64bc8671073e88f765ff68fa52ee11c805688cc3`; GitHub run
 `31533935448` passed on the implementation and `31535994450` passed the fix
 (check and Playwright). The Phase 03 gate is verified in clean test storage and emulated
 browsers; physical devices, native OS keychains, and live providers remain
-unproven. Phase 04–17 remain uncertified; historical reports do not change
-their status. Phase 04's focused contracts and adapters are current-tree
+unproven. Phase 04–05 remain active and unverified; historical reports do not
+change their status. Phase 04's focused contracts and adapters are current-tree
 verified, but its Pack golden-provider gate remains **UNVERIFIED** because this
 host has no configured Docling, Whisper, or VLM runtime. Phase 06 is verified
 narrowly on current commit `dbf992d`: the authoring graph, citation quality
@@ -151,4 +151,12 @@ gate, canonical edit commands, and browser review path pass. Phase 07 is
 verified narrowly on the current tree for local deterministic runtime, Dexie
 persistence, QTI subset, xAPI JSON, and emulated browser flow; external QTI
 conformance, LRS/LMS delivery, cmi5 launch, and physical devices remain
-unverified.
+unverified. Phase 08 is verified narrowly for local asset safety, provider
+request contracts, metadata, and emulated browser management; external
+provider, converter, derivative, and clean-profile gates remain unverified.
+Phase 09 is verified narrowly for local photo sanitation, quality/provider/GPU
+policy, Dexie and SQLite queue persistence, lifecycle transitions, reuse
+planning, and emulated browser cancellation. Hardware-backed Hunyuan3D/TripoSR
+inference, Blender execution, reviewed reusable GLB output, and physical camera
+behavior remain unverified. No later phase may inherit a `verified` status from
+a historical ledger.

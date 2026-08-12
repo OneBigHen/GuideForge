@@ -37,6 +37,30 @@ export interface SigningKeyRecord {
   reason: string | null;
 }
 
+export type PhotoJobQueueStatus =
+  | 'blocked'
+  | 'queued'
+  | 'preprocessing'
+  | 'shape-draft'
+  | 'paused'
+  | 'awaiting-approval'
+  | 'texturing'
+  | 'cleaning'
+  | 'completed'
+  | 'cancelled'
+  | 'failed';
+
+/** Native queue row; the browser mirrors the same payload in Dexie. */
+export interface PhotoJobQueueRecord {
+  jobId: string;
+  providerId: string;
+  gpuProfileId: string;
+  status: PhotoJobQueueStatus;
+  payloadJson: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 interface OwnerRow {
   display_name: string;
   password_hash: string;
@@ -77,6 +101,16 @@ interface SigningKeyRow {
   status: 'active' | 'revoked' | 'retired';
   revoked_at: number | null;
   reason: string | null;
+}
+
+interface PhotoJobRow {
+  job_id: string;
+  provider_id: string;
+  gpu_profile_id: string;
+  status: PhotoJobQueueStatus;
+  payload_json: string;
+  created_at: number;
+  updated_at: number;
 }
 
 const MIGRATIONS = [
@@ -127,6 +161,18 @@ const MIGRATIONS = [
       reason TEXT
     ) STRICT;
     CREATE INDEX signing_keys_status_idx ON signing_keys (status, created_at);
+  `,
+  `
+    CREATE TABLE photo_jobs (
+      job_id TEXT PRIMARY KEY,
+      provider_id TEXT NOT NULL,
+      gpu_profile_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('blocked', 'queued', 'preprocessing', 'shape-draft', 'paused', 'awaiting-approval', 'texturing', 'cleaning', 'completed', 'cancelled', 'failed')),
+      payload_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE INDEX photo_jobs_status_idx ON photo_jobs (status, updated_at);
   `,
 ] as const;
 
@@ -304,6 +350,64 @@ export class CompanionDatabase {
     return result.changes > 0;
   }
 
+  enqueuePhotoJob(record: PhotoJobQueueRecord): void {
+    this.database
+      .prepare(
+        `INSERT INTO photo_jobs (job_id, provider_id, gpu_profile_id, status, payload_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(job_id) DO UPDATE SET provider_id = excluded.provider_id,
+           gpu_profile_id = excluded.gpu_profile_id, status = excluded.status,
+           payload_json = excluded.payload_json, updated_at = excluded.updated_at`,
+      )
+      .run(
+        record.jobId,
+        record.providerId,
+        record.gpuProfileId,
+        record.status,
+        record.payloadJson,
+        record.createdAt,
+        record.updatedAt,
+      );
+  }
+
+  getPhotoJob(jobId: string): PhotoJobQueueRecord | undefined {
+    const row = this.database
+      .prepare(
+        'SELECT job_id, provider_id, gpu_profile_id, status, payload_json, created_at, updated_at FROM photo_jobs WHERE job_id = ?',
+      )
+      .get(jobId) as PhotoJobRow | undefined;
+    return row ? photoJobFromRow(row) : undefined;
+  }
+
+  listPhotoJobs(status?: PhotoJobQueueStatus): PhotoJobQueueRecord[] {
+    const rows = status
+      ? (this.database
+          .prepare(
+            'SELECT job_id, provider_id, gpu_profile_id, status, payload_json, created_at, updated_at FROM photo_jobs WHERE status = ? ORDER BY updated_at DESC',
+          )
+          .all(status) as PhotoJobRow[])
+      : (this.database
+          .prepare(
+            'SELECT job_id, provider_id, gpu_profile_id, status, payload_json, created_at, updated_at FROM photo_jobs ORDER BY updated_at DESC',
+          )
+          .all() as PhotoJobRow[]);
+    return rows.map(photoJobFromRow);
+  }
+
+  updatePhotoJob(
+    jobId: string,
+    status: PhotoJobQueueStatus,
+    payloadJson: string,
+    updatedAt = Date.now(),
+  ): boolean {
+    const result = this.database
+      .prepare(
+        'UPDATE photo_jobs SET status = ?, payload_json = ?, updated_at = ? WHERE job_id = ?',
+      )
+      .run(status, payloadJson, updatedAt, jobId);
+    return result.changes > 0;
+  }
+
   createPairing(
     id: string,
     label: string,
@@ -357,6 +461,18 @@ export class CompanionDatabase {
       }
     }
   }
+}
+
+function photoJobFromRow(row: PhotoJobRow): PhotoJobQueueRecord {
+  return {
+    jobId: row.job_id,
+    providerId: row.provider_id,
+    gpuProfileId: row.gpu_profile_id,
+    status: row.status,
+    payloadJson: row.payload_json,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 function signingKeyFromRow(row: SigningKeyRow): SigningKeyRecord {

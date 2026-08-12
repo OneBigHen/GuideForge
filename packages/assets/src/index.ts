@@ -523,6 +523,8 @@ export function planAssetSearch(
   };
 }
 
+export * from './photo-to-3d.js';
+
 // ---------------------------------------------------------------------------
 // Procedural scientific equipment templates (deterministic GLB bytes)
 // ---------------------------------------------------------------------------

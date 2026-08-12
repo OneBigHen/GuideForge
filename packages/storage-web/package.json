@@ -13,6 +13,7 @@
     "format:check": "prettier --check src"
   },
   "dependencies": {
+    "@guideforge/assets": "workspace:*",
     "@guideforge/domain": "workspace:*",
     "@guideforge/guide-schema": "workspace:*",
     "dexie": "catalog:",

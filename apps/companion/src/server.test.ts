@@ -585,3 +585,22 @@ describe('companion boundaries and resource controls', () => {
     expect(hash).not.toContain(PASSWORD);
   });
 });
+
+describe('companion SQLite photo job queue', () => {
+  it('persists, lists, and updates resumable photo jobs', () => {
+    const db = new CompanionDatabase();
+    db.enqueuePhotoJob({
+      jobId: 'photo-job-1',
+      providerId: 'tripo-sr',
+      gpuProfileId: 'cpu',
+      status: 'blocked',
+      payloadJson: '{"sourceHashes":["a"]}',
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    expect(db.getPhotoJob('photo-job-1')?.status).toBe('blocked');
+    expect(db.updatePhotoJob('photo-job-1', 'paused', '{"resumeStatus":"queued"}', 2)).toBe(true);
+    expect(db.listPhotoJobs('paused')[0]?.payloadJson).toContain('queued');
+    db.close();
+  });
+});

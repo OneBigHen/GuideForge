@@ -9,6 +9,7 @@
  *
  * Browser-only package (imports `indexedDB`, `navigator.storage`).
  */
+import type { PhotoTo3DJob } from '@guideforge/assets';
 import type { ContentHash } from '@guideforge/domain';
 import {
   migrateLegacySourceRecord,
@@ -85,6 +86,9 @@ export interface EvidenceRecord {
 /** Offline learner progress; the canonical training graph stays in Yjs. */
 export type TrainingSessionRecord = TrainingSession;
 
+/** Local browser queue record; the native companion mirrors it in SQLite. */
+export type PhotoTo3DJobRecord = PhotoTo3DJob;
+
 /** AI proposal awaiting human review. */
 export interface AiProposalRecord {
   proposalId: string;
@@ -132,6 +136,7 @@ export class GuideForgeDb extends Dexie {
   proposals!: Table<AiProposalRecord, string>;
   sources!: Table<SourceRecord, string>;
   trainingSessions!: Table<TrainingSessionRecord, string>;
+  photoJobs!: Table<PhotoTo3DJobRecord, string>;
 
   constructor() {
     super('guideforge');
@@ -210,6 +215,20 @@ export class GuideForgeDb extends Dexie {
       reports: 'id, guideId, path',
       runtimeBlobs: 'id, guideId, path',
       trainingSessions: 'sessionId, guideId, learnerId, status, updatedAtIso',
+    });
+    // v9: resumable local photo-to-3D jobs and provider provenance.
+    this.version(9).stores({
+      guides: 'guideId, title, updatedAtIso, lifecycleState',
+      assets: 'hash, mimeType, sizeBytes',
+      assetBlobs: 'hash',
+      sourceBlobs: 'sha256',
+      evidence: 'evidenceId, guideId, stepId, capturedAtIso',
+      proposals: 'proposalId, guideId, status, createdAtIso',
+      sources: 'sourceId, guideId, sha256, receivedAtIso',
+      reports: 'id, guideId, path',
+      runtimeBlobs: 'id, guideId, path',
+      trainingSessions: 'sessionId, guideId, learnerId, status, updatedAtIso',
+      photoJobs: 'jobId, status, providerId, reuseKey, updatedAtIso',
     });
   }
 }
