@@ -21,7 +21,7 @@ const GUIDE_ID = '123e4567-e89b-42d3-a456-426614174000' as ContentHash & string;
 
 function snapshot(title: string): GuideSnapshot {
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     guideId: GUIDE_ID as unknown as GuideSnapshot['guideId'],
     title,
     description: '',
@@ -40,6 +40,7 @@ function snapshot(title: string): GuideSnapshot {
       measurements: [],
       annotations: [],
       anchors: [],
+      surfaceAttachments: [],
       stepStates: {},
     },
     training: {

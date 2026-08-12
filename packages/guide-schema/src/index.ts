@@ -16,7 +16,7 @@ import type {
   SourceLocator,
 } from '@guideforge/domain';
 
-export const GUIDE_SCHEMA_VERSION = 4;
+export const GUIDE_SCHEMA_VERSION = 5;
 
 export interface GuideWarning {
   warningId: EntityId;
@@ -136,13 +136,17 @@ export interface SceneMeasurement {
 
 export interface SceneAnnotation {
   annotationId: EntityId;
-  kind: 'arrow' | 'label' | 'callout' | 'highlight';
+  kind: 'arrow' | 'label' | 'callout' | 'highlight' | 'path';
   text: string;
+  /** Durable mesh-local attachment; targetPoint is retained for v4 readers. */
+  attachmentId: EntityId | null;
   /** Semantic anchor reference (nodeId + local point). */
   targetNodeId: EntityId;
   targetPoint: { x: number; y: number; z: number } | null;
   /** Screen-space offset for labels/callouts. */
   offset: { x: number; y: number } | null;
+  /** Optional mesh-local path points for path annotations. */
+  pathPoints: { x: number; y: number; z: number }[];
   color: string;
 }
 
@@ -156,6 +160,25 @@ export interface SceneAnchor {
   confidence: number;
 }
 
+export type SurfaceAttachmentSource = 'user' | 'raycast' | 'vision' | 'procedural' | 'legacy';
+export type SurfaceAttachmentReviewState = 'draft' | 'reviewed' | 'needs-correction';
+
+/** Durable barycentric/mesh-local target that survives node transforms. */
+export interface SurfaceAttachment {
+  attachmentId: EntityId;
+  nodeId: EntityId;
+  assetHash: string | null;
+  meshName: string | null;
+  primitiveIndex: number | null;
+  triangleIndex: number | null;
+  barycentric: { x: number; y: number; z: number } | null;
+  localPoint: { x: number; y: number; z: number };
+  normal: { x: number; y: number; z: number } | null;
+  source: SurfaceAttachmentSource;
+  confidence: number;
+  reviewState: SurfaceAttachmentReviewState;
+}
+
 /** Canonical scene graph — the authoritative scene inside the guide. */
 export interface GuideScene {
   nodes: SceneNode[];
@@ -165,6 +188,7 @@ export interface GuideScene {
   measurements: SceneMeasurement[];
   annotations: SceneAnnotation[];
   anchors: SceneAnchor[];
+  surfaceAttachments: SurfaceAttachment[];
   /** Scene-state per step (visibility/camera/animation intent). */
   stepStates: Record<string, { visibleNodeIds: EntityId[]; cameraId: EntityId | null }>;
 }
@@ -180,7 +204,50 @@ export function createEmptyScene(): GuideScene {
     measurements: [],
     annotations: [],
     anchors: [],
+    surfaceAttachments: [],
     stepStates: {},
+  };
+}
+
+/** Normalize a scene from v4 or older working documents into the v5 shape. */
+export function migrateSceneToCurrent(value: unknown): GuideScene {
+  if (typeof value !== 'object' || value === null) return createEmptyScene();
+  const raw = value as Partial<GuideScene>;
+  const anchors = Array.isArray(raw.anchors) ? raw.anchors : [];
+  const surfaceAttachments = Array.isArray(raw.surfaceAttachments)
+    ? raw.surfaceAttachments
+    : anchors.map((anchor) => ({
+        attachmentId: anchor.anchorId,
+        nodeId: anchor.nodeId,
+        assetHash: null,
+        meshName: null,
+        primitiveIndex: null,
+        triangleIndex: null,
+        barycentric: null,
+        localPoint: { ...anchor.localPoint },
+        normal: anchor.normal ? { ...anchor.normal } : null,
+        source: 'legacy' as const,
+        confidence: anchor.confidence,
+        reviewState: 'needs-correction' as const,
+      }));
+  return {
+    ...createEmptyScene(),
+    ...raw,
+    nodes: Array.isArray(raw.nodes) ? raw.nodes : [],
+    rootOrder: Array.isArray(raw.rootOrder) ? raw.rootOrder : [],
+    layers: Array.isArray(raw.layers) ? raw.layers : createEmptyScene().layers,
+    cameras: Array.isArray(raw.cameras) ? raw.cameras : [],
+    measurements: Array.isArray(raw.measurements) ? raw.measurements : [],
+    annotations: Array.isArray(raw.annotations)
+      ? raw.annotations.map((annotation) => ({
+          ...annotation,
+          attachmentId: annotation.attachmentId ?? null,
+          pathPoints: annotation.pathPoints ?? [],
+        }))
+      : [],
+    anchors,
+    surfaceAttachments,
+    stepStates: raw.stepStates ?? {},
   };
 }
 
@@ -436,7 +503,7 @@ export interface LegacySourceRecord {
 }
 
 export interface GuideSnapshot {
-  schemaVersion: 4;
+  schemaVersion: 5;
   guideId: EntityId;
   title: string;
   description: string;
@@ -488,6 +555,7 @@ export function isGuideScene(value: unknown): value is GuideScene {
     Array.isArray(v.measurements) &&
     Array.isArray(v.annotations) &&
     Array.isArray(v.anchors) &&
+    Array.isArray(v.surfaceAttachments) &&
     typeof v.stepStates === 'object' &&
     v.stepStates !== null
   );

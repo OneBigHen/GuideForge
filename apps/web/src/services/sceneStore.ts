@@ -26,18 +26,24 @@ export function dispatchSceneCommand(session: OpenGuideSession, command: GuideCo
   const current = loadScene(session);
   const next = applySceneCommand(current, command);
   if (next === current) return current;
-  const anchors = materializeScene(session.working).anchors;
+  const canonical = materializeScene(session.working);
   session.working.doc.transact(() => {
-    setWorkingScene(session.working, sceneStateToGuideScene(next, anchors));
+    setWorkingScene(
+      session.working,
+      sceneStateToGuideScene(next, canonical.anchors, next.surfaceAttachments),
+    );
   }, 'guideforge:scene-command');
   return next;
 }
 
 /** Set the whole scene (used by import/hydrate paths). */
 export function saveSceneToWorkingDoc(session: OpenGuideSession, scene: SceneState): void {
-  const anchors = materializeScene(session.working).anchors;
+  const canonical = materializeScene(session.working);
   session.working.doc.transact(() => {
-    setWorkingScene(session.working, sceneStateToGuideScene(scene, anchors));
+    setWorkingScene(
+      session.working,
+      sceneStateToGuideScene(scene, canonical.anchors, scene.surfaceAttachments),
+    );
   }, 'guideforge:scene-set');
 }
 

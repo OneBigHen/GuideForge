@@ -12,12 +12,12 @@ import { migrateToCurrent, migrationChainComplete } from './migrations.js';
 
 describe('guide-schema', () => {
   it('exposes the schema version', () => {
-    expect(GUIDE_SCHEMA_VERSION).toBe(4);
+    expect(GUIDE_SCHEMA_VERSION).toBe(5);
   });
 
-  it('validates a minimal v4 snapshot', () => {
+  it('validates a minimal v5 snapshot', () => {
     const snapshot = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       guideId: '123e4567-e89b-42d3-a456-426614174000',
       title: 'Test',
       description: '',
@@ -36,6 +36,7 @@ describe('guide-schema', () => {
         measurements: [],
         annotations: [],
         anchors: [],
+        surfaceAttachments: [],
         stepStates: {},
       },
       training: {
@@ -86,7 +87,7 @@ describe('guide-schema', () => {
       steps: [],
     };
     const out = migrateToCurrent(v1);
-    expect(out.schemaVersion).toBe(4);
+    expect(out.schemaVersion).toBe(5);
     expect(out.title).toBe('T');
     expect(out.scene.nodes).toEqual([]);
     expect(out.scene.layers).toHaveLength(1);
@@ -135,10 +136,77 @@ describe('guide-schema', () => {
       sources: [],
     };
     const out = migrateToCurrent(v2);
-    expect(out.schemaVersion).toBe(4);
+    expect(out.schemaVersion).toBe(5);
     expect(out.steps[0]!.values).toEqual([]);
     expect(out.steps[0]!.conditions).toEqual([]);
     expect(out.steps[0]!.verification).toEqual([]);
+    expect(isGuideSnapshot(out)).toBe(true);
+  });
+
+  it('migrates v4 anchors into reviewable surface attachments', () => {
+    const v4 = {
+      schemaVersion: 4,
+      guideId: '123e4567-e89b-42d3-a456-426614174000',
+      title: 'Anchored guide',
+      description: '',
+      lifecycleState: 'draft',
+      createdAtIso: '2026-01-01T00:00:00Z',
+      updatedAtIso: '2026-01-01T00:00:00Z',
+      tasks: [],
+      steps: [],
+      scene: {
+        nodes: [],
+        rootOrder: [],
+        layers: [],
+        cameras: [],
+        measurements: [],
+        annotations: [
+          {
+            annotationId: 'annotation-1',
+            kind: 'arrow',
+            text: 'Press here',
+            targetNodeId: 'node-1',
+            targetPoint: { x: 1, y: 2, z: 3 },
+            offset: null,
+            color: '#fff',
+          },
+        ],
+        anchors: [
+          {
+            anchorId: 'anchor-1',
+            nodeId: 'node-1',
+            label: 'control',
+            localPoint: { x: 1, y: 2, z: 3 },
+            normal: { x: 0, y: 1, z: 0 },
+            confidence: 0.8,
+          },
+        ],
+        stepStates: {},
+      },
+      training: {
+        objectives: [],
+        assessmentItems: [],
+        modules: [],
+        lessons: [],
+        mastery: { requiredCriticalItems: 0, passThreshold: 0.8, maxAttempts: 3 },
+      },
+      sources: [],
+      claims: [],
+      citations: [],
+      generationRuns: [],
+    };
+    const out = migrateToCurrent(v4);
+    expect(out.schemaVersion).toBe(5);
+    expect(out.scene.surfaceAttachments).toMatchObject([
+      {
+        attachmentId: 'anchor-1',
+        source: 'legacy',
+        reviewState: 'needs-correction',
+        localPoint: { x: 1, y: 2, z: 3 },
+      },
+    ]);
+    expect(out.scene.annotations[0]?.attachmentId).toBeNull();
+    expect(out.scene.annotations[0]?.pathPoints).toEqual([]);
     expect(isGuideSnapshot(out)).toBe(true);
   });
 

@@ -110,12 +110,12 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 ## Spatial intelligence
 
-| Requirement                                | Current source/test evidence                                                              | Status            |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------- | ----------------- |
-| Durable surface anchors                    | v4 `SceneAnchor`, checked-in schema, Yjs scene persistence, and editor-write preservation | verified narrowly |
-| Arrows/callouts/measurements/step-state UI | Basic scene annotations exist; durable semantic runtime absent                            | partial           |
-| Semantic AI spatial compiler               | No complete planner/compiler/critic gate                                                  | missing           |
-| Deterministic transforms and cameras       | Scene-core/editor tests cover local transforms/cameras                                    | partial           |
+| Requirement                                | Current source/test evidence                                                                                                                                                                 | Status            |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Durable surface anchors                    | Schema v5 `SurfaceAttachment`, v4 migration, mesh-local/barycentric fields, Yjs persistence, transform-stability/rebind tests, and scene editor correction/review controls                   | verified narrowly |
+| Arrows/callouts/measurements/step-state UI | Annotation kinds include arrows, labels, callouts, highlights, and paths; measurement and step-state commands/UI plus accessible DOM alternatives; live overlay rendering remains unverified | verified narrowly |
+| Semantic AI spatial compiler               | No complete planner/compiler/critic gate                                                                                                                                                     | missing           |
+| Deterministic transforms and cameras       | Scene-core/editor tests cover local transforms/cameras                                                                                                                                       | partial           |
 
 ## Devices, storage, release, reliability
 
@@ -159,4 +159,8 @@ policy, Dexie and SQLite queue persistence, lifecycle transitions, reuse
 planning, and emulated browser cancellation. Hardware-backed Hunyuan3D/TripoSR
 inference, Blender execution, reviewed reusable GLB output, and physical camera
 behavior remain unverified. No later phase may inherit a `verified` status from
-a historical ledger.
+a historical ledger. Phase 10 is verified narrowly for schema v5 surface
+attachments, v4 migration, transform stability, correction/review controls,
+annotation/measurement/step-state persistence, package round trip, and 6/6
+scene-editor browser acceptance. Live multiview vision, mesh raycast,
+rendered overlays, and physical-device input remain unverified.

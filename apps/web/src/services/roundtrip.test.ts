@@ -1,8 +1,13 @@
 import { materializeSnapshot, materializeTraining } from '@guideforge/collaboration';
 import type { GuideCommand } from '@guideforge/commands';
-import type { EntityId } from '@guideforge/domain';
+import type { ContentHash, EntityId } from '@guideforge/domain';
 import { snapshotsSemanticallyEqual } from '@guideforge/guide-schema';
-import { applySceneCommand, createSceneState, SCENE_COMMAND_TYPES } from '@guideforge/scene-core';
+import {
+  applySceneCommand,
+  createGeometricSurfaceAttachment,
+  createSceneState,
+  SCENE_COMMAND_TYPES,
+} from '@guideforge/scene-core';
 import type { SourceRecord } from '@guideforge/storage-web';
 import 'fake-indexeddb/auto';
 import { webcrypto } from 'node:crypto';
@@ -89,7 +94,7 @@ describe('canonical spatial guide round trip (Phase 02)', () => {
       nodeId: crypto.randomUUID() as EntityId,
       name: 'Pipette',
       parentId: null as EntityId | null,
-      assetHash: modelHash as EntityId & string,
+      assetHash: modelHash as ContentHash,
       transform: {
         position: { x: 0, y: 1, z: 0 },
         rotation: { x: 0, y: 0, z: 0, w: 1 },
@@ -104,7 +109,17 @@ describe('canonical spatial guide round trip (Phase 02)', () => {
       sceneState,
       sceneCommand(session, SCENE_COMMAND_TYPES.addNode, { node: modelNode }),
     );
-    saveSceneToWorkingDoc(session, withNode);
+    const attachment = createGeometricSurfaceAttachment({
+      attachmentId: crypto.randomUUID() as EntityId,
+      nodeId: modelNode.nodeId,
+      assetHash: modelNode.assetHash,
+      localPoint: { x: 0.25, y: 0.1, z: 0 },
+    });
+    const withAttachment = applySceneCommand(
+      withNode,
+      sceneCommand(session, SCENE_COMMAND_TYPES.addSurfaceAttachment, { attachment }),
+    );
+    saveSceneToWorkingDoc(session, withAttachment);
     // Add a camera via the reducer.
     const withCamera = applySceneCommand(
       withNode,
@@ -172,6 +187,8 @@ describe('canonical spatial guide round trip (Phase 02)', () => {
     const sceneAfterReopen = loadScene(reopened);
     expect(sceneAfterReopen.cameras.length).toBeGreaterThan(0);
     expect(sceneAfterReopen.nodes.size).toBeGreaterThan(0);
+    expect(sceneAfterReopen.surfaceAttachments).toHaveLength(1);
+    expect(sceneAfterReopen.surfaceAttachments[0]?.localPoint).toEqual({ x: 0.25, y: 0.1, z: 0 });
     // Training (objective + assessment item) survives the reopen.
     const trainingAfterReopen = materializeTraining(reopened.working);
     expect(trainingAfterReopen.objectives).toHaveLength(1);
@@ -193,7 +210,7 @@ describe('canonical spatial guide round trip (Phase 02)', () => {
       scene?: { cameras: unknown[]; nodes: unknown[] };
       schemaVersion: number;
     };
-    expect(guideJson.schemaVersion).toBe(4);
+    expect(guideJson.schemaVersion).toBe(5);
     expect(guideJson.scene).toBeDefined();
     expect(guideJson.scene!.cameras.length).toBeGreaterThan(0);
     expect(guideJson.scene!.nodes.length).toBeGreaterThan(0);
@@ -222,7 +239,7 @@ describe('canonical spatial guide round trip (Phase 02)', () => {
 
   it('semantic comparator detects real differences (not just hash noise)', () => {
     const a = {
-      schemaVersion: 4 as const,
+      schemaVersion: 5 as const,
       guideId: '11111111-1111-4111-8111-111111111111' as EntityId,
       title: 'Same',
       description: '',
@@ -241,6 +258,7 @@ describe('canonical spatial guide round trip (Phase 02)', () => {
         measurements: [],
         annotations: [],
         anchors: [],
+        surfaceAttachments: [],
         stepStates: {},
       },
       training: {

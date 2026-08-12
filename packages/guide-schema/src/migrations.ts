@@ -75,6 +75,58 @@ registerMigration({
   },
 });
 
+/**
+ * v4 -> v5: mesh-local surface attachments become first-class scene data.
+ * Existing anchors are retained for old readers and copied into a conservative
+ * needs-correction attachment rather than being treated as verified geometry.
+ */
+registerMigration({
+  fromVersion: 4,
+  toVersion: 5,
+  migrate: (input) => {
+    const next = { ...input, schemaVersion: 5 } as Record<string, unknown>;
+    const scene = next.scene as Record<string, unknown> | undefined;
+    if (scene) {
+      const anchors = Array.isArray(scene.anchors) ? scene.anchors : [];
+      if (!Array.isArray(scene.surfaceAttachments)) {
+        scene.surfaceAttachments = anchors.flatMap((value: unknown) => {
+          if (typeof value !== 'object' || value === null) return [];
+          const anchor = value as Record<string, unknown>;
+          if (typeof anchor.anchorId !== 'string' || typeof anchor.nodeId !== 'string') return [];
+          const localPoint = anchor.localPoint;
+          if (typeof localPoint !== 'object' || localPoint === null) return [];
+          return [
+            {
+              attachmentId: anchor.anchorId,
+              nodeId: anchor.nodeId,
+              assetHash: null,
+              meshName: null,
+              primitiveIndex: null,
+              triangleIndex: null,
+              barycentric: null,
+              localPoint,
+              normal: anchor.normal ?? null,
+              source: 'legacy',
+              confidence: typeof anchor.confidence === 'number' ? anchor.confidence : 0,
+              reviewState: 'needs-correction',
+            },
+          ];
+        });
+      }
+      if (Array.isArray(scene.annotations)) {
+        scene.annotations = scene.annotations.map((value: unknown) => {
+          if (typeof value !== 'object' || value === null) return value;
+          const annotation = { ...value } as Record<string, unknown>;
+          annotation.attachmentId = annotation.attachmentId ?? null;
+          annotation.pathPoints = annotation.pathPoints ?? [];
+          return annotation;
+        });
+      }
+    }
+    return next;
+  },
+});
+
 function normalizeSnapshotSource(value: unknown): unknown {
   if (typeof value !== 'object' || value === null) return value;
   const source = { ...value } as Record<string, unknown>;

@@ -26,6 +26,7 @@ import { applyGuideCommand } from '@guideforge/commands';
 import type { EntityId, GuideLifecycleState } from '@guideforge/domain';
 import {
   createEmptyTraining,
+  migrateSceneToCurrent,
   type GenerationRun,
   type GuideCitation,
   type GuideClaim,
@@ -152,7 +153,7 @@ export function materializeSnapshot(working: WorkingGuide): GuideSnapshot {
   }
 
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     guideId: guideId as EntityId,
     title,
     description,
@@ -191,35 +192,12 @@ export function materializeScene(working: WorkingGuide): GuideScene {
   const scene = working.scene;
   const sceneJson = (scene.get('sceneJson') as string) ?? '';
   if (!sceneJson) {
-    return {
-      nodes: [],
-      rootOrder: [],
-      layers: [
-        { layerId: 'default', name: 'Default', visible: true, locked: false, color: '#2dd4bf' },
-      ],
-      cameras: [],
-      measurements: [],
-      annotations: [],
-      anchors: [],
-      stepStates: {},
-    };
+    return migrateSceneToCurrent(null);
   }
   try {
-    const scene = JSON.parse(sceneJson) as GuideScene;
-    return { ...scene, anchors: scene.anchors ?? [] };
+    return migrateSceneToCurrent(JSON.parse(sceneJson));
   } catch {
-    return {
-      nodes: [],
-      rootOrder: [],
-      layers: [
-        { layerId: 'default', name: 'Default', visible: true, locked: false, color: '#2dd4bf' },
-      ],
-      cameras: [],
-      measurements: [],
-      annotations: [],
-      anchors: [],
-      stepStates: {},
-    };
+    return migrateSceneToCurrent(null);
   }
 }
 

@@ -13,12 +13,14 @@ import type {
   SceneMeasurement,
   SceneNode,
   SceneTransform,
+  SurfaceAttachment,
 } from '@guideforge/guide-schema';
 import {
   type CameraBookmark,
   type Measurement,
   type Quat,
   type SceneState,
+  type SceneSurfaceAttachment,
   type Transform,
   type Vec3,
 } from '@guideforge/scene-core';
@@ -72,6 +74,23 @@ function toMeasurement(m: SceneMeasurement): Measurement {
   };
 }
 
+function toSurfaceAttachment(attachment: SurfaceAttachment): SceneSurfaceAttachment {
+  return {
+    attachmentId: attachment.attachmentId,
+    nodeId: attachment.nodeId,
+    assetHash: attachment.assetHash as ContentHash | null,
+    meshName: attachment.meshName,
+    primitiveIndex: attachment.primitiveIndex,
+    triangleIndex: attachment.triangleIndex,
+    barycentric: attachment.barycentric ? toVec3(attachment.barycentric) : null,
+    localPoint: toVec3(attachment.localPoint),
+    normal: attachment.normal ? toVec3(attachment.normal) : null,
+    source: attachment.source,
+    confidence: attachment.confidence,
+    reviewState: attachment.reviewState,
+  };
+}
+
 /** Canonical GuideScene -> editor SceneState. */
 export function guideSceneToSceneState(scene: GuideScene): SceneState {
   const nodes = new Map<EntityId, EditorNode>();
@@ -93,13 +112,22 @@ export function guideSceneToSceneState(scene: GuideScene): SceneState {
       annotationId: a.annotationId,
       kind: a.kind,
       text: a.text,
+      attachmentId: a.attachmentId,
       targetNodeId: a.targetNodeId,
       targetPoint: a.targetPoint
         ? { x: a.targetPoint.x, y: a.targetPoint.y, z: a.targetPoint.z }
         : null,
       offset: a.offset ? { x: a.offset.x, y: a.offset.y } : null,
+      pathPoints: a.pathPoints.map((point) => ({ ...point })),
       color: a.color,
     })),
+    surfaceAttachments: scene.surfaceAttachments.map(toSurfaceAttachment),
+    stepStates: Object.fromEntries(
+      Object.entries(scene.stepStates).map(([stepId, step]) => [
+        stepId,
+        { visibleNodeIds: [...step.visibleNodeIds], cameraId: step.cameraId },
+      ]),
+    ),
   };
 }
 
@@ -107,6 +135,7 @@ export function guideSceneToSceneState(scene: GuideScene): SceneState {
 export function sceneStateToGuideScene(
   state: SceneState,
   anchors: GuideScene['anchors'] = [],
+  surfaceAttachments: GuideScene['surfaceAttachments'] = [],
 ): GuideScene {
   return {
     nodes: Array.from(state.nodes.values()).map((n) => ({
@@ -151,9 +180,11 @@ export function sceneStateToGuideScene(
       annotationId: a.annotationId,
       kind: a.kind,
       text: a.text,
+      attachmentId: a.attachmentId,
       targetNodeId: a.targetNodeId,
       targetPoint: a.targetPoint ? { ...a.targetPoint } : null,
       offset: a.offset ? { ...a.offset } : null,
+      pathPoints: a.pathPoints.map((point) => ({ ...point })),
       color: a.color,
     })),
     anchors: anchors.map((anchor) => ({
@@ -161,6 +192,17 @@ export function sceneStateToGuideScene(
       localPoint: { ...anchor.localPoint },
       normal: anchor.normal ? { ...anchor.normal } : null,
     })),
-    stepStates: {},
+    surfaceAttachments: surfaceAttachments.map((attachment) => ({
+      ...attachment,
+      localPoint: { ...attachment.localPoint },
+      barycentric: attachment.barycentric ? { ...attachment.barycentric } : null,
+      normal: attachment.normal ? { ...attachment.normal } : null,
+    })),
+    stepStates: Object.fromEntries(
+      Object.entries(state.stepStates).map(([stepId, step]) => [
+        stepId,
+        { visibleNodeIds: [...step.visibleNodeIds], cameraId: step.cameraId },
+      ]),
+    ),
   };
 }

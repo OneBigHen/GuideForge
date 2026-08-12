@@ -13,7 +13,7 @@ const FIXED = '2026-01-01T00:00:00Z';
 
 function snapshot(): GuideSnapshot {
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     guideId: GUIDE_ID as GuideSnapshot['guideId'],
     title: 'Drill',
     description: '',
@@ -32,6 +32,7 @@ function snapshot(): GuideSnapshot {
       measurements: [],
       annotations: [],
       anchors: [],
+      surfaceAttachments: [],
       stepStates: {},
     },
     training: {

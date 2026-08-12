@@ -46,6 +46,13 @@ test('spatial editor: undo/redo, isolate, layers, annotations', async ({ page })
   await page.getByRole('button', { name: 'Add label', exact: true }).click();
   await expect(page.getByText('Plunger', { exact: true })).toBeVisible();
 
+  // Phase 10: create, correct, and review a durable local surface attachment.
+  await page.getByRole('button', { name: 'Add local anchor', exact: true }).click();
+  await expect(page.getByText(/Surface attachments/)).toBeVisible();
+  await expect(page.getByText(/draft/).first()).toBeVisible();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await expect(page.getByText(/reviewed/).first()).toBeVisible();
+
   // Keyboard shortcut: W selects translate mode.
   await page.keyboard.press('w');
   await expect(page.getByRole('button', { name: 'translate' })).toHaveAttribute(

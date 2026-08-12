@@ -378,7 +378,7 @@ export function applyCommands(
 export function freshGuideState(guideId: EntityId, title: string): GuideSnapshot {
   const now = new Date(0).toISOString(); // deterministic epoch for tests
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     guideId,
     title,
     description: '',

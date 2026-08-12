@@ -189,7 +189,7 @@ export function importMsGuide(bytes: Uint8Array, source: string): ImportedGuide 
   const guideId = crypto.randomUUID() as EntityId;
   const now = new Date().toISOString();
   const snapshot: GuideSnapshot = {
-    schemaVersion: 4,
+    schemaVersion: 5,
     guideId,
     title: source.replace(/\.guide$/i, ''),
     description: '',

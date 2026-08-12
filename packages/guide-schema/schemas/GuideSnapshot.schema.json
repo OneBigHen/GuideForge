@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://guideforge.dev/schemas/GuideSnapshot.schema.json",
   "title": "GuideSnapshot",
-  "description": "Canonical deterministic snapshot of a GuideForge project. Schema version 4: procedure + spatial scene + training + source provenance + claims.",
+  "description": "Canonical deterministic snapshot of a GuideForge project. Schema version 5: procedure + spatial scene + training + source provenance + durable surface attachments.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -23,7 +23,7 @@
     "generationRuns"
   ],
   "properties": {
-    "schemaVersion": { "const": 4 },
+    "schemaVersion": { "const": 5 },
     "guideId": {
       "type": "string",
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
@@ -294,15 +294,18 @@
         "annotationId",
         "kind",
         "text",
+        "attachmentId",
         "targetNodeId",
         "targetPoint",
         "offset",
+        "pathPoints",
         "color"
       ],
       "properties": {
         "annotationId": { "type": "string" },
-        "kind": { "enum": ["arrow", "label", "callout", "highlight"] },
+        "kind": { "enum": ["arrow", "label", "callout", "highlight", "path"] },
         "text": { "type": "string" },
+        "attachmentId": { "type": ["string", "null"] },
         "targetNodeId": { "type": "string" },
         "targetPoint": {
           "type": ["object", "null"],
@@ -319,6 +322,19 @@
           "additionalProperties": false,
           "required": ["x", "y"],
           "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+        },
+        "pathPoints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["x", "y", "z"],
+            "properties": {
+              "x": { "type": "number" },
+              "y": { "type": "number" },
+              "z": { "type": "number" }
+            }
+          }
         },
         "color": { "type": "string" }
       }
@@ -354,6 +370,65 @@
         "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
       }
     },
+    "SurfaceAttachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attachmentId",
+        "nodeId",
+        "assetHash",
+        "meshName",
+        "primitiveIndex",
+        "triangleIndex",
+        "barycentric",
+        "localPoint",
+        "normal",
+        "source",
+        "confidence",
+        "reviewState"
+      ],
+      "properties": {
+        "attachmentId": { "type": "string" },
+        "nodeId": { "type": "string" },
+        "assetHash": { "type": ["string", "null"] },
+        "meshName": { "type": ["string", "null"] },
+        "primitiveIndex": { "type": ["integer", "null"], "minimum": 0 },
+        "triangleIndex": { "type": ["integer", "null"], "minimum": 0 },
+        "barycentric": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["x", "y", "z"],
+          "properties": {
+            "x": { "type": "number", "minimum": 0, "maximum": 1 },
+            "y": { "type": "number", "minimum": 0, "maximum": 1 },
+            "z": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "localPoint": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y", "z"],
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "z": { "type": "number" }
+          }
+        },
+        "normal": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["x", "y", "z"],
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "z": { "type": "number" }
+          }
+        },
+        "source": { "enum": ["user", "raycast", "vision", "procedural", "legacy"] },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "reviewState": { "enum": ["draft", "reviewed", "needs-correction"] }
+      }
+    },
     "GuideScene": {
       "type": "object",
       "additionalProperties": false,
@@ -365,6 +440,7 @@
         "measurements",
         "annotations",
         "anchors",
+        "surfaceAttachments",
         "stepStates"
       ],
       "properties": {
@@ -375,6 +451,10 @@
         "measurements": { "type": "array", "items": { "$ref": "#/$defs/SceneMeasurement" } },
         "annotations": { "type": "array", "items": { "$ref": "#/$defs/SceneAnnotation" } },
         "anchors": { "type": "array", "items": { "$ref": "#/$defs/SceneAnchor" } },
+        "surfaceAttachments": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/SurfaceAttachment" }
+        },
         "stepStates": {
           "type": "object",
           "additionalProperties": {

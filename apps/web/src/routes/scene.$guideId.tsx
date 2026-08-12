@@ -6,7 +6,9 @@ import {
 import type { GuideCommand } from '@guideforge/commands';
 import type { EntityId } from '@guideforge/domain';
 import {
+  createGeometricSurfaceAttachment,
   createSceneState,
+  distanceBetweenNodes,
   evaluateSceneHealth,
   IDENTITY_TRANSFORM,
   SCENE_COMMAND_TYPES,
@@ -73,6 +75,8 @@ function SceneEditorPage() {
   const [showAssets, setShowAssets] = useState(false);
   const [newLayerName, setNewLayerName] = useState('New layer');
   const [newAnnotationText, setNewAnnotationText] = useState('Label');
+  const [newAnnotationKind, setNewAnnotationKind] = useState<SceneAnnotation['kind']>('label');
+  const [newStepId, setNewStepId] = useState('step-1');
   const [undoStack, setUndoStack] = useState<SceneState[]>([]);
   const [redoStack, setRedoStack] = useState<SceneState[]>([]);
   const [assetHashes, setAssetHashes] = useState<string[]>([]);
@@ -334,20 +338,95 @@ function SceneEditorPage() {
   function handleAddAnnotation() {
     if (selected.length === 0) return;
     const target = selected[0] as EntityId;
+    const attachment = scene.surfaceAttachments.find((item) => item.nodeId === target);
     const annotation: SceneAnnotation = {
       annotationId: crypto.randomUUID() as EntityId,
-      kind: 'label',
+      kind: newAnnotationKind,
       text: newAnnotationText || 'Label',
+      attachmentId: attachment?.attachmentId ?? null,
       targetNodeId: target,
-      targetPoint: null,
+      targetPoint: attachment?.localPoint ?? null,
       offset: { x: 0, y: 40 },
+      pathPoints: [],
       color: '#2dd4bf',
     };
     void run(makeCommand(SCENE_COMMAND_TYPES.addAnnotation, guideId, { annotation }));
   }
 
+  function handleAddSurfaceAttachment() {
+    if (selected.length !== 1) return;
+    const node = scene.nodes.get(selected[0] as EntityId);
+    if (!node) return;
+    const attachment = createGeometricSurfaceAttachment({
+      attachmentId: crypto.randomUUID() as EntityId,
+      nodeId: node.nodeId,
+      assetHash: node.assetHash,
+      localPoint: { x: 0, y: 0, z: 0 },
+      normal: { x: 0, y: 1, z: 0 },
+    });
+    void run(makeCommand(SCENE_COMMAND_TYPES.addSurfaceAttachment, guideId, { attachment }));
+  }
+
+  function handleReviewSurfaceAttachment(
+    attachmentId: EntityId,
+    reviewState: 'reviewed' | 'needs-correction',
+  ) {
+    void run(
+      makeCommand(SCENE_COMMAND_TYPES.updateSurfaceAttachment, guideId, {
+        attachmentId,
+        patch: { reviewState },
+      }),
+    );
+  }
+
+  function handleUpdateSurfacePoint(attachmentId: EntityId, axis: 'x' | 'y' | 'z', value: number) {
+    const attachment = scene.surfaceAttachments.find((item) => item.attachmentId === attachmentId);
+    if (!attachment) return;
+    void run(
+      makeCommand(SCENE_COMMAND_TYPES.updateSurfaceAttachment, guideId, {
+        attachmentId,
+        patch: { localPoint: { ...attachment.localPoint, [axis]: value } },
+      }),
+    );
+  }
+
+  function handleRemoveSurfaceAttachment(attachmentId: EntityId) {
+    void run(makeCommand(SCENE_COMMAND_TYPES.removeSurfaceAttachment, guideId, { attachmentId }));
+  }
+
   function handleRemoveAnnotation(annotationId: string) {
     void run(makeCommand(SCENE_COMMAND_TYPES.removeAnnotation, guideId, { annotationId }));
+  }
+
+  function handleAddMeasurement() {
+    if (selected.length !== 2) return;
+    const fromNodeId = selected[0] as EntityId;
+    const toNodeId = selected[1] as EntityId;
+    void run(
+      makeCommand(SCENE_COMMAND_TYPES.addMeasurement, guideId, {
+        measurement: {
+          measurementId: crypto.randomUUID() as EntityId,
+          name: `${scene.nodes.get(fromNodeId)?.name ?? 'A'} to ${scene.nodes.get(toNodeId)?.name ?? 'B'}`,
+          fromNodeId,
+          toNodeId,
+          value: distanceBetweenNodes(scene, fromNodeId, toNodeId),
+        },
+      }),
+    );
+  }
+
+  function handleSetStepState() {
+    if (!newStepId.trim()) return;
+    void run(
+      makeCommand(SCENE_COMMAND_TYPES.setStepState, guideId, {
+        stepId: newStepId.trim(),
+        step: { visibleNodeIds: [...selected], cameraId: scene.cameras[0]?.bookmarkId ?? null },
+      }),
+    );
+  }
+
+  function handleRemoveMeasurement(measurementId: EntityId) {
+    void run(makeCommand(SCENE_COMMAND_TYPES.removeMeasurement, guideId, { measurementId }));
   }
 
   function handleAttachAsset(hash: string) {
@@ -597,6 +676,17 @@ function SceneEditorPage() {
               </label>
               {assetError && <p className="error-text">{assetError}</p>}
               <div className="field-row">
+                <select
+                  value={newAnnotationKind}
+                  onChange={(e) => setNewAnnotationKind(e.target.value as SceneAnnotation['kind'])}
+                  aria-label="Annotation kind"
+                >
+                  <option value="label">Label</option>
+                  <option value="arrow">Arrow</option>
+                  <option value="callout">Callout</option>
+                  <option value="highlight">Highlight</option>
+                  <option value="path">Path</option>
+                </select>
                 <input
                   type="search"
                   value={assetQuery}
@@ -732,6 +822,143 @@ function SceneEditorPage() {
                   Add label
                 </button>
               </div>
+              <div className="field-row">
+                <button
+                  type="button"
+                  className="button button--small button--ghost"
+                  onClick={handleAddMeasurement}
+                  disabled={selected.length !== 2}
+                >
+                  Measure selected
+                </button>
+                <span className="empty-hint">Select two objects.</span>
+              </div>
+              {scene.measurements.length > 0 && (
+                <ul className="annotation-list" aria-label="Measurements">
+                  {scene.measurements.map((measurement) => (
+                    <li key={measurement.measurementId}>
+                      <span>
+                        {measurement.name}:{' '}
+                        {measurement.value === null ? '—' : round3(measurement.value)}
+                      </span>
+                      <button
+                        type="button"
+                        className="button button--small button--danger"
+                        onClick={() => handleRemoveMeasurement(measurement.measurementId)}
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="field-row">
+                <input
+                  type="text"
+                  value={newStepId}
+                  onChange={(e) => setNewStepId(e.target.value)}
+                  aria-label="Step state id"
+                  placeholder="Step id"
+                />
+                <button
+                  type="button"
+                  className="button button--small button--ghost"
+                  onClick={handleSetStepState}
+                  disabled={selected.length === 0}
+                >
+                  Save step state
+                </button>
+              </div>
+              <p className="empty-hint">
+                Step state stores visible objects and the first camera; the same state is available
+                to screen-reader users in this list.
+              </p>
+              {Object.entries(scene.stepStates).length > 0 && (
+                <ul className="annotation-list" aria-label="Saved step states">
+                  {Object.entries(scene.stepStates).map(([stepId, step]) => (
+                    <li key={stepId}>
+                      <span>
+                        {stepId}: {step.visibleNodeIds.length} visible object(s)
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="field-row">
+                <button
+                  type="button"
+                  className="button button--small button--ghost"
+                  onClick={handleAddSurfaceAttachment}
+                  disabled={selected.length !== 1}
+                >
+                  Add local anchor
+                </button>
+                <span className="empty-hint">Review the point before release.</span>
+              </div>
+              <h3>Surface attachments</h3>
+              {scene.surfaceAttachments.length === 0 ? (
+                <p className="empty-hint">No anchors yet. Select an object and mark its control.</p>
+              ) : (
+                <ul className="annotation-list" aria-label="Surface attachments">
+                  {scene.surfaceAttachments.map((attachment) => (
+                    <li key={attachment.attachmentId}>
+                      <span>
+                        {attachment.nodeId.slice(0, 8)} · {attachment.reviewState}
+                        <span className="scene-actions" aria-label="Correct local attachment point">
+                          {(['x', 'y', 'z'] as const).map((axis) => (
+                            <label key={axis} className="scene-axis">
+                              {axis}
+                              <input
+                                type="number"
+                                step={0.01}
+                                value={round3(attachment.localPoint[axis])}
+                                onChange={(event) =>
+                                  handleUpdateSurfacePoint(
+                                    attachment.attachmentId,
+                                    axis,
+                                    Number(event.target.value) || 0,
+                                  )
+                                }
+                                aria-label={`${axis} local attachment coordinate`}
+                              />
+                            </label>
+                          ))}
+                        </span>
+                      </span>
+                      <span className="scene-actions">
+                        <button
+                          type="button"
+                          className="button button--small"
+                          onClick={() =>
+                            handleReviewSurfaceAttachment(attachment.attachmentId, 'reviewed')
+                          }
+                        >
+                          Review
+                        </button>
+                        <button
+                          type="button"
+                          className="button button--small button--ghost"
+                          onClick={() =>
+                            handleReviewSurfaceAttachment(
+                              attachment.attachmentId,
+                              'needs-correction',
+                            )
+                          }
+                        >
+                          Correct
+                        </button>
+                        <button
+                          type="button"
+                          className="button button--small button--danger"
+                          onClick={() => handleRemoveSurfaceAttachment(attachment.attachmentId)}
+                        >
+                          Remove
+                        </button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
               {scene.annotations.length === 0 ? (
                 <p className="empty-hint">No annotations yet. Select a node and add a label.</p>
               ) : (
