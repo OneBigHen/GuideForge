@@ -30,7 +30,7 @@ current status.
 | P14   | 14    | Release engineering and recovery                                   | verified narrowly | release `0.14.0-rc.1` policy, PWA CSP/cache headers, Tauri matrix, Linux `GuideForge_0.1.0_amd64.deb`, signed personal `.gforge` companion path, 100-file manifest/checksum candidate, and install/upgrade/rollback data-preservation drill; external platform signing/notarization/deployment remain open                                                                     | proceed to Phase 15 security/reliability hardening                            |
 | P15   | 15    | Security and reliability hardening                                 | verified narrowly | Provider SSRF guard, inert HTML/SVG intake, archive/GLTF/injection/auth regression suites, hash-verified storage reads, quota/corruption/job-failure/update tests, forced workspace gate 125/125, policy/boundary/dep/secret checks, clean 78-pass/6-skip Playwright across desktop/iPad/iPhone, and cold-shell p95 1.047s; Strix/live providers/physical recovery unavailable | retain external scanner/provider/device gates                                 |
 | P16   | 16    | Golden micropipette/pump/filter certification                      | verified narrowly | Table-driven `phase16-golden.test.ts`: 3/3 projects pass local source/citation, generated training/mastery, typed runtime evidence/attestation, deterministic spatial validation, procedural asset/license path, blocked photo-to-3D CPU seam, full reports/backup, Yjs+store clean-profile import, and semantic snapshot equality                                             | retain real-provider/GPU/device corpus gates                                  |
-| P17   | 17    | Production 1.0 release                                             | planned           | blocked by all unverified phases                                                                                                                                                                                                                                                                                                                                               | release only after full matrix                                                |
+| P17   | 17    | Production 1.0 release                                             | blocked           | `0a6765d` passes current 125/125 check, 78-pass/6-skip browser emulation, release candidate preparation/verification, 100-file checksum candidate, and recovery drill; current SHA has no GitHub status and real providers/corpus, GPU, physical devices, deployment, and conclusive Strix evidence remain unavailable                                                         | close external blockers; do not cut 1.0                                       |
 
 Phase 00 through Phase 03 are verified from current implementation evidence
 and current-SHA GitHub readback. Phase 03's browser evidence is emulated
@@ -93,3 +93,9 @@ tests passed, including source citations, offline training mastery, typed
 runtime evidence, spatial validation, package reports, and clean-profile
 semantic restore. The required real-provider corpus, reviewed photo-to-3D
 mesh, GPU, and physical/deployment gates remain unverified.
+Phase 17 executed the production cut gate and deliberately did not cut 1.0.
+The audited SHA `0a6765d` has fresh local forced-check, browser, release
+candidate, checksum, migration/report, and recovery evidence, but remains
+local-only with no GitHub status. Real providers/corpus, DeepSeek, GPU mesh,
+physical devices, production deployment, and a conclusive Strix scan remain
+open; the RC is retained without a version bump or tag.

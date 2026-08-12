@@ -1,7 +1,7 @@
 # GuideForge Capability Matrix — Current Production Re-audit
 
-Audited parent SHA: `abefa7475d52931957721b571df828c364c7e924`; Phase 15
-hardening is included in the current-tree evidence below.
+Audited SHA: `0a6765dd3d01ccb5c8844b35732351e76d48117f`; production-pack parent
+SHA was `abefa7475d52931957721b571df828c364c7e924`.
 Audit date: 2026-08-12
 Authority: GuideForge Production Readiness Pack, `ACCEPTANCE_MATRIX.md`
 
@@ -13,15 +13,15 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 ## Phase 00 baseline
 
-| Requirement                     | Current evidence                                                           | Status                 |
-| ------------------------------- | -------------------------------------------------------------------------- | ---------------------- |
-| Exact current-tree forced check | `pnpm check --force`: 115/115 after Postgres readiness                     | verified locally       |
-| Clean frozen install            | 24 workspaces / 930 packages from zero                                     | verified locally       |
-| Browser E2E                     | 43 passed / 2 expected skips with bounded workers                          | verified locally       |
-| Postgres integration            | API test file: 17/17 with live `guideforge-pg`                             | verified locally       |
-| Package fuzz/drills             | package-gforge: 38/38                                                      | verified locally       |
-| Supply-chain gates              | audit, licenses, SBOM, secret scan, policy, boundary, dep-check            | verified locally       |
-| Current SHA GitHub status       | PR #1 `check` and Playwright E2E passed for `8b97360`; GitGuardian pending | verified (required CI) |
+| Requirement                     | Current evidence                                                                                                          | Status           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| Exact current-tree forced check | `pnpm check --force`: 125/125 on audited SHA `0a6765d`                                                                    | verified locally |
+| Clean frozen install            | 24 workspaces / 930 packages from zero                                                                                    | verified locally |
+| Browser E2E                     | Current CI-mode run: 78 passed / 6 documented skips across 84 desktop/iPad/iPhone emulation tests                         | verified locally |
+| Postgres integration            | API test file: 17/17 with live `guideforge-pg`                                                                            | verified locally |
+| Package fuzz/drills             | package-gforge: 38/38                                                                                                     | verified locally |
+| Supply-chain gates              | audit, licenses, SBOM, secret scan, policy, boundary, dep-check                                                           | verified locally |
+| Current SHA GitHub status       | Audited SHA `0a6765d` is local-only; GitHub readback is pending with zero statuses. Prior successful runs are historical. | blocked          |
 
 ## Single-owner security and control plane
 
@@ -127,6 +127,7 @@ not implemented; `blocked` means external hardware/provider access is needed.
 | PWA production deploy                         | Manifest, Apple metadata, service-worker generation, checked-in CSP/cache/security-header policy, and candidate packaging pass; external HTTPS deploy/install lifecycle not proven                                                                                   | verified narrowly |
 | Tauri artifacts/signing/upgrade/rollback      | Linux x86_64 `.deb` builds; Windows/macOS matrix and signing/notarization are explicit external targets; manifest verification and data-preserving recovery drill pass                                                                                               | verified narrowly |
 | Golden micropipette/pump/filter certification | Phase 16 table-driven 3/3 local certification passes source/citation, training/mastery, runtime evidence, spatial validation, procedural assets, package reports, clean-profile import, and semantic comparison; real provider corpus/GPU/physical gates remain open | verified narrowly |
+| Production 1.0 cut                            | Phase 17 local candidate/recovery/release evidence passes, but current-SHA CI, real providers/corpus, GPU, physical devices, and deployment remain open                                                                                                              | blocked           |
 
 ## Phase certification
 
@@ -198,3 +199,9 @@ offline mastery, typed evidence, spatial, procedural-asset, report, backup,
 clean-profile import, and semantic comparison harness. Real Docling/OCR/ASR/
 VLM/DeepSeek sources, photo-generated mesh quality, GPU inference, physical
 devices, and deployment remain unverified.
+Phase 17 is **blocked for 1.0**. The current SHA passes the forced repository
+gate, current browser emulation, release preparation, candidate verification,
+and recovery drill, but it has no GitHub status because it has not been pushed.
+The host also lacks the real multimodal/DeepSeek corpus, GPU/provider output,
+physical-device/PWA deployment evidence, and a conclusive Strix run. The local
+candidate remains `0.14.0-rc.1`; no 1.0 tag or publication is authorized.
