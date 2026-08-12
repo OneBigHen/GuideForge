@@ -21,7 +21,12 @@ cleanup/scale/orientation execution has run on this host.
   Hunyuan3D-2GP and TripoSR remain explicit provider choices.
 - `packages/storage-web` v9 persists photo jobs and a checked-in
   `PhotoTo3DJobRecord` schema. The companion SQLite migration adds the native
-  `photo_jobs` queue with status, payload, provider, GPU, and timestamp fields.
+  `photo_jobs` queue with status, payload, provider, GPU, timestamp, lease,
+  and attempt fields.
+- The companion queue claims one GPU slot at a time, renews owner-bound leases,
+  requeues expired work, and rejects claims from a second worker while the
+  first lease is active. It is a serialization/recovery seam, not a claim that
+  Hunyuan3D-2GP or TripoSR inference is installed.
 - `/photo-to-3d` searches local assets before queueing, accepts multi-view
   images, exposes provider/GPU/license controls, and shows blocked/queued jobs
   with cancellation. The existing `/assets` path links to the wizard.
@@ -36,7 +41,7 @@ cleanup/scale/orientation execution has run on this host.
 | ------------------------------------------- | --------------------------------------------------------------------------------- |
 | `@guideforge/assets` lint, typecheck, tests | 18 tests passed                                                                   |
 | `storage-web` lint, typecheck, tests        | 9 tests passed; v9 persistence covered                                            |
-| Companion lint, typecheck, tests            | 12 tests passed; SQLite queue covered                                             |
+| Companion lint, typecheck, tests            | 13 tests passed; SQLite queue serialization and lease recovery covered            |
 | Web typecheck, lint, build                  | Passed; existing bundle/externalization warnings only                             |
 | Browser acceptance                          | 3/3 desktop, iPad, and iPhone projects passed                                     |
 | Browser path covered                        | Three sanitized PNG inputs, search-before-generate, blocked CPU job, cancellation |

@@ -59,6 +59,9 @@ export interface PhotoJobQueueRecord {
   payloadJson: string;
   createdAt: number;
   updatedAt: number;
+  leaseOwner?: string | null;
+  leaseExpiresAt?: number | null;
+  attempts?: number;
 }
 
 interface OwnerRow {
@@ -111,7 +114,13 @@ interface PhotoJobRow {
   payload_json: string;
   created_at: number;
   updated_at: number;
+  lease_owner: string | null;
+  lease_expires_at: number | null;
+  attempts: number;
 }
+
+const PHOTO_JOB_COLUMNS =
+  'job_id, provider_id, gpu_profile_id, status, payload_json, created_at, updated_at, lease_owner, lease_expires_at, attempts';
 
 const MIGRATIONS = [
   `
@@ -173,6 +182,12 @@ const MIGRATIONS = [
       updated_at INTEGER NOT NULL
     ) STRICT;
     CREATE INDEX photo_jobs_status_idx ON photo_jobs (status, updated_at);
+  `,
+  `
+    ALTER TABLE photo_jobs ADD COLUMN lease_owner TEXT;
+    ALTER TABLE photo_jobs ADD COLUMN lease_expires_at INTEGER;
+    ALTER TABLE photo_jobs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+    CREATE INDEX photo_jobs_active_lease_idx ON photo_jobs (status, lease_expires_at);
   `,
 ] as const;
 
@@ -353,11 +368,13 @@ export class CompanionDatabase {
   enqueuePhotoJob(record: PhotoJobQueueRecord): void {
     this.database
       .prepare(
-        `INSERT INTO photo_jobs (job_id, provider_id, gpu_profile_id, status, payload_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO photo_jobs (${PHOTO_JOB_COLUMNS})
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(job_id) DO UPDATE SET provider_id = excluded.provider_id,
            gpu_profile_id = excluded.gpu_profile_id, status = excluded.status,
-           payload_json = excluded.payload_json, updated_at = excluded.updated_at`,
+           payload_json = excluded.payload_json, updated_at = excluded.updated_at,
+           lease_owner = excluded.lease_owner, lease_expires_at = excluded.lease_expires_at,
+           attempts = excluded.attempts`,
       )
       .run(
         record.jobId,
@@ -367,14 +384,15 @@ export class CompanionDatabase {
         record.payloadJson,
         record.createdAt,
         record.updatedAt,
+        record.leaseOwner ?? null,
+        record.leaseExpiresAt ?? null,
+        record.attempts ?? 0,
       );
   }
 
   getPhotoJob(jobId: string): PhotoJobQueueRecord | undefined {
     const row = this.database
-      .prepare(
-        'SELECT job_id, provider_id, gpu_profile_id, status, payload_json, created_at, updated_at FROM photo_jobs WHERE job_id = ?',
-      )
+      .prepare(`SELECT ${PHOTO_JOB_COLUMNS} FROM photo_jobs WHERE job_id = ?`)
       .get(jobId) as PhotoJobRow | undefined;
     return row ? photoJobFromRow(row) : undefined;
   }
@@ -383,13 +401,11 @@ export class CompanionDatabase {
     const rows = status
       ? (this.database
           .prepare(
-            'SELECT job_id, provider_id, gpu_profile_id, status, payload_json, created_at, updated_at FROM photo_jobs WHERE status = ? ORDER BY updated_at DESC',
+            `SELECT ${PHOTO_JOB_COLUMNS} FROM photo_jobs WHERE status = ? ORDER BY updated_at DESC`,
           )
           .all(status) as PhotoJobRow[])
       : (this.database
-          .prepare(
-            'SELECT job_id, provider_id, gpu_profile_id, status, payload_json, created_at, updated_at FROM photo_jobs ORDER BY updated_at DESC',
-          )
+          .prepare(`SELECT ${PHOTO_JOB_COLUMNS} FROM photo_jobs ORDER BY updated_at DESC`)
           .all() as PhotoJobRow[]);
     return rows.map(photoJobFromRow);
   }
@@ -406,6 +422,97 @@ export class CompanionDatabase {
       )
       .run(status, payloadJson, updatedAt, jobId);
     return result.changes > 0;
+  }
+
+  /** Claim the only available GPU slot; expired work is returned to queued first. */
+  claimNextPhotoJob(
+    workerId: string,
+    leaseMs = 60_000,
+    now = Date.now(),
+  ): PhotoJobQueueRecord | undefined {
+    if (!workerId.trim()) throw new Error('photo job worker id is required');
+    if (!Number.isFinite(leaseMs) || leaseMs <= 0) throw new Error('photo job lease is invalid');
+    const transaction = this.database.transaction(() => {
+      this.database
+        .prepare(
+          `UPDATE photo_jobs
+           SET status = 'queued', lease_owner = NULL, lease_expires_at = NULL, updated_at = ?
+           WHERE status IN ('preprocessing', 'shape-draft', 'texturing', 'cleaning')
+             AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?`,
+        )
+        .run(now, now);
+      // ponytail: one global GPU lease; use per-profile locks if multiple GPUs must run concurrently.
+      const row = this.database
+        .prepare(
+          `SELECT ${PHOTO_JOB_COLUMNS} FROM photo_jobs
+           WHERE status = 'queued'
+             AND NOT EXISTS (
+               SELECT 1 FROM photo_jobs AS active
+               WHERE active.status IN ('preprocessing', 'shape-draft', 'texturing', 'cleaning')
+                 AND active.lease_owner IS NOT NULL
+                 AND active.lease_expires_at > ?
+             )
+           ORDER BY created_at ASC, job_id ASC LIMIT 1`,
+        )
+        .get(now) as PhotoJobRow | undefined;
+      if (!row) return undefined;
+      const leaseExpiresAt = now + Math.floor(leaseMs);
+      const result = this.database
+        .prepare(
+          `UPDATE photo_jobs
+           SET status = 'preprocessing', lease_owner = ?, lease_expires_at = ?,
+               attempts = attempts + 1, updated_at = ?
+           WHERE job_id = ? AND status = 'queued'`,
+        )
+        .run(workerId, leaseExpiresAt, now, row.job_id);
+      if (result.changes !== 1) return undefined;
+      return this.database
+        .prepare(`SELECT ${PHOTO_JOB_COLUMNS} FROM photo_jobs WHERE job_id = ?`)
+        .get(row.job_id) as PhotoJobRow | undefined;
+    });
+    const row = transaction();
+    return row ? photoJobFromRow(row) : undefined;
+  }
+
+  renewPhotoJobLease(jobId: string, workerId: string, leaseMs = 60_000, now = Date.now()): boolean {
+    if (!workerId.trim()) throw new Error('photo job worker id is required');
+    if (!Number.isFinite(leaseMs) || leaseMs <= 0) throw new Error('photo job lease is invalid');
+    const result = this.database
+      .prepare(
+        `UPDATE photo_jobs SET lease_expires_at = ?, updated_at = ?
+         WHERE job_id = ? AND lease_owner = ? AND lease_expires_at > ?`,
+      )
+      .run(now + Math.floor(leaseMs), now, jobId, workerId, now);
+    return result.changes === 1;
+  }
+
+  releasePhotoJobLease(
+    jobId: string,
+    workerId: string,
+    status: PhotoJobQueueStatus = 'queued',
+    payloadJson = '{}',
+    updatedAt = Date.now(),
+  ): boolean {
+    const result = this.database
+      .prepare(
+        `UPDATE photo_jobs
+         SET status = ?, payload_json = ?, updated_at = ?, lease_owner = NULL, lease_expires_at = NULL
+         WHERE job_id = ? AND lease_owner = ? AND lease_expires_at > ?`,
+      )
+      .run(status, payloadJson, updatedAt, jobId, workerId, updatedAt);
+    return result.changes === 1;
+  }
+
+  recoverExpiredPhotoJobLeases(now = Date.now()): number {
+    const result = this.database
+      .prepare(
+        `UPDATE photo_jobs
+         SET status = 'queued', lease_owner = NULL, lease_expires_at = NULL, updated_at = ?
+         WHERE status IN ('preprocessing', 'shape-draft', 'texturing', 'cleaning')
+           AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?`,
+      )
+      .run(now, now);
+    return result.changes;
   }
 
   createPairing(
@@ -472,6 +579,9 @@ function photoJobFromRow(row: PhotoJobRow): PhotoJobQueueRecord {
     payloadJson: row.payload_json,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    leaseOwner: row.lease_owner,
+    leaseExpiresAt: row.lease_expires_at,
+    attempts: row.attempts,
   };
 }
 

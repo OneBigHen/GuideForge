@@ -603,4 +603,42 @@ describe('companion SQLite photo job queue', () => {
     expect(db.listPhotoJobs('paused')[0]?.payloadJson).toContain('queued');
     db.close();
   });
+
+  it('serializes GPU claims and recovers an expired lease', () => {
+    const db = new CompanionDatabase();
+    for (const [jobId, createdAt] of [
+      ['photo-job-1', 1],
+      ['photo-job-2', 2],
+    ] as const) {
+      db.enqueuePhotoJob({
+        jobId,
+        providerId: 'tripo-sr',
+        gpuProfileId: 'cuda-8gb',
+        status: 'queued',
+        payloadJson: '{}',
+        createdAt,
+        updatedAt: createdAt,
+      });
+    }
+
+    const first = db.claimNextPhotoJob('gpu-worker-a', 1_000, 100);
+    expect(first?.jobId).toBe('photo-job-1');
+    expect(first?.status).toBe('preprocessing');
+    expect(first?.leaseOwner).toBe('gpu-worker-a');
+    expect(first?.attempts).toBe(1);
+    expect(db.claimNextPhotoJob('gpu-worker-b', 1_000, 200)).toBeUndefined();
+    expect(db.renewPhotoJobLease('photo-job-1', 'gpu-worker-b', 1_000, 200)).toBe(false);
+    expect(db.renewPhotoJobLease('photo-job-1', 'gpu-worker-a', 1_000, 200)).toBe(true);
+
+    expect(
+      db.releasePhotoJobLease('photo-job-1', 'gpu-worker-a', 'awaiting-approval', '{}', 300),
+    ).toBe(true);
+    expect(db.claimNextPhotoJob('gpu-worker-b', 1_000, 400)?.jobId).toBe('photo-job-2');
+
+    expect(db.recoverExpiredPhotoJobLeases(1_401)).toBe(1);
+    const reclaimed = db.claimNextPhotoJob('gpu-worker-c', 1_000, 1_402);
+    expect(reclaimed?.jobId).toBe('photo-job-2');
+    expect(reclaimed?.attempts).toBe(2);
+    db.close();
+  });
 });
