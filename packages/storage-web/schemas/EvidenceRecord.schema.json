@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://guideforge.dev/schemas/EvidenceRecord.schema.json",
+  "title": "GuideForge offline procedure evidence",
+  "type": "object",
+  "required": ["evidenceId", "guideId", "stepId", "kind", "capturedAtIso", "actorId"],
+  "properties": {
+    "evidenceId": { "type": "string", "minLength": 1 },
+    "guideId": { "type": "string", "minLength": 1 },
+    "stepId": { "type": "string", "minLength": 1 },
+    "kind": { "enum": ["photo", "note", "signature", "measurement"] },
+    "capturedAtIso": { "type": "string", "format": "date-time" },
+    "actorId": { "type": "string", "minLength": 1 },
+    "value": { "type": "string" },
+    "assetHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "mimeType": { "type": "string" },
+    "measurement": {
+      "type": "object",
+      "required": ["label", "value", "unit"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "value": { "type": "number" },
+        "unit": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "attestation": {
+      "type": "object",
+      "required": ["algorithm", "signerId", "payloadHash", "publicKeyJwk", "signatureHex"],
+      "properties": {
+        "algorithm": { "const": "ECDSA-P256-SHA256" },
+        "signerId": { "type": "string", "minLength": 1 },
+        "payloadHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "publicKeyJwk": { "type": "object" },
+        "signatureHex": { "type": "string", "pattern": "^[0-9a-f]+$" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

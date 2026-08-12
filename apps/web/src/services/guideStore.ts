@@ -7,6 +7,7 @@
  *
  * Every mutation goes through typed commands.
  */
+import { sanitizePhoto, type PhotoMimeType } from '@guideforge/assets';
 import {
   applyCommandToWorkingGuide,
   createEmptyWorkingGuide,
@@ -21,12 +22,21 @@ import { GUIDE_COMMAND_TYPES } from '@guideforge/commands';
 import type { AssetReference, ContentHash, EntityId } from '@guideforge/domain';
 import {
   answerTrainingItem,
+  beginRuntimeStep,
   beginTrainingRetest,
+  buildRuntimeCompletionReport,
+  completeRuntimeStep,
+  createRuntimeCompletionRule,
+  createRuntimeSession,
   isGuideSnapshot,
+  isRuntimeSession,
   migrateToCurrent,
+  recordRuntimeEvidence,
   startTrainingSession,
   submitTrainingAttempt,
   type GuideSnapshot,
+  type RuntimeAttestation,
+  type RuntimeSession,
   type TrainingAttemptResult,
   type TrainingResponse,
   type TrainingSession,
@@ -552,6 +562,8 @@ export interface EvidenceInput {
   value?: string;
   assetHash?: string;
   mimeType?: string;
+  measurement?: EvidenceRecord['measurement'];
+  attestation?: EvidenceRecord['attestation'];
 }
 
 export async function addEvidence(input: EvidenceInput): Promise<string> {
@@ -566,6 +578,8 @@ export async function addEvidence(input: EvidenceInput): Promise<string> {
     ...(input.value !== undefined ? { value: input.value } : {}),
     ...(input.assetHash !== undefined ? { assetHash: input.assetHash } : {}),
     ...(input.mimeType !== undefined ? { mimeType: input.mimeType } : {}),
+    ...(input.measurement !== undefined ? { measurement: input.measurement } : {}),
+    ...(input.attestation !== undefined ? { attestation: input.attestation } : {}),
   };
   await db().evidence.put(record);
   return evidenceId;
@@ -596,8 +610,275 @@ function isEvidenceRecord(value: unknown): value is EvidenceRecord {
     (record.value === undefined || typeof record.value === 'string') &&
     (record.assetHash === undefined ||
       (typeof record.assetHash === 'string' && /^[0-9a-f]{64}$/.test(record.assetHash))) &&
-    (record.mimeType === undefined || typeof record.mimeType === 'string')
+    (record.mimeType === undefined || typeof record.mimeType === 'string') &&
+    (record.measurement === undefined || isRuntimeMeasurement(record.measurement)) &&
+    (record.attestation === undefined || isRuntimeAttestation(record.attestation))
   );
+}
+
+function isRuntimeMeasurement(value: unknown): value is NonNullable<EvidenceRecord['measurement']> {
+  if (!value || typeof value !== 'object') return false;
+  const measurement = value as Record<string, unknown>;
+  return (
+    typeof measurement.label === 'string' &&
+    typeof measurement.value === 'number' &&
+    Number.isFinite(measurement.value) &&
+    typeof measurement.unit === 'string' &&
+    measurement.unit.length > 0
+  );
+}
+
+function isRuntimeAttestation(value: unknown): value is RuntimeAttestation {
+  if (!value || typeof value !== 'object') return false;
+  const attestation = value as Record<string, unknown>;
+  return (
+    attestation.algorithm === 'ECDSA-P256-SHA256' &&
+    typeof attestation.signerId === 'string' &&
+    typeof attestation.payloadHash === 'string' &&
+    /^[0-9a-f]{64}$/.test(attestation.payloadHash) &&
+    typeof attestation.publicKeyJwk === 'object' &&
+    attestation.publicKeyJwk !== null &&
+    typeof attestation.signatureHex === 'string' &&
+    /^[0-9a-f]+$/.test(attestation.signatureHex)
+  );
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function flattenStepIds(snapshot: GuideSnapshot): string[] {
+  return snapshot.tasks.flatMap((task) => task.stepIds);
+}
+
+async function persistRuntimeSession(
+  session: OpenGuideSession,
+  runtime: RuntimeSession,
+): Promise<void> {
+  await session.db.runtimeSessions.put(runtime);
+  await session.db.runtimeBlobs.put({
+    id: `${session.guideId}:session-${runtime.sessionId}`,
+    guideId: session.guideId,
+    path: `session-${runtime.sessionId}`,
+    bytes: canonicalJson(runtime),
+    mimeType: 'application/json',
+    extension: 'json',
+  });
+}
+
+/** Load the current local learner session or create it once for this guide. */
+export async function loadRuntimeSession(
+  session: OpenGuideSession,
+  learnerId = 'local-user',
+): Promise<RuntimeSession> {
+  const snapshot = materializeSnapshot(session.working);
+  const stepIds = flattenStepIds(snapshot);
+  const existing = await session.db.runtimeSessions
+    .where('guideId')
+    .equals(session.guideId)
+    .filter((candidate) => candidate.learnerId === learnerId)
+    .sortBy('updatedAtIso');
+  const current = existing[existing.length - 1];
+  if (current && JSON.stringify(current.stepIds) === JSON.stringify(stepIds)) return current;
+  const runtime = createRuntimeSession({
+    sessionId: uuidv4(),
+    guideId: session.guideId,
+    learnerId,
+    stepIds,
+    nowIso: new Date().toISOString(),
+  });
+  await persistRuntimeSession(session, runtime);
+  return runtime;
+}
+
+async function addRuntimeEvidence(
+  session: OpenGuideSession,
+  runtime: RuntimeSession,
+  input: EvidenceInput,
+): Promise<{ evidenceId: string; runtime: RuntimeSession }> {
+  const evidenceId = await addEvidence(input);
+  const nowIso = new Date().toISOString();
+  const active = beginRuntimeStep(runtime, input.stepId, uuidv4(), nowIso);
+  const next = recordRuntimeEvidence(active, input.stepId, evidenceId, nowIso);
+  await persistRuntimeSession(session, next);
+  return { evidenceId, runtime: next };
+}
+
+export async function recordRuntimeNote(
+  session: OpenGuideSession,
+  runtime: RuntimeSession,
+  stepId: string,
+  note: string,
+): Promise<{ evidenceId: string; runtime: RuntimeSession }> {
+  const value = note.trim();
+  if (!value) throw new Error('note cannot be empty');
+  return addRuntimeEvidence(session, runtime, {
+    guideId: session.guideId,
+    stepId,
+    kind: 'note',
+    value,
+  });
+}
+
+export async function recordRuntimeMeasurement(
+  session: OpenGuideSession,
+  runtime: RuntimeSession,
+  input: { stepId: string; label: string; value: number; unit: string },
+): Promise<{ evidenceId: string; runtime: RuntimeSession }> {
+  if (!Number.isFinite(input.value) || !input.label.trim() || !input.unit.trim()) {
+    throw new Error('measurement requires a finite value, label, and unit');
+  }
+  return addRuntimeEvidence(session, runtime, {
+    guideId: session.guideId,
+    stepId: input.stepId,
+    kind: 'measurement',
+    value: `${input.label.trim()}: ${input.value} ${input.unit.trim()}`,
+    measurement: {
+      label: input.label.trim(),
+      value: input.value,
+      unit: input.unit.trim(),
+    },
+  });
+}
+
+export async function captureRuntimePhoto(
+  session: OpenGuideSession,
+  runtime: RuntimeSession,
+  stepId: string,
+  file: File,
+): Promise<{ evidenceId: string; runtime: RuntimeSession; assetHash: string }> {
+  const mimeType = file.type as PhotoMimeType;
+  const sanitized = sanitizePhoto(new Uint8Array(await file.arrayBuffer()), mimeType);
+  const extension =
+    sanitized.mimeType === 'image/jpeg' ? 'jpg' : (sanitized.mimeType.split('/')[1] ?? 'bin');
+  const meta = await session.assets.put(sanitized.bytes, sanitized.mimeType, extension);
+  const result = await addRuntimeEvidence(session, runtime, {
+    guideId: session.guideId,
+    stepId,
+    kind: 'photo',
+    assetHash: meta.hash,
+    mimeType: sanitized.mimeType,
+    value: `${sanitized.width} × ${sanitized.height}px; metadata stripped: ${sanitized.metadataRemoved ? 'yes' : 'no'}`,
+  });
+  return { ...result, assetHash: meta.hash };
+}
+
+export async function createRuntimeAttestation(
+  session: OpenGuideSession,
+  runtime: RuntimeSession,
+  stepId: string,
+): Promise<{ evidenceId: string; runtime: RuntimeSession; assetHash: string }> {
+  const capturedAtIso = new Date().toISOString();
+  const payloadBytes = canonicalJson({
+    type: 'guideforge-procedure-attestation',
+    sessionId: runtime.sessionId,
+    guideId: session.guideId,
+    stepId,
+    signerId: 'local-user',
+    capturedAtIso,
+  });
+  const payloadHash = await webSha256(payloadBytes);
+  const keyPair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, [
+    'sign',
+    'verify',
+  ]);
+  const publicKeyJwk = await crypto.subtle.exportKey('jwk', keyPair.publicKey);
+  const signature = await crypto.subtle.sign(
+    { name: 'ECDSA', hash: 'SHA-256' },
+    keyPair.privateKey,
+    payloadBytes as BufferSource,
+  );
+  const verified = await crypto.subtle.verify(
+    { name: 'ECDSA', hash: 'SHA-256' },
+    keyPair.publicKey,
+    signature,
+    payloadBytes as BufferSource,
+  );
+  if (!verified) throw new Error('local attestation signature verification failed');
+  const attestation: RuntimeAttestation = {
+    algorithm: 'ECDSA-P256-SHA256',
+    signerId: 'local-user',
+    payloadHash,
+    publicKeyJwk: publicKeyJwk as Record<string, unknown>,
+    signatureHex: bytesToHex(new Uint8Array(signature)),
+  };
+  const artifactBytes = canonicalJson({
+    ...attestation,
+    payload: new TextDecoder().decode(payloadBytes),
+  });
+  const meta = await session.assets.put(artifactBytes, 'application/json', 'json');
+  const result = await addRuntimeEvidence(session, runtime, {
+    guideId: session.guideId,
+    stepId,
+    kind: 'signature',
+    value: 'Local device attestation',
+    assetHash: meta.hash,
+    mimeType: 'application/json',
+    attestation,
+  });
+  return { ...result, assetHash: meta.hash };
+}
+
+export async function completeRuntimeStepForGuide(
+  session: OpenGuideSession,
+  runtime: RuntimeSession,
+  stepId: string,
+): Promise<RuntimeSession> {
+  const snapshot = materializeSnapshot(session.working);
+  const step = snapshot.steps.find((candidate) => candidate.stepId === stepId);
+  if (!step) throw new Error(`unknown guide step: ${stepId}`);
+  const active = beginRuntimeStep(runtime, stepId, uuidv4(), new Date().toISOString());
+  const evidence = (await listEvidence(session.guideId)).filter(
+    (record) => record.stepId === stepId,
+  );
+  const next = completeRuntimeStep({
+    session: active,
+    stepId,
+    completionId: uuidv4(),
+    completedBy: 'local-user',
+    evidence: evidence.map((record) => ({ evidenceId: record.evidenceId, kind: record.kind })),
+    rule: createRuntimeCompletionRule(step.verification.length),
+    nowIso: new Date().toISOString(),
+  });
+  await persistRuntimeSession(session, next);
+  return next;
+}
+
+export async function exportRuntimeCompletionReport(
+  session: OpenGuideSession,
+  runtime: RuntimeSession,
+): Promise<{ bytes: Uint8Array; filename: string }> {
+  const snapshot = materializeSnapshot(session.working);
+  const evidence = await listEvidence(session.guideId);
+  const stepTitles = Object.fromEntries(
+    snapshot.steps.map((step) => [step.stepId, step.instructionText]),
+  );
+  const report = buildRuntimeCompletionReport({
+    session: runtime,
+    stepTitles,
+    evidence: evidence.map((record) => ({
+      evidenceId: record.evidenceId,
+      stepId: record.stepId,
+      kind: record.kind,
+      capturedAtIso: record.capturedAtIso,
+      ...(record.value !== undefined ? { value: record.value } : {}),
+      ...(record.assetHash !== undefined ? { assetHash: record.assetHash } : {}),
+      ...(record.mimeType !== undefined ? { mimeType: record.mimeType } : {}),
+      ...(record.measurement !== undefined ? { measurement: record.measurement } : {}),
+      ...(record.attestation !== undefined ? { attestation: record.attestation } : {}),
+    })),
+    exportedAtIso: new Date().toISOString(),
+  });
+  await session.db.reports.put({
+    id: `${session.guideId}:reports/runtime-completion-${runtime.sessionId}.json`,
+    guideId: session.guideId,
+    path: `reports/runtime-completion-${runtime.sessionId}.json`,
+    report,
+  });
+  return {
+    bytes: canonicalJson(report),
+    filename: `${snapshot.title.replace(/[^a-z0-9-_]+/gi, '-')}-completion.json`,
+  };
 }
 
 function referencedAssetHashes(
@@ -824,6 +1105,11 @@ export async function exportFullBackup(
 ): Promise<{ bytes: Uint8Array; filename: string }> {
   const snapshot = materializeSnapshot(session.working);
   const evidence = await session.db.evidence.where('guideId').equals(session.guideId).toArray();
+  const runtimeReports = await session.db.reports
+    .where('guideId')
+    .equals(session.guideId)
+    .filter((row) => row.path.startsWith('reports/runtime-completion-'))
+    .toArray();
   const validation = await validateReferencedAssets(session, evidence);
   if (validation.missing.length > 0) {
     throw new Error(`backup: missing referenced assets: ${validation.missing.join(', ')}`);
@@ -851,6 +1137,12 @@ export async function exportFullBackup(
         sourceCount: snapshot.sources.length,
       },
       cost: { assetBytes, sourceBytes: sourceByteCount, evidenceCount: evidence.length },
+      ...Object.fromEntries(
+        runtimeReports.map((row) => [
+          row.path.slice('reports/'.length).replace(/\.json$/, ''),
+          row.report,
+        ]),
+      ),
     },
     runtime: {
       includeEvidence: true,
@@ -1155,6 +1447,15 @@ export async function importDraft(bytes: Uint8Array): Promise<ImportDraftResult>
         extension,
       })),
     );
+    for (const file of runtimeFiles.filter(
+      (candidate) => candidate.path.startsWith('session-') && candidate.extension === 'json',
+    )) {
+      const parsed = parsePackageJson(file.entry.data, `runtime/evidence/${file.path}.json`);
+      if (!isRuntimeSession(parsed) || parsed.guideId !== guideId) {
+        throw new Error(`import: invalid runtime session ${file.path}`);
+      }
+      await db().runtimeSessions.put(parsed);
+    }
   }
   await persistence.provider.destroy();
   working.doc.destroy();

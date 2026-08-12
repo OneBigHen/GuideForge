@@ -92,12 +92,12 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 ## Execution and evidence
 
-| Requirement                               | Current source/test evidence                    | Status            |
-| ----------------------------------------- | ----------------------------------------------- | ----------------- |
-| Procedure player renders authored steps   | Vertical-slice E2E passes                       | verified narrowly |
-| Real step completion state                | Progress currently equals evidence-row count    | missing           |
-| Real photo/signature/measurement evidence | Photo/sign buttons are explicitly demo behavior | missing           |
-| 3D step state, resume, offline report     | No complete runtime evidence                    | missing           |
+| Requirement                               | Current source/test evidence                                                                                                        | Status            |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Procedure player renders authored steps   | `/run/:guideId` renders ordered authored steps, current scene state/camera/annotations, and offline status                          | verified narrowly |
+| Real step completion state                | Versioned `RuntimeSession` with `StepAttempt`/`StepCompletion`; progress derives from completions and explicit evidence rule        | verified narrowly |
+| Real photo/signature/measurement evidence | Native camera/file input with sanitized content hash, verified local ECDSA attestation artifact, typed measurement and note records | verified narrowly |
+| 3D step state, resume, offline report     | Dexie v10 runtime resume, service-worker offline reload, full backup/import, and JSON completion report E2E                         | verified narrowly |
 
 ## Assets and 3D
 
@@ -110,12 +110,12 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 ## Spatial intelligence
 
-| Requirement                                | Current source/test evidence                                                                                                                                                                 | Status            |
-| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| Durable surface anchors                    | Schema v5 `SurfaceAttachment`, v4 migration, mesh-local/barycentric fields, Yjs persistence, transform-stability/rebind tests, and scene editor correction/review controls                   | verified narrowly |
-| Arrows/callouts/measurements/step-state UI | Annotation kinds include arrows, labels, callouts, highlights, and paths; measurement and step-state commands/UI plus accessible DOM alternatives; live overlay rendering remains unverified | verified narrowly |
+| Requirement                                | Current source/test evidence                                                                                                                                                                                                                                                                                             | Status            |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------- |
+| Durable surface anchors                    | Schema v5 `SurfaceAttachment`, v4 migration, mesh-local/barycentric fields, Yjs persistence, transform-stability/rebind tests, and scene editor correction/review controls                                                                                                                                               | verified narrowly |
+| Arrows/callouts/measurements/step-state UI | Annotation kinds include arrows, labels, callouts, highlights, and paths; measurement and step-state commands/UI plus accessible DOM alternatives; live overlay rendering remains unverified                                                                                                                             | verified narrowly |
 | Semantic AI spatial compiler               | `@guideforge/spatial-compiler`: explicit equipment requirements, semantic relations, consumed constraints, asset resolution, stable-seed bounded solver, ranked visibility/occlusion-aware cameras, validation, annotations, step states, and typed scene commands; micropipette tests plus 6/6 scene browser acceptance | verified narrowly |
-| Deterministic transforms and cameras       | Stable-seed workspace/collision solver and camera candidates materialize through the canonical scene editor; physical/rendered camera proof remains open                                                                                              | verified narrowly |
+| Deterministic transforms and cameras       | Stable-seed workspace/collision solver and camera candidates materialize through the canonical scene editor; physical/rendered camera proof remains open                                                                                                                                                                 | verified narrowly |
 
 ## Devices, storage, release, reliability
 

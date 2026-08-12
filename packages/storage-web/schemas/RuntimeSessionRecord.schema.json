@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://guideforge.dev/schemas/RuntimeSessionRecord.schema.json",
+  "title": "GuideForge offline procedure runtime session",
+  "type": "object",
+  "required": [
+    "runtimeVersion",
+    "sessionId",
+    "guideId",
+    "learnerId",
+    "stepIds",
+    "currentStepIndex",
+    "attempts",
+    "completions",
+    "status",
+    "createdAtIso",
+    "updatedAtIso",
+    "completedAtIso"
+  ],
+  "properties": {
+    "runtimeVersion": { "const": 1 },
+    "sessionId": { "type": "string", "minLength": 1 },
+    "guideId": { "type": "string", "minLength": 1 },
+    "learnerId": { "type": "string", "minLength": 1 },
+    "stepIds": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "currentStepIndex": { "type": "integer", "minimum": 0 },
+    "attempts": { "type": "array", "items": { "$ref": "#/$defs/StepAttempt" } },
+    "completions": { "type": "array", "items": { "$ref": "#/$defs/StepCompletion" } },
+    "status": { "enum": ["in-progress", "completed"] },
+    "createdAtIso": { "type": "string", "format": "date-time" },
+    "updatedAtIso": { "type": "string", "format": "date-time" },
+    "completedAtIso": { "type": ["string", "null"], "format": "date-time" }
+  },
+  "$defs": {
+    "StepAttempt": {
+      "type": "object",
+      "required": ["attemptId", "stepId", "startedAtIso", "updatedAtIso", "status", "evidenceIds"],
+      "properties": {
+        "attemptId": { "type": "string", "minLength": 1 },
+        "stepId": { "type": "string", "minLength": 1 },
+        "startedAtIso": { "type": "string", "format": "date-time" },
+        "updatedAtIso": { "type": "string", "format": "date-time" },
+        "status": { "enum": ["in-progress", "completed"] },
+        "evidenceIds": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      },
+      "additionalProperties": false
+    },
+    "CompletionRule": {
+      "type": "object",
+      "required": [
+        "minimumEvidenceCount",
+        "allowedEvidenceKinds",
+        "verificationCount",
+        "requiresExplicitAction"
+      ],
+      "properties": {
+        "minimumEvidenceCount": { "const": 1 },
+        "allowedEvidenceKinds": {
+          "type": "array",
+          "items": { "enum": ["photo", "note", "signature", "measurement"] }
+        },
+        "verificationCount": { "type": "integer", "minimum": 0 },
+        "requiresExplicitAction": { "const": true }
+      },
+      "additionalProperties": false
+    },
+    "StepCompletion": {
+      "type": "object",
+      "required": [
+        "completionId",
+        "attemptId",
+        "stepId",
+        "completedAtIso",
+        "completedBy",
+        "evidenceIds",
+        "rule"
+      ],
+      "properties": {
+        "completionId": { "type": "string", "minLength": 1 },
+        "attemptId": { "type": "string", "minLength": 1 },
+        "stepId": { "type": "string", "minLength": 1 },
+        "completedAtIso": { "type": "string", "format": "date-time" },
+        "completedBy": { "type": "string", "minLength": 1 },
+        "evidenceIds": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "rule": { "$ref": "#/$defs/CompletionRule" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

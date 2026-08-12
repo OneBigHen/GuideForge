@@ -603,6 +603,8 @@ export function isGuideStep(value: unknown): value is GuideStep {
   );
 }
 
+export * from './execution-runtime';
+
 export * from './training-interop.js';
 export * from './training-runtime.js';
 export * from './training.js';

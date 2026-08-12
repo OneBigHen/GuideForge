@@ -3,15 +3,22 @@ import { webcrypto } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   addEvidence,
+  addStep,
   addTask,
   closeGuide,
+  completeRuntimeStepForGuide,
   createGuide,
+  createRuntimeAttestation,
   exportDraft,
   exportFullBackup,
+  exportRuntimeCompletionReport,
   importDraft,
   listEvidence,
   listGuides,
+  loadRuntimeSession,
   openGuide,
+  recordRuntimeMeasurement,
+  recordRuntimeNote,
   renameGuide,
 } from './guideStore';
 
@@ -101,5 +108,52 @@ describe('guide store local-first workflow', () => {
         'reports/validation.json',
       ]),
     );
+  });
+
+  it('persists procedure runtime progress, typed evidence, attestation, and report export', async () => {
+    const session = await createGuide('Procedure runtime');
+    const taskId = await addTask(session, 'Run procedure');
+    const stepId = await addStep(session, taskId, 'Verify the seal.');
+    const runtime = await loadRuntimeSession(session);
+    const withNote = await recordRuntimeNote(session, runtime, stepId, 'Seal is seated.');
+    const withMeasurement = await recordRuntimeMeasurement(session, withNote.runtime, {
+      stepId,
+      label: 'Pressure',
+      value: 1.25,
+      unit: 'bar',
+    });
+    const withAttestation = await createRuntimeAttestation(
+      session,
+      withMeasurement.runtime,
+      stepId,
+    );
+    const completed = await completeRuntimeStepForGuide(session, withAttestation.runtime, stepId);
+    expect(completed.status).toBe('completed');
+    expect(completed.completions[0]?.evidenceIds).toHaveLength(3);
+
+    const report = await exportRuntimeCompletionReport(session, completed);
+    expect(new TextDecoder().decode(report.bytes)).toContain('guideforge-procedure-completion');
+    const stored = await session.db.runtimeSessions.get(completed.sessionId);
+    expect(stored?.status).toBe('completed');
+    const evidence = await listEvidence(session.guideId);
+    expect(evidence.map((record) => record.kind)).toEqual(
+      expect.arrayContaining(['note', 'measurement', 'signature']),
+    );
+    expect(
+      evidence.find((record) => record.kind === 'signature')?.attestation?.signatureHex,
+    ).toMatch(/^[0-9a-f]+$/);
+    const backup = await exportFullBackup(session);
+    await closeGuide(session);
+    await session.db.runtimeSessions.clear();
+    await session.db.runtimeBlobs.clear();
+    const restored = await importDraft(backup.bytes);
+    expect(await session.db.runtimeSessions.get(completed.sessionId)).toMatchObject({
+      status: 'completed',
+      guideId: session.guideId,
+    });
+    expect(
+      await session.db.runtimeBlobs.get(`${session.guideId}:session-${completed.sessionId}`),
+    ).toBeDefined();
+    expect(restored.guideId).toBe(session.guideId);
   });
 });

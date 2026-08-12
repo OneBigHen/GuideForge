@@ -50,7 +50,14 @@ test('author, propose, accept, and execute a guide', async ({ page }) => {
   ).toBeVisible({ timeout: 5000 });
   await expect(page.getByText('Disconnect power first', { exact: true })).toBeVisible();
 
-  // Capture evidence
-  await page.getByRole('button', { name: /Capture photo evidence/ }).click();
-  await expect(page.getByText('photo', { exact: true })).toBeVisible();
+  // Capture real photo evidence through the native file/camera input.
+  await page.getByLabel('Procedure photo input').setInputFiles({
+    name: 'procedure.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      'base64',
+    ),
+  });
+  await expect(page.getByText(/photo:/)).toBeVisible();
 });

@@ -15,6 +15,9 @@ import {
   migrateLegacySourceRecord,
   type GuideSource,
   type LegacySourceRecord,
+  type RuntimeAttestation,
+  type RuntimeMeasurement,
+  type RuntimeSession,
   type TrainingSession,
 } from '@guideforge/guide-schema';
 import Dexie, { type Table } from 'dexie';
@@ -81,7 +84,12 @@ export interface EvidenceRecord {
   /** SHA-256 of an optional captured media asset. */
   assetHash?: string;
   mimeType?: string;
+  measurement?: RuntimeMeasurement;
+  attestation?: RuntimeAttestation;
 }
+
+/** Offline procedure execution state; the Yjs guide remains authoritative. */
+export type RuntimeSessionRecord = RuntimeSession;
 
 /** Offline learner progress; the canonical training graph stays in Yjs. */
 export type TrainingSessionRecord = TrainingSession;
@@ -137,6 +145,7 @@ export class GuideForgeDb extends Dexie {
   sources!: Table<SourceRecord, string>;
   trainingSessions!: Table<TrainingSessionRecord, string>;
   photoJobs!: Table<PhotoTo3DJobRecord, string>;
+  runtimeSessions!: Table<RuntimeSessionRecord, string>;
 
   constructor() {
     super('guideforge');
@@ -229,6 +238,21 @@ export class GuideForgeDb extends Dexie {
       runtimeBlobs: 'id, guideId, path',
       trainingSessions: 'sessionId, guideId, learnerId, status, updatedAtIso',
       photoJobs: 'jobId, status, providerId, reuseKey, updatedAtIso',
+    });
+    // v10: resumable procedure execution sessions and explicit completions.
+    this.version(10).stores({
+      guides: 'guideId, title, updatedAtIso, lifecycleState',
+      assets: 'hash, mimeType, sizeBytes',
+      assetBlobs: 'hash',
+      sourceBlobs: 'sha256',
+      evidence: 'evidenceId, guideId, stepId, capturedAtIso',
+      proposals: 'proposalId, guideId, status, createdAtIso',
+      sources: 'sourceId, guideId, sha256, receivedAtIso',
+      reports: 'id, guideId, path',
+      runtimeBlobs: 'id, guideId, path',
+      trainingSessions: 'sessionId, guideId, learnerId, status, updatedAtIso',
+      photoJobs: 'jobId, status, providerId, reuseKey, updatedAtIso',
+      runtimeSessions: 'sessionId, guideId, learnerId, status, updatedAtIso',
     });
   }
 }

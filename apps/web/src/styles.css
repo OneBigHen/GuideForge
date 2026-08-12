@@ -684,6 +684,24 @@ body {
   font-size: 0.9rem;
 }
 
+.runtime-scene {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  background: color-mix(in srgb, var(--color-bg) 70%, var(--color-surface));
+}
+
+.runtime-scene h2 {
+  margin: 0 0 var(--space-1);
+  font-size: 1rem;
+}
+
+.runtime-scene p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
 .evidence-actions {
   display: flex;
   gap: var(--space-2);
