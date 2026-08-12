@@ -18,9 +18,12 @@ gateway and labeled **"offline deterministic"** in the proposals panel. The
 panel never claims a live provider ran when it did not (Phase 01 provider
 transparency).
 
-Personal releases exported from the browser are **unsigned** (the manifest
-declares `signed: false`) and the XR viewer shows a trust warning. Signing
-keys never exist in browser storage.
+Personal releases exported without an authenticated companion are
+**unsigned** (the manifest declares `signed: false`) and the XR viewer shows a
+trust warning. When an authenticated companion has an active signing key, the
+browser sends only the canonical manifest to the companion, receives the
+signature, and assembles the signed package locally. Private signing keys never
+exist in browser storage.
 
 ## Companion mode (optional local/self-hosted)
 

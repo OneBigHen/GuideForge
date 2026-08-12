@@ -128,8 +128,8 @@ function EditPage() {
       URL.revokeObjectURL(url);
       setReleaseInfo(
         unsigned
-          ? 'Exported personal release (unsigned — signing keys stay in the companion, never the browser).'
-          : 'Exported release.',
+          ? 'Exported personal release (unsigned — connect an authenticated companion to sign it).'
+          : 'Exported companion-signed personal release.',
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

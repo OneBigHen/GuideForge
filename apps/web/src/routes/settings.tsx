@@ -1,6 +1,7 @@
 import type { StorageHealth } from '@guideforge/storage-web';
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useState, type FormEvent } from 'react';
+import { companionRequest } from '../services/companionClient';
 import {
   getLastBackupAtIso,
   getStorageHealth,
@@ -39,32 +40,10 @@ interface Settings {
   passkey: { available: boolean; seam: string };
 }
 
-const companionBase =
-  (import.meta.env.VITE_COMPANION_URL as string | undefined)?.replace(/\/$/, '') ?? '';
-
 function formatBytes(value: number | null): string {
   if (value === null) return 'Unavailable';
   if (value < 1024 * 1024) return `${Math.round(value / 1024)} KiB`;
   return `${(value / (1024 * 1024 * 1024) >= 1 ? value / (1024 * 1024 * 1024) : value / (1024 * 1024)).toFixed(1)} ${value / (1024 * 1024 * 1024) >= 1 ? 'GiB' : 'MiB'}`;
-}
-
-async function companionRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers = new Headers(init.headers);
-  if (init.body && !headers.has('content-type')) headers.set('content-type', 'application/json');
-  const response = await fetch(`${companionBase}${path}`, {
-    ...init,
-    credentials: 'include',
-    headers,
-  });
-  const body: unknown = await response.json().catch(() => null);
-  if (!response.ok) {
-    const message =
-      body && typeof body === 'object' && 'error' in body && typeof body.error === 'string'
-        ? body.error
-        : `Companion request failed (${response.status})`;
-    throw new Error(message);
-  }
-  return body as T;
 }
 
 function errorMessage(error: unknown): string {

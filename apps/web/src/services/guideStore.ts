@@ -45,9 +45,11 @@ import {
 import { importMsGuide as msImport } from '@guideforge/interop-ms-guide';
 import {
   canonicalJson,
+  canonicalJsonRfc8785,
   createDraftPackageAsync,
   createReleasePackage,
   extractZipArchive,
+  FIXED_TIMESTAMP,
   sanitizePackageMetadata,
   verifyPackageStructureAsync,
   webSha256,
@@ -69,7 +71,8 @@ import {
   type StorageHealth,
   type YjsPersistenceHandle,
 } from '@guideforge/storage-web';
-import { strFromU8 } from 'fflate';
+import { strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
+import { companionRequest } from './companionClient';
 
 export interface OpenGuideSession {
   guideId: string;
@@ -1828,14 +1831,14 @@ export async function importDraft(bytes: Uint8Array): Promise<ImportDraftResult>
 export async function exportPersonalRelease(
   session: OpenGuideSession,
   releaseVersion: string,
-): Promise<{ bytes: Uint8Array; filename: string; unsigned: true }> {
+): Promise<{ bytes: Uint8Array; filename: string; unsigned: boolean }> {
   const snapshot = materializeSnapshot(session.working);
   const validation = await validateReferencedAssets(session);
   if (validation.missing.length > 0) {
     throw new Error(`release: missing referenced assets: ${validation.missing.join(', ')}`);
   }
   const assets = await collectReferencedAssets(session, snapshot);
-  const bytes = createReleasePackage({
+  const unsignedBytes = createReleasePackage({
     snapshot,
     assets,
     release: {
@@ -1845,10 +1848,57 @@ export async function exportPersonalRelease(
       guideId: session.guideId,
     },
   });
+  let bytes = unsignedBytes;
+  let unsigned = true;
+  let keys: { keys: { keyId: string; publicKeyHex: string; status: string }[] } | null = null;
+  try {
+    keys = await companionRequest<{
+      keys: { keyId: string; publicKeyHex: string; status: string }[];
+    }>('/api/signing-keys');
+  } catch {
+    // Browser-only mode remains a valid, explicitly unsigned personal release.
+  }
+  const activeKey = keys?.keys.find((key) => key.status === 'active');
+  if (activeKey) {
+    const entries = unzipSync(unsignedBytes);
+    const manifest = JSON.parse(strFromU8(entries['manifest.json']!)) as Record<string, unknown>;
+    manifest.signed = true;
+    manifest.keyId = activeKey.keyId;
+    const payloadJson = canonicalJsonRfc8785(manifest);
+    const signature = await companionRequest<{
+      keyId: string;
+      publicKeyHex: string;
+      signatureHex: string;
+    }>(`/api/signing-keys/${encodeURIComponent(activeKey.keyId)}/sign`, {
+      method: 'POST',
+      body: JSON.stringify({ payloadJson }),
+    });
+    entries['manifest.json'] = strToU8(payloadJson);
+    entries['signatures/release-signature.json'] = strToU8(
+      canonicalJsonRfc8785({
+        format: 'gforge-release',
+        version: 1,
+        releaseId: manifest.releaseId,
+        guideId: manifest.guideId,
+        releaseVersion: manifest.releaseVersion,
+        createdAt: manifest.createdAt ?? FIXED_TIMESTAMP,
+        keyId: signature.keyId,
+        payloadJson,
+        signature: signature.signatureHex,
+        signingKey: signature.publicKeyHex,
+      }),
+    );
+    const zipEntries: Zippable = {};
+    for (const [path, data] of Object.entries(entries)) {
+      zipEntries[path] = [data, { mtime: new Date(FIXED_TIMESTAMP), level: 0 }];
+    }
+    bytes = zipSync(zipEntries, { level: 0 });
+    unsigned = false;
+  }
   return {
     bytes,
     filename: `${snapshot.title.replace(/[^a-z0-9-_]+/gi, '-')}-${releaseVersion}.gforge`,
-    unsigned: true,
+    unsigned,
   };
 }
 

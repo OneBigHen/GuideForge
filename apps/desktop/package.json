@@ -1,12 +1,13 @@
 {
   "name": "@guideforge/desktop",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "tauri dev",
     "build": "pnpm --filter @guideforge/web build",
     "build:tauri": "tauri build",
+    "build:tauri:linux": "tauri build --ci --bundles deb",
     "verify:shell": "node scripts/verify-shell.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",

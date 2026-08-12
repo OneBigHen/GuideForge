@@ -38,3 +38,6 @@ GuideForge_Single_User_AI_Build_Pack.zip
 # Production readiness pack is local audit input, not repository content
 GuideForge_Production_Readiness_Pack_abefa747/
 GuideForge_Production_Readiness_Pack_abefa747.zip
+
+# Local release candidates and native build outputs
+release-artifacts/

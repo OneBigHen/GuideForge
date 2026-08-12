@@ -119,13 +119,13 @@ not implemented; `blocked` means external hardware/provider access is needed.
 
 ## Devices, storage, release, reliability
 
-| Requirement                                   | Current source/test evidence                                                                                                                                | Status  |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| Real iPad/iPhone/Pencil/camera/PWA tests      | Phase 13 dashboard/job/backup flow and 18/18 Axe scans pass in desktop/iPad/iPhone emulation; real device unavailable here                                  | blocked |
-| Persistence/quota/backup/restore              | Settings reads live quota/persistence state; library downloads full backups and records a local last-backup marker; long-term browser recovery remains open | partial |
-| PWA production deploy                         | Manifest, Apple metadata, service-worker generation, and local offline shell build pass; production headers/deploy/install lifecycle not proven             | partial |
-| Tauri artifacts/signing/upgrade/rollback      | Desktop package builds; release operations not fully proven                                                                                                 | partial |
-| Golden micropipette/pump/filter certification | No current golden run                                                                                                                                       | missing |
+| Requirement                                   | Current source/test evidence                                                                                                                                                       | Status            |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Real iPad/iPhone/Pencil/camera/PWA tests      | Phase 13 dashboard/job/backup flow and 18/18 Axe scans pass in desktop/iPad/iPhone emulation; real device unavailable here                                                         | blocked           |
+| Persistence/quota/backup/restore              | Settings reads live quota/persistence state; library downloads full backups and records a local last-backup marker; long-term browser recovery remains open                        | partial           |
+| PWA production deploy                         | Manifest, Apple metadata, service-worker generation, checked-in CSP/cache/security-header policy, and candidate packaging pass; external HTTPS deploy/install lifecycle not proven | verified narrowly |
+| Tauri artifacts/signing/upgrade/rollback      | Linux x86_64 `.deb` builds; Windows/macOS matrix and signing/notarization are explicit external targets; manifest verification and data-preserving recovery drill pass             | verified narrowly |
+| Golden micropipette/pump/filter certification | No current golden run                                                                                                                                                              | missing           |
 
 ## Phase certification
 

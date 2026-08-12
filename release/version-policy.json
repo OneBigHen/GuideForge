@@ -1,0 +1,11 @@
+{
+  "policyVersion": 1,
+  "releaseVersion": "0.14.0-rc.1",
+  "appVersion": "0.1.0",
+  "projectSchemaVersion": 5,
+  "gforgePackageFormatVersion": 2,
+  "companionApiVersion": "0.5.0",
+  "promptSchemaVersion": "1.0.0",
+  "storageVersion": 11,
+  "runtimeSessionVersion": 2
+}

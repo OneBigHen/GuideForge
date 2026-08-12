@@ -1,4 +1,9 @@
 import type { ContentHash } from '@guideforge/domain';
+import {
+  generateSigningKeyPair,
+  signReleasePayload,
+  verifyReleasePackage,
+} from '@guideforge/package-gforge';
 import 'fake-indexeddb/auto';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { webcrypto } from 'node:crypto';
@@ -12,6 +17,7 @@ import {
   createRuntimeAttestation,
   exportDraft,
   exportFullBackup,
+  exportPersonalRelease,
   exportRuntimeCompletionReport,
   getLastBackupAtIso,
   importDraft,
@@ -65,6 +71,46 @@ describe('guide store local-first workflow', () => {
     const reopened = await openGuide(imported.guideId);
     expect(reopened.working.guide.get('title')).toBe('Round trip');
     await closeGuide(reopened);
+  });
+
+  it('assembles a companion-signed personal release without browser key material', async () => {
+    const key = generateSigningKeyPair();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input, init) => {
+      const path = String(input);
+      if (path.endsWith('/api/signing-keys')) {
+        return new Response(
+          JSON.stringify({
+            keys: [{ keyId: 'test-key-1234', publicKeyHex: key.publicKeyHex, status: 'active' }],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (path.endsWith('/api/signing-keys/test-key-1234/sign')) {
+        const body = JSON.parse(String(init?.body)) as { payloadJson: string };
+        const signed = signReleasePayload(JSON.parse(body.payloadJson), key.privateKeyHex);
+        return new Response(
+          JSON.stringify({
+            keyId: 'test-key-1234',
+            publicKeyHex: Buffer.from(signed.publicKey).toString('hex'),
+            signatureHex: Buffer.from(signed.signature).toString('hex'),
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      return new Response(JSON.stringify({ error: 'unexpected companion request' }), {
+        status: 404,
+      });
+    }) as typeof fetch;
+    try {
+      const session = await createGuide('Signed personal release');
+      const release = await exportPersonalRelease(session, '1.0.0');
+      expect(release.unsigned).toBe(false);
+      expect(verifyReleasePackage(release.bytes)).toMatchObject({ ok: true, issues: [] });
+      await closeGuide(session);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it('restores a full backup including evidence and reports', async () => {
