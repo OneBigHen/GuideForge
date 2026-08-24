@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -15,14 +16,32 @@ concurrency:
 
 env:
   CI: true
+  # Integration tests (apps/api) connect to the Postgres service below.
+  DATABASE_URL: postgres://guideforge:guideforge@localhost:5432/guideforge
 
 jobs:
   check:
     name: check
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: guideforge
+          POSTGRES_PASSWORD: guideforge
+          POSTGRES_DB: guideforge
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U guideforge -d guideforge"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -50,7 +69,7 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Unit tests
+      - name: Unit + integration tests (Postgres service provided)
         run: pnpm test
 
       - name: Build
@@ -62,29 +81,75 @@ jobs:
       - name: Dependency check
         run: pnpm dep-check
 
-      - name: Secret scan
-        run: |
-          if command -v gitleaks >/dev/null 2>&1; then
-            gitleaks detect --redact --verbose
-          else
-            echo "gitleaks not installed; running regex fallback"
-            git ls-files -z | xargs -0 grep -l -I -E \
-              '(AKIA[0-9A-Z]{16}|-----BEGIN (RSA|EC|OPENSSH|PGP) PRIVATE KEY|ghp_[A-Za-z0-9]{36}|sk-[A-Za-z0-9]{20,})' \
-              && exit 1 || echo "no secrets found"
-          fi
+      - name: Policy script tests
+        run: pnpm security:policy-test
 
-      - name: Dependency audit
-        run: pnpm audit --audit-level=high || true
+      - name: Secret scan (gitleaks, regex fallback)
+        uses: gitleaks/gitleaks-action@v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: License report
-        run: pnpm dlx license-checker --summary --failOn 'GPL;AGPL' || true
+      - name: Secret scan fallback (no gitleaks)
+        if: failure()
+        run: pnpm security:secret-scan
 
-      - name: SBOM
-        run: pnpm dlx @cyclonedx/cyclonedx-npm --output-file sbom.xml || true
+      # Supply-chain gates. Per docs/security/supply-chain-policy.md these are
+      # blocking: a failure is a red build unless recorded in
+      # docs/security/reviewed-exceptions.json. No `|| true` suppression.
+      - name: Dependency audit (policy-gated)
+        run: pnpm security:audit
+
+      - name: License policy (policy-gated)
+        run: pnpm security:licenses
+
+      - name: SBOM (blocking generation)
+        run: pnpm security:sbom
 
       - name: Upload SBOM
         uses: actions/upload-artifact@v4
         with:
           name: sbom
           path: sbom.xml
+          if-no-files-found: error
+
+  e2e:
+    name: e2e (Playwright, desktop + iPad + iPhone)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: check
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          # Standalone binary install; reads the exact version from
+          # package.json packageManager. Avoids the npm self-installer,
+          # which fails on shared-runner pnpm-store cache permissions.
+          standalone: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: pnpm
+
+      - name: Install (lockfile enforced)
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers (Chromium + WebKit)
+        run: pnpm --filter @guideforge/web exec playwright install --with-deps chromium webkit
+
+      - name: Run Playwright E2E
+        run: pnpm --filter @guideforge/web test:e2e
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
           if-no-files-found: ignore
+          retention-days: 14
