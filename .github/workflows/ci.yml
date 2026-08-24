@@ -46,7 +46,10 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10.33.2
+          # Standalone binary install; reads the exact version from
+          # package.json packageManager. Avoids the npm self-installer,
+          # which fails on shared-runner pnpm-store cache permissions.
+          standalone: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -120,7 +123,10 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10.33.2
+          # Standalone binary install; reads the exact version from
+          # package.json packageManager. Avoids the npm self-installer,
+          # which fails on shared-runner pnpm-store cache permissions.
+          standalone: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
