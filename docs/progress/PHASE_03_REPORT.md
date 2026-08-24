@@ -1,113 +1,68 @@
-# Phase 03 Report — Universal Web Vertical Slice
+# Phase 03 Report — Package v2, Storage, Backup, Recovery
 
 ## Outcome
 
-The full responsive web product slice is implemented end to end: typed routes,
-a responsive app shell with separate local-save/network-sync indicators, a
-working guide library, complete task/step authoring (rich text, warnings,
-tools, parts), fake AI proposal review cards that apply accepted proposals
-through the command bus, offline-first execution with evidence capture, a
-Workbox `InjectManifest`/`generateSW` PWA with coordinated upgrades, and
-Playwright coverage on desktop, iPad, and iPhone projects — including a
-production-build offline-shell test.
+Phase 03 is verified on implementation commit
+`3f70f67e8c72662bb8a383162d41325df6721a00`; the follow-up TLS test stability
+fix is `64bc8671073e88f765ff68fa52ee11c805688cc3`. GuideForge now has a deterministic
+`.gforge` v2 portability boundary, bounded archive restore, local-first
+storage health and garbage collection, full evidence backup, and companion
+signing-key custody with rotation and revocation.
 
-## Commits
+This is a bounded production gate: the clean-profile restore is proven by the
+current web/storage tests and browser emulation. A physical iPad/iPhone,
+native OS keychain/enclave, and live provider-produced artifact are not proven
+by this phase.
 
-- `(this commit)` feat: Phase 03 universal web vertical slice
+## Implemented slices
 
-## Delivered vertical slices
+- Package v2 emits `guide.json`, content-addressed assets, canonical source
+  metadata, optional source bytes, generation/validation/cost/license reports,
+  and optional runtime evidence under a manifest-bound layout. The checked-in
+  contract is `packages/package-gforge/schemas/PackageManifest.schema.json`.
+- Import preflights ZIP central-directory metadata, validates safe relative
+  paths, enforces entry/count/ratio/per-file/total expansion limits, then
+  streams inflation with fflate. Active HTML content and non-HTTP(S) resource
+  fields are rejected before persistence or rendering.
+- Dexie migrations 5–7 add source blobs, package reports, and runtime blobs.
+  OPFS remains the preferred asset store with an IndexedDB fallback; storage
+  health reports persistence, quota estimates, near-limit state, and exposes
+  list/remove/garbage-collection operations.
+- Draft export fails closed on missing referenced bytes. Full backup includes
+  execution evidence and runtime files. Restore verifies every asset hash,
+  source/report inventory, evidence record, and runtime policy, then writes a
+  restore/migration report.
+- Companion signing uses Ed25519 material encrypted by the existing companion
+  secret boundary. The browser receives public metadata only; authenticated
+  owner routes rotate, sign, and revoke keys, deleting revoked private
+  material.
+- Settings exposes local-storage health/persistence controls and signing-key
+  status. The editor exposes full-backup export.
 
-1. **Schema + domain growth**: `GuideStep`, `GuideWarning`, `GuideTool`,
-   `GuidePart`, `MediaReference` in `guide-schema` (JSON Schema + types);
-   commands: `setStepText`, `addWarning`, `removeWarning`, `addTool`,
-   `removeTool`, `addPart`, `removePart`; reducers pure and tested.
-2. **Yjs collaboration growth**: `steps` map in the working document;
-   materialize/hydrate/apply keep steps, warnings, tools, parts in sync;
-   undo manager scopes cover step structures.
-3. **PWA**: `manifest.webmanifest`, `icon.svg`, Workbox `generateSW` service
-   worker (precache + navigation fallback), coordinated registration
-   (`update-ready` event + `activateUpdate` on user prompt — never silently
-   replaces an open editor).
-4. **Responsive shell**: capability detection (`capabilities.ts`) not UA-only;
-   separate `Saved locally` and `Local only — no server connected` pills;
-   phone hides desktop nav and shows Menu; update banner.
-5. **Library**: create/import/list/search-ready, Run + Open actions.
-6. **Authoring** (`/edit/:guideId`): task rail, step rail, instruction
-   textarea, warnings (severity-colored), tools chips, parts with quantity.
-7. **Fake AI proposals**: `generateFakeProposals`, Dexie-backed pending
-   proposals, review cards (summary, confidence, type), accept (runs command
-   with `ai-proposal-accept` origin) / reject.
-8. **Execution** (`/run/:guideId`): step cards with warnings/tools/parts,
-   evidence capture (photo/signature/note) stored in Dexie, progress header,
-   prev/next navigation.
-9. **Offline**: after first load, app shell opens without network (verified).
+## Exact evidence
 
-## Acceptance evidence
+| Check                                                                   | Result                                                                                       |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `pnpm --filter @guideforge/package-gforge test`                         | 38/38                                                                                        |
+| `pnpm --filter @guideforge/storage-web test`                            | 7/7                                                                                          |
+| `pnpm --filter @guideforge/web test`                                    | 24/24, including full backup restore                                                         |
+| `pnpm --filter @guideforge/companion test`                              | 11/11, including signing rotation/revocation                                                 |
+| `pnpm exec turbo run check --force --concurrency=2`                     | 120/120, 0 cached, 7m32.671s                                                                 |
+| Local Playwright desktop/iPad/iPhone run                                | 46 passed, 2 expected skips                                                                  |
+| GitHub check `93920393867`                                              | passed in 5m17s                                                                              |
+| GitHub Playwright `93921864628`                                         | passed in 2m58s                                                                              |
+| GitHub run `31533935448`                                                | passed for the implementation SHA                                                            |
+| GitHub run `31535994450`                                                | passed for the TLS test stability fix; check and Playwright both passed                      |
+| `pnpm boundary`, `pnpm dep-check`, policy, secret, audit, license, SBOM | passed; local secret scan used regex fallback, SBOM exited 0 with known npm tree diagnostics |
 
-| Criterion                                        | Evidence                                                                        |
-| ------------------------------------------------ | ------------------------------------------------------------------------------- |
-| Create/edit/reopen guide offline                 | unit + e2e; y-indexeddb survives restart                                        |
-| iPad authoring without hover                     | iPad Playwright project; touch-target CSS; outline rail in portrait             |
-| iPhone release execution + evidence offline      | iPhone Playwright project; run route captures evidence                          |
-| Fake proposals accept/edit/reject via commands   | e2e vertical slice (2→1 card count); unit tests accept via command bus          |
-| Update flow does not lose an open draft          | no skipWaiting without prompt; activateUpdate only from UI                      |
-| Responsive + accessibility evidence              | desktop/ipad/iphone e2e; ARIA labels, regions, roles                            |
-| App shell opens without network after first load | offline e2e (Chromium; WebKit driver cannot navigate offline — documented skip) |
+## Known limits
 
-## Test results
+- Playwright device profiles are emulation, not physical Safari/Pencil or
+  camera testing.
+- Signing private material is protected by the companion’s encrypted 0600
+  master-key boundary; native OS keychain/enclave integration remains a later
+  release gate.
+- Vite reports existing large-bundle warnings; CI reports existing Node 20
+  action deprecation and Fast Refresh warnings.
 
-- `pnpm check`: 45/45 tasks pass.
-- Unit: domain 6, guide-schema 6, ui 2, desktop 2, commands 4, package 8,
-  storage-web 5, collaboration 4, web 8 (incl. proposals) = 45.
-- Playwright e2e: 13 passed, 2 skipped (WebKit offline), across
-  desktop-chromium / ipad / iphone.
-
-## Responsive/device evidence
-
-- Desktop Chrome, iPad Pro 11, iPhone 13 projects: shell, library, editor,
-  proposals, execution all verified. Phone uses execution-first layout; tablet
-  collapses outline; no hover-only controls (all interactions have
-  touch/keyboard equivalents).
-
-## Accessibility evidence
-
-- Form labels, `aria-label` on icon buttons, `role="alert"` errors, region
-  landmarks for warnings/tools/parts, focus-visible, 44px touch targets,
-  reduced-motion. Full WCAG 2.2 AA audit remains Phase 08.
-
-## Security and privacy impact
-
-- Proposals are human-reviewable and applied only through commands (no silent
-  AI mutation); `ai-proposal-accept` origin distinguishes them.
-- Service worker only in production; no secrets; WebCrypto-only browser code.
-- Evidence stored locally in Dexie; no telemetry of document content.
-
-## Persisted schema and migration impact
-
-- Dexie v2 (adds `evidence`, `proposals` tables). `GuideSnapshot` v1 extended
-  with `steps`; migrations remain pure. Draft `.gforge` still v1.
-
-## Context7/ADR updates
-
-- ADR 0002 updated in practice (storage roles unchanged; proposals/evidence
-  added to Dexie v2).
-
-## Known limitations
-
-- Offline e2e skipped on WebKit projects (Playwright WebKit cannot navigate
-  while offline); verified on Chromium.
-- Fake AI proposals have no real source citations yet (Phase 06 adds Docling +
-  ModelGateway with citation gates).
-- Media references are schema-supported but asset attach UX ships in Phase 04
-  (spatial/media) and real capture in Phase 05+.
-
-## Blocked external dependencies
-
-- None.
-
-## Next phase readiness
-
-- READY. Phase 04 (spatial editor) builds on `scene-core`/`scene-react` and
-  the verified offline/command core.
-
-**Gate:** PASS
+**Gate: PASS — current-tree bounded package/storage/recovery evidence.**

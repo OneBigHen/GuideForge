@@ -1,0 +1,597 @@
+import Database from 'better-sqlite3';
+import { chmodSync } from 'node:fs';
+
+export interface OwnerRecord {
+  displayName: string;
+  passwordHash: string;
+  recoveryHash: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface SessionRecord {
+  id: string;
+  tokenHash: string;
+  createdAt: number;
+  expiresAt: number;
+  revokedAt: number | null;
+}
+
+export interface SecretMetadata {
+  name: string;
+  updatedAt: number;
+}
+
+export interface EncryptedSecretRecord extends SecretMetadata {
+  nonce: string;
+  ciphertext: string;
+  tag: string;
+}
+
+export interface SigningKeyRecord {
+  keyId: string;
+  publicKeyHex: string;
+  createdAt: number;
+  status: 'active' | 'revoked' | 'retired';
+  revokedAt: number | null;
+  reason: string | null;
+}
+
+export type PhotoJobQueueStatus =
+  | 'blocked'
+  | 'queued'
+  | 'preprocessing'
+  | 'shape-draft'
+  | 'paused'
+  | 'awaiting-approval'
+  | 'texturing'
+  | 'cleaning'
+  | 'completed'
+  | 'cancelled'
+  | 'failed';
+
+/** Native queue row; the browser mirrors the same payload in Dexie. */
+export interface PhotoJobQueueRecord {
+  jobId: string;
+  providerId: string;
+  gpuProfileId: string;
+  status: PhotoJobQueueStatus;
+  payloadJson: string;
+  createdAt: number;
+  updatedAt: number;
+  leaseOwner?: string | null;
+  leaseExpiresAt?: number | null;
+  attempts?: number;
+}
+
+interface OwnerRow {
+  display_name: string;
+  password_hash: string;
+  recovery_hash: string;
+  created_at: number;
+  updated_at: number;
+}
+
+interface SessionRow {
+  id: string;
+  token_hash: string;
+  created_at: number;
+  expires_at: number;
+  revoked_at: number | null;
+}
+
+interface SecretRow {
+  name: string;
+  nonce: string;
+  ciphertext: string;
+  tag: string;
+  updated_at: number;
+}
+
+interface PairingRow {
+  id: string;
+  label: string;
+  token_hash: string;
+  created_at: number;
+  expires_at: number;
+  used_at: number | null;
+}
+
+interface SigningKeyRow {
+  key_id: string;
+  public_key_hex: string;
+  created_at: number;
+  status: 'active' | 'revoked' | 'retired';
+  revoked_at: number | null;
+  reason: string | null;
+}
+
+interface PhotoJobRow {
+  job_id: string;
+  provider_id: string;
+  gpu_profile_id: string;
+  status: PhotoJobQueueStatus;
+  payload_json: string;
+  created_at: number;
+  updated_at: number;
+  lease_owner: string | null;
+  lease_expires_at: number | null;
+  attempts: number;
+}
+
+const PHOTO_JOB_COLUMNS =
+  'job_id, provider_id, gpu_profile_id, status, payload_json, created_at, updated_at, lease_owner, lease_expires_at, attempts';
+
+const MIGRATIONS = [
+  `
+    CREATE TABLE owner (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      display_name TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      recovery_hash TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+
+    CREATE TABLE sessions (
+      id TEXT PRIMARY KEY,
+      token_hash TEXT NOT NULL UNIQUE,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      revoked_at INTEGER
+    ) STRICT;
+    CREATE INDEX sessions_active_idx ON sessions (token_hash, expires_at, revoked_at);
+
+    CREATE TABLE secrets (
+      name TEXT PRIMARY KEY,
+      nonce TEXT NOT NULL,
+      ciphertext TEXT NOT NULL,
+      tag TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+
+    CREATE TABLE pairings (
+      id TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      used_at INTEGER
+    ) STRICT;
+    CREATE INDEX pairings_active_idx ON pairings (token_hash, expires_at, used_at);
+  `,
+  `
+    CREATE TABLE signing_keys (
+      key_id TEXT PRIMARY KEY,
+      public_key_hex TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('active', 'revoked', 'retired')),
+      revoked_at INTEGER,
+      reason TEXT
+    ) STRICT;
+    CREATE INDEX signing_keys_status_idx ON signing_keys (status, created_at);
+  `,
+  `
+    CREATE TABLE photo_jobs (
+      job_id TEXT PRIMARY KEY,
+      provider_id TEXT NOT NULL,
+      gpu_profile_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('blocked', 'queued', 'preprocessing', 'shape-draft', 'paused', 'awaiting-approval', 'texturing', 'cleaning', 'completed', 'cancelled', 'failed')),
+      payload_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE INDEX photo_jobs_status_idx ON photo_jobs (status, updated_at);
+  `,
+  `
+    ALTER TABLE photo_jobs ADD COLUMN lease_owner TEXT;
+    ALTER TABLE photo_jobs ADD COLUMN lease_expires_at INTEGER;
+    ALTER TABLE photo_jobs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+    CREATE INDEX photo_jobs_active_lease_idx ON photo_jobs (status, lease_expires_at);
+  `,
+] as const;
+
+export class CompanionDatabase {
+  readonly filename: string;
+  private readonly database: Database.Database;
+
+  constructor(filename = ':memory:') {
+    this.filename = filename;
+    this.database = new Database(filename);
+    this.database.pragma('foreign_keys = ON');
+    if (filename !== ':memory:') {
+      this.database.pragma('journal_mode = WAL');
+      chmodSync(filename, 0o600);
+    }
+    this.migrate();
+  }
+
+  close(): void {
+    if (this.database.open) this.database.close();
+  }
+
+  getOwner(): OwnerRecord | undefined {
+    const row = this.database
+      .prepare(
+        'SELECT display_name, password_hash, recovery_hash, created_at, updated_at FROM owner WHERE id = 1',
+      )
+      .get() as OwnerRow | undefined;
+    if (!row) return undefined;
+    return {
+      displayName: row.display_name,
+      passwordHash: row.password_hash,
+      recoveryHash: row.recovery_hash,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  createOwner(
+    displayName: string,
+    passwordHash: string,
+    recoveryHash: string,
+    now = Date.now(),
+  ): void {
+    this.database
+      .prepare(
+        'INSERT INTO owner (id, display_name, password_hash, recovery_hash, created_at, updated_at) VALUES (1, ?, ?, ?, ?, ?)',
+      )
+      .run(displayName, passwordHash, recoveryHash, now, now);
+  }
+
+  updateOwner(passwordHash: string, recoveryHash: string, now = Date.now()): void {
+    this.database
+      .prepare('UPDATE owner SET password_hash = ?, recovery_hash = ?, updated_at = ? WHERE id = 1')
+      .run(passwordHash, recoveryHash, now);
+  }
+
+  createSession(id: string, tokenHash: string, expiresAt: number, createdAt = Date.now()): void {
+    this.database
+      .prepare(
+        'INSERT INTO sessions (id, token_hash, created_at, expires_at, revoked_at) VALUES (?, ?, ?, ?, NULL)',
+      )
+      .run(id, tokenHash, createdAt, expiresAt);
+  }
+
+  getSession(tokenHash: string): SessionRecord | undefined {
+    const row = this.database
+      .prepare(
+        'SELECT id, token_hash, created_at, expires_at, revoked_at FROM sessions WHERE token_hash = ?',
+      )
+      .get(tokenHash) as SessionRow | undefined;
+    if (!row) return undefined;
+    return {
+      id: row.id,
+      tokenHash: row.token_hash,
+      createdAt: row.created_at,
+      expiresAt: row.expires_at,
+      revokedAt: row.revoked_at,
+    };
+  }
+
+  revokeSession(tokenHash: string, now = Date.now()): void {
+    this.database
+      .prepare('UPDATE sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL')
+      .run(now, tokenHash);
+  }
+
+  revokeAllSessions(now = Date.now()): void {
+    this.database.prepare('UPDATE sessions SET revoked_at = ? WHERE revoked_at IS NULL').run(now);
+  }
+
+  putSecret(record: EncryptedSecretRecord): void {
+    this.database
+      .prepare(
+        `INSERT INTO secrets (name, nonce, ciphertext, tag, updated_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(name) DO UPDATE SET nonce = excluded.nonce, ciphertext = excluded.ciphertext,
+           tag = excluded.tag, updated_at = excluded.updated_at`,
+      )
+      .run(record.name, record.nonce, record.ciphertext, record.tag, record.updatedAt);
+  }
+
+  getSecret(name: string): EncryptedSecretRecord | undefined {
+    const row = this.database
+      .prepare('SELECT name, nonce, ciphertext, tag, updated_at FROM secrets WHERE name = ?')
+      .get(name) as SecretRow | undefined;
+    if (!row) return undefined;
+    return {
+      name: row.name,
+      nonce: row.nonce,
+      ciphertext: row.ciphertext,
+      tag: row.tag,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  listSecretMetadata(): SecretMetadata[] {
+    const rows = this.database
+      .prepare('SELECT name, updated_at FROM secrets ORDER BY name')
+      .all() as { name: string; updated_at: number }[];
+    return rows.map((row) => ({ name: row.name, updatedAt: row.updated_at }));
+  }
+
+  deleteSecret(name: string): void {
+    this.database.prepare('DELETE FROM secrets WHERE name = ?').run(name);
+  }
+
+  putSigningKey(record: SigningKeyRecord): void {
+    this.database
+      .prepare(
+        `INSERT INTO signing_keys (key_id, public_key_hex, created_at, status, revoked_at, reason)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(key_id) DO UPDATE SET public_key_hex = excluded.public_key_hex,
+           status = excluded.status, revoked_at = excluded.revoked_at, reason = excluded.reason`,
+      )
+      .run(
+        record.keyId,
+        record.publicKeyHex,
+        record.createdAt,
+        record.status,
+        record.revokedAt,
+        record.reason,
+      );
+  }
+
+  getSigningKey(keyId: string): SigningKeyRecord | undefined {
+    const row = this.database
+      .prepare(
+        'SELECT key_id, public_key_hex, created_at, status, revoked_at, reason FROM signing_keys WHERE key_id = ?',
+      )
+      .get(keyId) as SigningKeyRow | undefined;
+    return row ? signingKeyFromRow(row) : undefined;
+  }
+
+  listSigningKeys(): SigningKeyRecord[] {
+    const rows = this.database
+      .prepare(
+        'SELECT key_id, public_key_hex, created_at, status, revoked_at, reason FROM signing_keys ORDER BY created_at DESC',
+      )
+      .all() as SigningKeyRow[];
+    return rows.map(signingKeyFromRow);
+  }
+
+  retireActiveSigningKeys(): void {
+    this.database
+      .prepare("UPDATE signing_keys SET status = 'retired' WHERE status = 'active'")
+      .run();
+  }
+
+  revokeSigningKey(keyId: string, reason: string, now = Date.now()): boolean {
+    const result = this.database
+      .prepare(
+        "UPDATE signing_keys SET status = 'revoked', revoked_at = ?, reason = ? WHERE key_id = ? AND status != 'revoked'",
+      )
+      .run(now, reason, keyId);
+    return result.changes > 0;
+  }
+
+  enqueuePhotoJob(record: PhotoJobQueueRecord): void {
+    this.database
+      .prepare(
+        `INSERT INTO photo_jobs (${PHOTO_JOB_COLUMNS})
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(job_id) DO UPDATE SET provider_id = excluded.provider_id,
+           gpu_profile_id = excluded.gpu_profile_id, status = excluded.status,
+           payload_json = excluded.payload_json, updated_at = excluded.updated_at,
+           lease_owner = excluded.lease_owner, lease_expires_at = excluded.lease_expires_at,
+           attempts = excluded.attempts`,
+      )
+      .run(
+        record.jobId,
+        record.providerId,
+        record.gpuProfileId,
+        record.status,
+        record.payloadJson,
+        record.createdAt,
+        record.updatedAt,
+        record.leaseOwner ?? null,
+        record.leaseExpiresAt ?? null,
+        record.attempts ?? 0,
+      );
+  }
+
+  getPhotoJob(jobId: string): PhotoJobQueueRecord | undefined {
+    const row = this.database
+      .prepare(`SELECT ${PHOTO_JOB_COLUMNS} FROM photo_jobs WHERE job_id = ?`)
+      .get(jobId) as PhotoJobRow | undefined;
+    return row ? photoJobFromRow(row) : undefined;
+  }
+
+  listPhotoJobs(status?: PhotoJobQueueStatus): PhotoJobQueueRecord[] {
+    const rows = status
+      ? (this.database
+          .prepare(
+            `SELECT ${PHOTO_JOB_COLUMNS} FROM photo_jobs WHERE status = ? ORDER BY updated_at DESC`,
+          )
+          .all(status) as PhotoJobRow[])
+      : (this.database
+          .prepare(`SELECT ${PHOTO_JOB_COLUMNS} FROM photo_jobs ORDER BY updated_at DESC`)
+          .all() as PhotoJobRow[]);
+    return rows.map(photoJobFromRow);
+  }
+
+  updatePhotoJob(
+    jobId: string,
+    status: PhotoJobQueueStatus,
+    payloadJson: string,
+    updatedAt = Date.now(),
+  ): boolean {
+    const result = this.database
+      .prepare(
+        'UPDATE photo_jobs SET status = ?, payload_json = ?, updated_at = ? WHERE job_id = ?',
+      )
+      .run(status, payloadJson, updatedAt, jobId);
+    return result.changes > 0;
+  }
+
+  /** Claim the only available GPU slot; expired work is returned to queued first. */
+  claimNextPhotoJob(
+    workerId: string,
+    leaseMs = 60_000,
+    now = Date.now(),
+  ): PhotoJobQueueRecord | undefined {
+    if (!workerId.trim()) throw new Error('photo job worker id is required');
+    if (!Number.isFinite(leaseMs) || leaseMs <= 0) throw new Error('photo job lease is invalid');
+    const transaction = this.database.transaction(() => {
+      this.database
+        .prepare(
+          `UPDATE photo_jobs
+           SET status = 'queued', lease_owner = NULL, lease_expires_at = NULL, updated_at = ?
+           WHERE status IN ('preprocessing', 'shape-draft', 'texturing', 'cleaning')
+             AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?`,
+        )
+        .run(now, now);
+      // ponytail: one global GPU lease; use per-profile locks if multiple GPUs must run concurrently.
+      const row = this.database
+        .prepare(
+          `SELECT ${PHOTO_JOB_COLUMNS} FROM photo_jobs
+           WHERE status = 'queued'
+             AND NOT EXISTS (
+               SELECT 1 FROM photo_jobs AS active
+               WHERE active.status IN ('preprocessing', 'shape-draft', 'texturing', 'cleaning')
+                 AND active.lease_owner IS NOT NULL
+                 AND active.lease_expires_at > ?
+             )
+           ORDER BY created_at ASC, job_id ASC LIMIT 1`,
+        )
+        .get(now) as PhotoJobRow | undefined;
+      if (!row) return undefined;
+      const leaseExpiresAt = now + Math.floor(leaseMs);
+      const result = this.database
+        .prepare(
+          `UPDATE photo_jobs
+           SET status = 'preprocessing', lease_owner = ?, lease_expires_at = ?,
+               attempts = attempts + 1, updated_at = ?
+           WHERE job_id = ? AND status = 'queued'`,
+        )
+        .run(workerId, leaseExpiresAt, now, row.job_id);
+      if (result.changes !== 1) return undefined;
+      return this.database
+        .prepare(`SELECT ${PHOTO_JOB_COLUMNS} FROM photo_jobs WHERE job_id = ?`)
+        .get(row.job_id) as PhotoJobRow | undefined;
+    });
+    const row = transaction();
+    return row ? photoJobFromRow(row) : undefined;
+  }
+
+  renewPhotoJobLease(jobId: string, workerId: string, leaseMs = 60_000, now = Date.now()): boolean {
+    if (!workerId.trim()) throw new Error('photo job worker id is required');
+    if (!Number.isFinite(leaseMs) || leaseMs <= 0) throw new Error('photo job lease is invalid');
+    const result = this.database
+      .prepare(
+        `UPDATE photo_jobs SET lease_expires_at = ?, updated_at = ?
+         WHERE job_id = ? AND lease_owner = ? AND lease_expires_at > ?`,
+      )
+      .run(now + Math.floor(leaseMs), now, jobId, workerId, now);
+    return result.changes === 1;
+  }
+
+  releasePhotoJobLease(
+    jobId: string,
+    workerId: string,
+    status: PhotoJobQueueStatus = 'queued',
+    payloadJson = '{}',
+    updatedAt = Date.now(),
+  ): boolean {
+    const result = this.database
+      .prepare(
+        `UPDATE photo_jobs
+         SET status = ?, payload_json = ?, updated_at = ?, lease_owner = NULL, lease_expires_at = NULL
+         WHERE job_id = ? AND lease_owner = ? AND lease_expires_at > ?`,
+      )
+      .run(status, payloadJson, updatedAt, jobId, workerId, updatedAt);
+    return result.changes === 1;
+  }
+
+  recoverExpiredPhotoJobLeases(now = Date.now()): number {
+    const result = this.database
+      .prepare(
+        `UPDATE photo_jobs
+         SET status = 'queued', lease_owner = NULL, lease_expires_at = NULL, updated_at = ?
+         WHERE status IN ('preprocessing', 'shape-draft', 'texturing', 'cleaning')
+           AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?`,
+      )
+      .run(now, now);
+    return result.changes;
+  }
+
+  createPairing(
+    id: string,
+    label: string,
+    tokenHash: string,
+    expiresAt: number,
+    createdAt = Date.now(),
+  ): void {
+    this.database
+      .prepare(
+        'INSERT INTO pairings (id, label, token_hash, created_at, expires_at, used_at) VALUES (?, ?, ?, ?, ?, NULL)',
+      )
+      .run(id, label, tokenHash, createdAt, expiresAt);
+  }
+
+  consumePairing(tokenHash: string, now = Date.now()): PairingRow | undefined {
+    const transaction = this.database.transaction(() => {
+      const row = this.database
+        .prepare(
+          'SELECT id, label, token_hash, created_at, expires_at, used_at FROM pairings WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?',
+        )
+        .get(tokenHash, now) as PairingRow | undefined;
+      if (!row) return undefined;
+      this.database.prepare('UPDATE pairings SET used_at = ? WHERE id = ?').run(now, row.id);
+      return row;
+    });
+    return transaction();
+  }
+
+  private migrate(): void {
+    this.database.exec(
+      'CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL) STRICT;',
+    );
+    const row = this.database
+      .prepare('SELECT MAX(version) AS version FROM schema_migrations')
+      .get() as { version: number | null } | undefined;
+    let version = row?.version ?? 0;
+    for (const [index, sql] of MIGRATIONS.entries()) {
+      const nextVersion = index + 1;
+      if (nextVersion <= version) continue;
+      this.database.exec('BEGIN');
+      try {
+        this.database.exec(sql);
+        this.database
+          .prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)')
+          .run(nextVersion, Date.now());
+        this.database.exec('COMMIT');
+        version = nextVersion;
+      } catch (error) {
+        this.database.exec('ROLLBACK');
+        throw error;
+      }
+    }
+  }
+}
+
+function photoJobFromRow(row: PhotoJobRow): PhotoJobQueueRecord {
+  return {
+    jobId: row.job_id,
+    providerId: row.provider_id,
+    gpuProfileId: row.gpu_profile_id,
+    status: row.status,
+    payloadJson: row.payload_json,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    leaseOwner: row.lease_owner,
+    leaseExpiresAt: row.lease_expires_at,
+    attempts: row.attempts,
+  };
+}
+
+function signingKeyFromRow(row: SigningKeyRow): SigningKeyRecord {
+  return {
+    keyId: row.key_id,
+    publicKeyHex: row.public_key_hex,
+    createdAt: row.created_at,
+    status: row.status,
+    revokedAt: row.revoked_at,
+    reason: row.reason,
+  };
+}

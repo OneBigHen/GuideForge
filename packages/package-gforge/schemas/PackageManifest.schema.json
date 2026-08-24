@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://guideforge.local/schemas/PackageManifest.schema.json",
+  "title": "GuideForge package manifest",
+  "type": "object",
+  "required": [
+    "format",
+    "version",
+    "packageType",
+    "createdAt",
+    "guideId",
+    "schemaVersion",
+    "entries",
+    "assetCount"
+  ],
+  "properties": {
+    "format": { "const": "gforge" },
+    "version": { "enum": [1, 2] },
+    "packageType": { "enum": ["draft", "backup"] },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "guideId": { "type": "string", "minLength": 1 },
+    "schemaVersion": { "type": "integer", "minimum": 1 },
+    "assetCount": { "type": "integer", "minimum": 0 },
+    "sourceCount": { "type": "integer", "minimum": 0 },
+    "sourceByteCount": { "type": "integer", "minimum": 0 },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256", "sizeBytes"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "sizeBytes": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sourceId", "metadataPath"],
+        "properties": {
+          "sourceId": { "type": "string", "minLength": 1 },
+          "metadataPath": { "type": "string", "minLength": 1 },
+          "bytesPath": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "reportPaths": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "runtime": {
+      "type": "object",
+      "required": ["evidenceIncluded"],
+      "properties": {
+        "evidenceIncluded": { "type": "boolean" },
+        "evidenceIndexPath": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": true
+}

@@ -136,6 +136,83 @@ export interface SceneNode {
   metadata: Record<string, string>;
 }
 
+export interface SceneAnnotation {
+  annotationId: EntityId;
+  kind: 'arrow' | 'label' | 'callout' | 'highlight' | 'path';
+  text: string;
+  attachmentId: EntityId | null;
+  targetNodeId: EntityId;
+  /** Local point on the target mesh (barycentric surface attachment). */
+  targetPoint: Vec3 | null;
+  /** Screen-space offset for labels/callouts. */
+  offset: { x: number; y: number } | null;
+  pathPoints: Vec3[];
+  color: string;
+}
+
+export type SurfaceAttachmentSource = 'user' | 'raycast' | 'vision' | 'procedural' | 'legacy';
+export type SurfaceAttachmentReviewState = 'draft' | 'reviewed' | 'needs-correction';
+
+/** Editor-side copy of the canonical guide-schema surface attachment. */
+export interface SceneSurfaceAttachment {
+  attachmentId: EntityId;
+  nodeId: EntityId;
+  assetHash: ContentHash | null;
+  meshName: string | null;
+  primitiveIndex: number | null;
+  triangleIndex: number | null;
+  barycentric: Vec3 | null;
+  localPoint: Vec3;
+  normal: Vec3 | null;
+  source: SurfaceAttachmentSource;
+  confidence: number;
+  reviewState: SurfaceAttachmentReviewState;
+}
+
+export interface SurfaceViewObservation {
+  viewId: string;
+  nodeId: EntityId;
+  localPoint: Vec3;
+  normal: Vec3 | null;
+  primitiveIndex: number | null;
+  triangleIndex: number | null;
+  barycentric: Vec3 | null;
+  source: 'raycast' | 'vision';
+  confidence: number;
+}
+
+/** Pick the strongest bounded multiview observation without inventing a point. */
+export function chooseSurfaceObservation(
+  observations: readonly SurfaceViewObservation[],
+): SurfaceViewObservation | null {
+  return (
+    [...observations]
+      .filter((observation) => Number.isFinite(observation.confidence))
+      .sort((a, b) => b.confidence - a.confidence || a.viewId.localeCompare(b.viewId))[0] ?? null
+  );
+}
+
+export function surfaceAttachmentFromObservation(
+  attachmentId: EntityId,
+  observation: SurfaceViewObservation,
+  assetHash: ContentHash | null,
+): SceneSurfaceAttachment {
+  return {
+    attachmentId,
+    nodeId: observation.nodeId,
+    assetHash,
+    meshName: null,
+    primitiveIndex: observation.primitiveIndex,
+    triangleIndex: observation.triangleIndex,
+    barycentric: observation.barycentric ? { ...observation.barycentric } : null,
+    localPoint: { ...observation.localPoint },
+    normal: observation.normal ? { ...observation.normal } : null,
+    source: observation.source,
+    confidence: Math.max(0, Math.min(1, observation.confidence)),
+    reviewState: 'draft',
+  };
+}
+
 export interface SceneState {
   nodes: Map<EntityId, SceneNode>;
   /** Root-level node order (stable ids under reorder). */
@@ -143,6 +220,9 @@ export interface SceneState {
   layers: Map<string, { name: string; visible: boolean; locked: boolean; color: string }>;
   cameras: CameraBookmark[];
   measurements: Measurement[];
+  annotations: SceneAnnotation[];
+  surfaceAttachments: SceneSurfaceAttachment[];
+  stepStates: Record<string, { visibleNodeIds: EntityId[]; cameraId: EntityId | null }>;
 }
 
 export interface CameraBookmark {
@@ -172,6 +252,9 @@ export function createSceneState(): SceneState {
     ]),
     cameras: [],
     measurements: [],
+    annotations: [],
+    surfaceAttachments: [],
+    stepStates: {},
   };
 }
 
@@ -204,6 +287,14 @@ export function removeNode(state: SceneState, nodeId: EntityId): SceneState {
   next.measurements = next.measurements.filter(
     (m) => !toRemove.has(m.fromNodeId) && !toRemove.has(m.toNodeId),
   );
+  next.surfaceAttachments = next.surfaceAttachments.filter((a) => !toRemove.has(a.nodeId));
+  next.annotations = next.annotations.filter((a) => !toRemove.has(a.targetNodeId));
+  for (const [stepId, step] of Object.entries(next.stepStates)) {
+    next.stepStates[stepId] = {
+      ...step,
+      visibleNodeIds: step.visibleNodeIds.filter((id) => !toRemove.has(id)),
+    };
+  }
   return next;
 }
 
@@ -244,6 +335,163 @@ function cloneSceneState(state: SceneState): SceneState {
       target: { ...c.target },
     })),
     measurements: state.measurements.map((m) => ({ ...m })),
+    annotations: state.annotations.map((a) => ({
+      ...a,
+      targetPoint: a.targetPoint ? { ...a.targetPoint } : null,
+      offset: a.offset ? { ...a.offset } : null,
+      pathPoints: a.pathPoints.map((point) => ({ ...point })),
+    })),
+    surfaceAttachments: state.surfaceAttachments.map((attachment) => ({
+      ...attachment,
+      barycentric: attachment.barycentric ? { ...attachment.barycentric } : null,
+      localPoint: { ...attachment.localPoint },
+      normal: attachment.normal ? { ...attachment.normal } : null,
+    })),
+    stepStates: Object.fromEntries(
+      Object.entries(state.stepStates).map(([stepId, step]) => [
+        stepId,
+        { ...step, visibleNodeIds: [...step.visibleNodeIds] },
+      ]),
+    ),
+  };
+}
+
+export function addMeasurement(state: SceneState, measurement: Measurement): SceneState {
+  if (state.measurements.some((item) => item.measurementId === measurement.measurementId)) {
+    return state;
+  }
+  if (!state.nodes.has(measurement.fromNodeId) || !state.nodes.has(measurement.toNodeId)) {
+    return state;
+  }
+  const next = cloneSceneState(state);
+  next.measurements.push({ ...measurement });
+  return next;
+}
+
+export function removeMeasurement(state: SceneState, measurementId: EntityId): SceneState {
+  if (!state.measurements.some((item) => item.measurementId === measurementId)) return state;
+  const next = cloneSceneState(state);
+  next.measurements = next.measurements.filter((item) => item.measurementId !== measurementId);
+  return next;
+}
+
+export function setStepState(
+  state: SceneState,
+  stepId: EntityId,
+  step: { visibleNodeIds: EntityId[]; cameraId: EntityId | null },
+): SceneState {
+  const next = cloneSceneState(state);
+  next.stepStates[stepId] = { visibleNodeIds: [...step.visibleNodeIds], cameraId: step.cameraId };
+  return next;
+}
+
+export function distanceBetweenNodes(
+  state: SceneState,
+  fromNodeId: EntityId,
+  toNodeId: EntityId,
+): number | null {
+  const from = worldTransform(state, fromNodeId)?.position;
+  const to = worldTransform(state, toNodeId)?.position;
+  if (!from || !to) return null;
+  return Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z);
+}
+
+export function addSurfaceAttachment(
+  state: SceneState,
+  attachment: SceneSurfaceAttachment,
+): SceneState {
+  if (!state.nodes.has(attachment.nodeId)) return state;
+  if (state.surfaceAttachments.some((item) => item.attachmentId === attachment.attachmentId)) {
+    return state;
+  }
+  const next = cloneSceneState(state);
+  next.surfaceAttachments.push({
+    ...attachment,
+    localPoint: { ...attachment.localPoint },
+    barycentric: attachment.barycentric ? { ...attachment.barycentric } : null,
+    normal: attachment.normal ? { ...attachment.normal } : null,
+  });
+  return next;
+}
+
+export function updateSurfaceAttachment(
+  state: SceneState,
+  attachmentId: EntityId,
+  patch: Partial<Omit<SceneSurfaceAttachment, 'attachmentId'>>,
+): SceneState {
+  const current = state.surfaceAttachments.find((item) => item.attachmentId === attachmentId);
+  if (!current) return state;
+  const next = cloneSceneState(state);
+  const index = next.surfaceAttachments.findIndex((item) => item.attachmentId === attachmentId);
+  next.surfaceAttachments[index] = {
+    ...current,
+    ...patch,
+    localPoint: patch.localPoint ? { ...patch.localPoint } : { ...current.localPoint },
+    barycentric:
+      patch.barycentric === undefined
+        ? current.barycentric
+          ? { ...current.barycentric }
+          : null
+        : patch.barycentric
+          ? { ...patch.barycentric }
+          : null,
+    normal:
+      patch.normal === undefined
+        ? current.normal
+          ? { ...current.normal }
+          : null
+        : patch.normal
+          ? { ...patch.normal }
+          : null,
+  };
+  return next;
+}
+
+export function removeSurfaceAttachment(state: SceneState, attachmentId: EntityId): SceneState {
+  if (!state.surfaceAttachments.some((item) => item.attachmentId === attachmentId)) return state;
+  const next = cloneSceneState(state);
+  next.surfaceAttachments = next.surfaceAttachments.filter(
+    (item) => item.attachmentId !== attachmentId,
+  );
+  next.annotations = next.annotations.map((annotation) =>
+    annotation.attachmentId === attachmentId
+      ? { ...annotation, attachmentId: null, targetPoint: null }
+      : annotation,
+  );
+  return next;
+}
+
+/** World position is derived from the node transform; the local attachment never moves. */
+export function worldPointForSurfaceAttachment(
+  state: SceneState,
+  attachmentId: EntityId,
+): Vec3 | null {
+  const attachment = state.surfaceAttachments.find((item) => item.attachmentId === attachmentId);
+  if (!attachment) return null;
+  const transform = worldTransform(state, attachment.nodeId);
+  return transform ? composeLocalPosition(transform, attachment.localPoint) : null;
+}
+
+/** A deterministic geometric anchor used when no mesh raycast is available. */
+export function createGeometricSurfaceAttachment(
+  input: Pick<SceneSurfaceAttachment, 'attachmentId' | 'nodeId' | 'assetHash' | 'localPoint'> &
+    Partial<
+      Pick<SceneSurfaceAttachment, 'normal' | 'meshName' | 'primitiveIndex' | 'triangleIndex'>
+    >,
+): SceneSurfaceAttachment {
+  return {
+    attachmentId: input.attachmentId,
+    nodeId: input.nodeId,
+    assetHash: input.assetHash,
+    meshName: input.meshName ?? null,
+    primitiveIndex: input.primitiveIndex ?? null,
+    triangleIndex: input.triangleIndex ?? null,
+    barycentric: null,
+    localPoint: { ...input.localPoint },
+    normal: input.normal ? { ...input.normal } : null,
+    source: 'procedural',
+    confidence: 0.5,
+    reviewState: 'draft',
   };
 }
 

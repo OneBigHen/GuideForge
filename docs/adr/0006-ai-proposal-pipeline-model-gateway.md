@@ -1,6 +1,6 @@
 # ADR 0006 — AI Proposal Pipeline and Model Gateway
 
-**Status:** Accepted (amended 2026-08-05: DeepSeek is the primary provider; Docling is a local Python venv)
+**Status:** Accepted (amended 2026-08-12: OpenRouter-hosted DeepSeek is the current self-hosted transport; Docling is a local Python venv)
 **Date:** 2026-08-04
 **Owners:** GuideForge build agent
 **Related phase/issue:** Phase 06
@@ -38,14 +38,22 @@ usage accounting.
 
 ## Current official documentation
 
+### Current single-user deployment override (2026-08-12)
+
+The current Compose deployment selects OpenRouter explicitly with
+`GUIDEFORGE_MODEL_PROVIDER=openrouter` and keeps `OPENROUTER_API_KEY` on the
+server. The semantic model remains DeepSeek and receipts preserve
+`provider: openrouter`; the official DeepSeek adapter remains available by
+selecting `deepseek`.
+
 Verified via registry metadata and live calls 2026-08-04/05:
 
-| Technology                 | Exact version / ref                          |
-| -------------------------- | -------------------------------------------- |
-| DeepSeek official API      | api.deepseek.com (v4-flash, v4-pro live)     |
-| docling (PyPI, venv)       | 2.118.0 (no-OCR, no-table deterministic)     |
-| fast-check                 | 4.9.0 (property tests)                       |
-| ai/granite-docling (image) | latest (IBM-maintained serving image)        |
+| Technology                 | Exact version / ref                      |
+| -------------------------- | ---------------------------------------- |
+| DeepSeek official API      | api.deepseek.com (v4-flash, v4-pro live) |
+| docling (PyPI, venv)       | 2.118.0 (no-OCR, no-table deterministic) |
+| fast-check                 | 4.9.0 (property tests)                   |
+| ai/granite-docling (image) | latest (IBM-maintained serving image)    |
 
 ## Decision
 
@@ -58,9 +66,10 @@ Verified via registry metadata and live calls 2026-08-04/05:
    never arbitrary token windows.
 4. **Extraction contract**: strict `ExtractionOutput` JSON Schema; model
    output must validate before any proposal is created.
-5. **ModelGateway**: ordered provider fallback; `DeepSeekAdapter` is the
-   primary real provider (server-side key); `OpenRouterAdapter` remains
-   available for self-hosted deployments that prefer it;
+5. **ModelGateway**: ordered provider fallback; the current single-user
+   deployment uses `OpenRouterAdapter` for the semantic DeepSeek model and
+   hosted VLM, while `DeepSeekAdapter` remains available for direct official
+   API deployments;
    `DirectModelAdapter` is a seam for local models; ZDR policy routes to
    privacy-safe providers and never relaxes automatically.
 6. **Citation gate**: an actionable claim is invalid unless it cites ≥1 valid
@@ -88,8 +97,9 @@ Rejected: loses structure, harms citation quality and determinism.
 
 ### Alternative D — OpenRouter as the only provider
 
-Superseded: DeepSeek is now primary (verified live); OpenRouter kept as an
-optional server-side adapter for deployments that require it.
+Rejected as an architectural constraint: OpenRouter is the current transport,
+but the provider-independent gateway keeps direct DeepSeek and offline rules
+available without silently switching between them.
 
 ## Consequences
 

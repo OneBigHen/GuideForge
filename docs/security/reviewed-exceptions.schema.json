@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Reviewed supply-chain exceptions",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["audit", "licenses", "notes"],
+  "properties": {
+    "audit": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "package",
+          "advisory",
+          "severity",
+          "introducedBy",
+          "rationale",
+          "reviewDate",
+          "expiry"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "package": { "type": "string" },
+          "advisory": { "type": "string" },
+          "severity": { "enum": ["low", "moderate"] },
+          "introducedBy": { "type": "string" },
+          "rationale": { "type": "string" },
+          "reviewDate": { "type": "string", "format": "date" },
+          "expiry": { "type": "string", "format": "date" }
+        }
+      }
+    },
+    "licenses": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "notes": { "type": "string" }
+  }
+}

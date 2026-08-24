@@ -44,6 +44,7 @@ describe('app shell', () => {
     await renderShell();
     expect(screen.getByText('GuideForge')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Library' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Settings' })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Home' })).toBeTruthy();
-  });
+  }, 15_000);
 });

@@ -11,7 +11,7 @@ test('app shell opens without network after first load', async ({ page, context 
   test.skip(testInfo.project.use.defaultBrowserType === 'webkit', 'WebKit cannot navigate offline');
   // First load online so the service worker precaches the shell.
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'GuideForge' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Project readiness' })).toBeVisible();
 
   // Wait for the service worker to control the page.
   await page.evaluate(async () => {
@@ -22,6 +22,8 @@ test('app shell opens without network after first load', async ({ page, context 
   // Disable all network requests; the shell must still render from cache.
   await context.setOffline(true);
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'GuideForge' })).toBeVisible({ timeout: 8000 });
+  await expect(page.getByRole('heading', { name: 'Project readiness' })).toBeVisible({
+    timeout: 8000,
+  });
   await expect(page.getByRole('link', { name: 'Library', exact: true })).toBeVisible();
 });

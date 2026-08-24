@@ -15,6 +15,7 @@
   "dependencies": {
     "@guideforge/ai-contracts": "workspace:*",
     "@guideforge/domain": "workspace:*",
+    "@guideforge/ingestion": "workspace:*",
     "@guideforge/model-gateway": "workspace:*"
   },
   "devDependencies": {

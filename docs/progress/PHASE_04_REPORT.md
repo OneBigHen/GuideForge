@@ -1,108 +1,111 @@
-# Phase 04 Report — Spatial Editor
+# Phase 04 Report — Real Multimodal Ingestion
 
-## Outcome
+**Status:** implementation complete; production gate **UNVERIFIED**
 
-A professional procedure-focused 3D editor is implemented with a clean
-two-layer architecture: pure serializable `scene-core` (math, snapping,
-alignment, health) and a React Three Fiber `scene-react` renderer. The editor
-supports hierarchy, selection, transform gizmos with numeric alternatives,
-grid/angle snapping, visibility/lock, multiselect align/distribute as single
-commands, an accessible DOM hierarchy, demand rendering, and context-loss
-handling. Scene state persists per-guide in Dexie; nothing Three.js is
-persisted.
+This report supersedes the historical asset-library report that previously
+used the Phase 04 number. It is evidence for the Production Readiness Pack
+phase `PHASE_04_REAL_MULTIMODAL_INGESTION.md`, not an inherited PASS claim.
 
-## Commits
+## Delivered
 
-- `(this commit)` feat: Phase 04 spatial editor
+- `packages/ingestion` now preserves provider locators, emits provider and
+  conversion-quality receipts, supports cancellable retry jobs, and reports
+  cited-region revision impact.
+- `apps/worker-documents` now has a real Docling bridge with OCR and table
+  structure enabled, provenance bboxes, table/figure extraction, page-image
+  export, and provider receipts. Docling table metadata is also emitted as
+  citable `table-row` blocks. PDFs without Docling page images use the native
+  Poppler renderer, and a Docling failure can use that renderer only when a
+  real VLM provider is configured; the path never falls back to
+  `FakeDoclingConverter`.
+- `OpenAiCompatibleVlmProvider` is used for deterministic `vlm-fallback` or an
+  empty short OCR route when rendered page images are available.
+- Poppler XML geometry is an additive figure fallback when Docling returns no
+  figures; full-page scan images are excluded so they cannot masquerade as
+  embedded figures.
+- `WhisperMediaConverter` uses `ffprobe`, Whisper/faster-whisper, and ffmpeg
+  keyframes to produce timestamped speech and keyframe segments. Missing
+  `WHISPER_MODEL` is an explicit provider error.
+- Browser Source Studio keeps text/Markdown local-first. Binary, image, audio,
+  and video uploads are stored as `failed` with a companion/provider receipt;
+  no new completed record uses `asr-pending`.
+- Source Studio region buttons expose the selected excerpt and page,
+  slide/sheet, or time locator with `aria-current` citation navigation.
 
-## Delivered vertical slices
+## Focused evidence
 
-1. **scene-core** (pure TS): `SceneNode`/`SceneState`/`CameraBookmark`/
-   `Measurement`, `Vec3`/`Quat`/`Transform` math (rotate, compose, euler
-   conversion), `worldTransform`, root-of, snapping (`snapValue`,
-   `snapPosition`, `snapRotationEuler`), alignment/distribution (`alignPositions`,
-   `distributePositions`), step scene state, `evaluateSceneHealth` with budgets.
-2. **Scene commands + reducer**: `SCENE_COMMAND_TYPES` incl. `alignSelected`,
-   `distributeSelected` (single-command multiselect ops); cycle-safe reparent;
-   descendant-aware remove; duplicate; cameras.
-3. **scene-react**: `SceneViewport` (`frameloop="demand"`, DPR [1,2],
-   `TransformControls`, `Grid`, `OrbitControls`, GLB by content-hash URL,
-   context-lost notice), hierarchy renderer, numeric transform inspector.
-4. **Scene editor page** (`/scene/$guideId`): hierarchy rail (visibility/lock
-   toggles, depth indent), viewport with toolbar (translate/rotate/scale,
-   world/local, snap, grid size), inspector (position/scale numeric fields,
-   reset), health banner, context-lost alert, Add/Delete/Align/Distribute.
-5. **Persistence**: dedicated `guideforge-scenes` Dexie DB,
-   `loadScene`/`saveScene`/`dispatchSceneCommand`, `SerializedScene`.
-6. **Accessibility**: hierarchy buttons with `aria-pressed`, labeled numeric
-   fields, toolbar with `aria-label`, `aria-label` on the Canvas, focus
-   visible, keyboard-operable controls.
+| Check                                                    | Result       |
+| -------------------------------------------------------- | ------------ |
+| `pnpm --filter @guideforge/ingestion test`               | 28/28 passed |
+| `pnpm --filter @guideforge/worker-documents test`        | 25/25 passed |
+| `pnpm --filter @guideforge/web test`                     | 32/32 passed |
+| ingestion/worker/web/guide-schema/storage-web typechecks | passed       |
+| Python Docling and Whisper bridge AST parse              | passed       |
+| `git diff --check`                                       | passed       |
 
-## Acceptance evidence
+The tests cover locator preservation, quality failures, retry/cancel behavior,
+revision impact, hard-page VLM routing, absent-ASR failure, timestamp/locator
+contracts, and browser failed-state persistence. They do not substitute for a
+live provider run.
 
-| Gate                                                | Evidence                                                                  |
-| --------------------------------------------------- | ------------------------------------------------------------------------- |
-| Desktop and iPad spatial editing pass               | Playwright scene e2e on desktop-chromium + ipad projects                  |
-| Every drag has a numeric/keyboard alternative       | Position/scale numeric fields + transform-mode toolbar (non-drag)         |
-| Multiselect operations undo as one semantic command | `alignSelected`/`distributeSelected` are single commands; unit tested     |
-| Fixture scenes meet performance targets             | demand rendering + DPR cap + health budgets; e2e on SwiftShader passes    |
-| GPU resources dispose correctly                     | React unmount + demand framing; drei/three managed by R3F                 |
-| Context loss provides recovery/fallback             | `webglcontextlost` → visible recovery alert; DOM hierarchy remains usable |
+## Current runtime audit — 2026-08-12
 
-## Test results
+The real-provider audit ran on the current host in a temporary environment
+outside the repository. It used `docling-slim` 2.119.0, `docling-core` 2.91.0,
+`docling-ibm-models` 3.14.0, RapidOCR 3.9.2, ONNX Runtime 1.28.0, CPU Torch
+2.5.1, Transformers 5.15.0, faster-whisper 1.2.1, ctranslate2 4.8.1,
+ffmpeg/ffprobe 5.1.9, Tesseract 5.3.0, and Poppler 22.12.0. Temporary model
+caches and generated fixtures remain under `/tmp` and are not repository
+inputs.
 
-- `pnpm check`: 55/55 tasks pass.
-- scene-core: 17 tests (incl. fast-check properties: command sequences,
-  euler round-trip, snapping, alignment, distribution).
-- scene-react: 2 contract tests.
-- Playwright e2e: 22 passed, 2 skipped (WebKit offline) across
-  desktop/ipad/iphone incl. the scene editor vertical slice.
+| Real input / path                       | Result                                                                                                                         | Evidence                                                              |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| Digital PDF, SHA-256 `7c44126f…`        | complete through `ingestMultimodal`; text-layer route; 3 citable page regions; 1 table; quality 1.0                            | runtime receipt reported `docling-slim` 2.119.0 after the receipt fix |
+| Embedded-image PDF, SHA-256 `7fcf6220…` | prior run had 5 OCR/text regions but no figure object or page image; Poppler XML figure/page-image fallbacks now exist         | rerun the fixture to capture real bbox evidence                       |
+| Scanned-image PDF, SHA-256 `ff056d18…`  | prior CPU OCR run stopped with exit 130 after sustained paging; failed Docling can now hand rendered pages to a configured VLM | no live golden fallback receipt is claimed yet                        |
+| DOCX, SHA-256 `e4089de0…`               | 2 citable paragraphs and 1 table; quality 1.0                                                                                  | real Docling bridge                                                   |
+| CSV / XLSX                              | prior run returned tables but 0 citable text blocks; table metadata now becomes citable `table-row` blocks                     | rerun the fixtures to capture the updated receipt                     |
+| PNG, SHA-256 `97c12559…`                | 1 OCR region; quality 1.0                                                                                                      | real Docling bridge                                                   |
+| WAV, SHA-256 `a3efa09b…`                | 2 timestamped speech regions; `ffprobe` and Whisper 1.2.1 receipts; quality 1.0                                                | tiny CPU model misheard “microliters” and “aspirate”                  |
+| MP4, SHA-256 `8c899cea…`                | complete through `ingestMultimodal`; 2 speech regions and 4 ffmpeg keyframes; 3 provider receipts; quality 1.0                 | real `WhisperMediaConverter.asConverter()` path                       |
 
-## Responsive/device evidence
+The local Ollama OpenAI-compatible VLM probe also ran against the existing
+`qwen3-vl:2b-instruct-q4_K_M` model and returned HTTP 500 because Ollama
+required 5.4 GiB while only 5.2 GiB was available to the model. No VLM
+fallback pass is claimed. The local Strix wrapper remained inconclusive because
+the Strix CLI was not installed or cached; the running `strix` container is a
+camera-discovery service, not the required security scanner.
 
-- Scene editor layouts at desktop (3-pane), tablet (2-pane, ≤1100px), and
-  phone (single column, viewport first) via CSS media queries + capability
-  detection; verified by Playwright projects.
+The hosted VLM transport was separately exercised against a rendered PNG page
+through OpenRouter's `google/gemini-3.5-flash-lite` vision model. It returned
+the exact safety and torque text with an `openrouter-vlm` receipt. The worker
+now supplies Poppler-rendered pages when Docling emits none or fails, but a
+real golden scanned-PDF fallback run remains open.
 
-## Accessibility evidence
+The bridge now records the runtime `docling` or `docling-slim` distribution
+version, and assembled conversion receipts prefer that runtime version over
+the configured fallback. The worker test suite is 25/25, with worker
+typecheck, lint, format, and `git diff --check` passing after these changes.
 
-- DOM hierarchy is the synchronized scene alternative (name, visibility,
-  selection); numeric fields for all transforms; toolbar buttons with
-  `aria-pressed`; focus-visible; role/aria labels. Full WCAG 2.2 AA remains
-  Phase 08.
+## Gate decision
 
-## Security and privacy impact
+The Pack gate requires a golden digital PDF, scanned/OCR PDF, table/figure
+bboxes, Office/image inputs, real timestamped ASR/video keyframes, VLM
+fallback, and quality reports. The current code now closes the table-citation,
+PDF-render, and additive figure-geometry seams, but the required fixtures have
+not been rerun through the new fallbacks and no live golden-provider evidence
+is claimed. Phase 04 remains **UNVERIFIED**, not PASS.
 
-- GLB assets loaded via content-hash URL resolver only (no arbitrary URLs).
-- Scene stored locally; no scene content in telemetry.
-- No secrets.
+## Persisted and security impact
 
-## Persisted schema and migration impact
+Source region locators and quality/provider receipt fields are additive to the
+legacy Dexie source record and are carried into canonical provenance. Source
+bytes remain content-addressed. Provider failures are visible to the user;
+there is no silent fake or pending-as-complete path.
 
-- New Dexie DB `guideforge-scenes` v1 (`scenes` table). `SerializedScene` is
-  explicit; scene data never touches Yjs or the guide snapshot.
+## Next action
 
-## Context7/ADR updates
-
-- ADR 0003 (spatial editor architecture) added.
-
-## Known limitations
-
-- GLB asset import into the scene UI is not yet wired (asset attach UX is
-  Phase 05/07 with storage-native + object storage); placeholder box meshes
-  are used when no asset hash is set.
-- Immersive XR authoring is intentionally out of scope (XR = release viewer,
-  Phase 08).
-- Pencil input uses pointer events (already supported by R3F); dedicated
-  pencil gesture tuning is a device-matrix item (Phase 08).
-
-## Blocked external dependencies
-
-- None.
-
-## Next phase readiness
-
-- READY. Phase 05 (control plane, OIDC, RBAC, collaboration, governance) can
-  build on the verified offline + scene core.
-
-**Gate:** PASS
+Run the companion golden corpus with the OpenRouter key injected only into the
+runtime environment, capture scanned/VLM/table/figure receipts, and verify the
+Poppler fallback against the legally usable golden corpus before certifying
+this phase.

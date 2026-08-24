@@ -12,7 +12,8 @@ import {
   closeGuide,
   dispatchCommand,
   exportDraft,
-  exportSignedRelease,
+  exportFullBackup,
+  exportPersonalRelease,
   generateFakeProposals,
   openGuide,
   renameGuide,
@@ -114,10 +115,10 @@ function EditPage() {
     setShowProposals(true);
   }
 
-  function handleExportRelease() {
+  async function handleExportRelease() {
     if (!session) return;
     try {
-      const { bytes, filename, publicKeyHex } = exportSignedRelease(session, '1.0.0');
+      const { bytes, filename, unsigned } = await exportPersonalRelease(session, '1.0.0');
       const blob = new Blob([bytes as BlobPart], { type: 'application/zip' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -125,7 +126,50 @@ function EditPage() {
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
-      setReleaseInfo(`Exported signed release. Public key: ${publicKeyHex.slice(0, 16)}…`);
+      setReleaseInfo(
+        unsigned
+          ? 'Exported personal release (unsigned — connect an authenticated companion to sign it).'
+          : 'Exported companion-signed personal release.',
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function handleExportDraft() {
+    if (!session) return;
+    try {
+      // Draft export must produce an actual download (audit finding: the
+      // returned package was previously discarded).
+      const { bytes, filename } = await exportDraft(session);
+      const blob = new Blob([bytes as BlobPart], { type: 'application/zip' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function handleExportBackup() {
+    if (!session) return;
+    try {
+      const { bytes, filename } = await exportFullBackup(session);
+      const blob = new Blob([bytes as BlobPart], { type: 'application/zip' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      setReleaseInfo(
+        'Exported a full backup with sources, reports, assets, and execution evidence.',
+      );
+      setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -142,8 +186,14 @@ function EditPage() {
         </Link>
         <h1 id="edit-title">Edit guide</h1>
         <div className="edit-header__actions">
+          <Link to="/sources/$guideId" params={{ guideId }} className="button button--small">
+            Source Studio
+          </Link>
           <Link to="/scene/$guideId" params={{ guideId }} className="button button--small">
             Spatial editor
+          </Link>
+          <Link to="/training/$guideId" params={{ guideId }} className="button button--small">
+            Training studio
           </Link>
           <button
             type="button"
@@ -155,17 +205,25 @@ function EditPage() {
           <button
             type="button"
             className="button button--ghost"
-            onClick={() => void exportDraft(session!)}
+            onClick={() => void handleExportDraft()}
           >
             Export .gforge
           </button>
           <button
             type="button"
             className="button button--ghost"
-            onClick={() => handleExportRelease()}
+            onClick={() => void handleExportBackup()}
+            title="Export a complete restorable project backup"
+          >
+            Export full backup
+          </button>
+          <button
+            type="button"
+            className="button button--ghost"
+            onClick={() => void handleExportRelease()}
             title="Export an Ed25519-signed release package"
           >
-            Export release
+            Export personal release
           </button>
         </div>
       </div>

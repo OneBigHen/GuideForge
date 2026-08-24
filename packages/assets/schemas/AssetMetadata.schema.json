@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://guideforge.dev/schemas/AssetMetadata.schema.json",
+  "title": "GuideForge canonical asset metadata",
+  "type": "object",
+  "required": [
+    "assetId",
+    "contentHash",
+    "derivativeHashes",
+    "name",
+    "aliases",
+    "tags",
+    "format",
+    "mimeTypes",
+    "sizeBytes",
+    "dimensionsMeters",
+    "origin",
+    "reviewState",
+    "geometryHealth",
+    "semanticAliases",
+    "semanticAnchors",
+    "usedByProjectIds",
+    "createdAtIso",
+    "updatedAtIso"
+  ],
+  "properties": {
+    "assetId": { "type": "string", "minLength": 1 },
+    "contentHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "derivativeHashes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "hash"],
+        "properties": {
+          "kind": { "enum": ["lod1", "lod2", "preview", "turntable"] },
+          "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "name": { "type": "string", "minLength": 1 },
+    "aliases": { "type": "array", "items": { "type": "string" } },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "format": { "enum": ["glb", "gltf", "obj", "stl", "step"] },
+    "mimeTypes": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "sizeBytes": { "type": "integer", "minimum": 0 },
+    "dimensionsMeters": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["x", "y", "z"],
+          "properties": {
+            "x": { "type": "number", "exclusiveMinimum": 0 },
+            "y": { "type": "number", "exclusiveMinimum": 0 },
+            "z": { "type": "number", "exclusiveMinimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "origin": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["import", "provider", "procedural", "photo-to-3d", "user"] },
+        "provider": { "type": "string" },
+        "record": { "type": "string" },
+        "creator": { "type": "string" },
+        "attribution": { "type": "string" },
+        "licenseId": { "type": "string" },
+        "licenseText": { "type": "string" },
+        "restrictions": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "reviewState": {
+      "enum": [
+        "proxy",
+        "generated-draft",
+        "visually-reviewed",
+        "dimension-checked",
+        "controls-mapped",
+        "source-cad",
+        "manufacturer-verified"
+      ]
+    },
+    "geometryHealth": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": [
+            "triangleCount",
+            "vertexCount",
+            "materialCount",
+            "textureCount",
+            "nonManifoldEdges",
+            "boundsMeters",
+            "issues"
+          ],
+          "properties": {
+            "triangleCount": { "type": "integer", "minimum": 0 },
+            "vertexCount": { "type": "integer", "minimum": 0 },
+            "materialCount": { "type": "integer", "minimum": 0 },
+            "textureCount": { "type": "integer", "minimum": 0 },
+            "nonManifoldEdges": {
+              "anyOf": [{ "type": "null" }, { "type": "integer", "minimum": 0 }]
+            },
+            "boundsMeters": { "type": ["object", "null"] },
+            "issues": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "semanticAliases": { "type": "array", "items": { "type": "string" } },
+    "semanticAnchors": { "type": "array", "items": { "type": "object" } },
+    "usedByProjectIds": { "type": "array", "items": { "type": "string" } },
+    "createdAtIso": { "type": "string", "format": "date-time" },
+    "updatedAtIso": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

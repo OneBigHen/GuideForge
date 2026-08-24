@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import {
   createGuide,
+  exportGuideBackup,
   importDraft,
   importMsGuidePackage,
   listGuides,
@@ -18,6 +19,7 @@ function LibraryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState('');
+  const [backupGuideId, setBackupGuideId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,9 +76,32 @@ function LibraryPage() {
     }
   }
 
+  async function handleBackup(guideId: string): Promise<void> {
+    setBackupGuideId(guideId);
+    setError(null);
+    try {
+      const { bytes, filename } = await exportGuideBackup(guideId);
+      const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/zip' }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBackupGuideId(null);
+    }
+  }
+
   return (
     <section aria-labelledby="library-title">
       <h1 id="library-title">Guide library</h1>
+      <p>
+        <Link to="/assets" className="button button--ghost button--small">
+          Open asset manager
+        </Link>
+      </p>
 
       <div className="library-actions">
         <label className="field">
@@ -149,6 +174,14 @@ function LibraryPage() {
               >
                 Open
               </Link>
+              <button
+                type="button"
+                className="button button--ghost button--small"
+                disabled={backupGuideId === g.guideId}
+                onClick={() => void handleBackup(g.guideId)}
+              >
+                {backupGuideId === g.guideId ? 'Preparing…' : 'Backup'}
+              </button>
             </li>
           ))}
         </ul>

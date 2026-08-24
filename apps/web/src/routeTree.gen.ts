@@ -10,19 +10,46 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AssetsRouteImport } from './routes/assets'
+import { Route as JobsRouteImport } from './routes/jobs'
 import { Route as LibraryRouteImport } from './routes/library'
+import { Route as PhotoTo3dRouteImport } from './routes/photo-to-3d'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as EditGuideIdRouteImport } from './routes/edit.$guideId'
 import { Route as RunGuideIdRouteImport } from './routes/run.$guideId'
 import { Route as SceneGuideIdRouteImport } from './routes/scene.$guideId'
+import { Route as SourcesGuideIdRouteImport } from './routes/sources.$guideId'
+import { Route as TrainingGuideIdRouteImport } from './routes/training.$guideId'
+import { Route as TrainingPlayerGuideIdRouteImport } from './routes/training.player.$guideId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AssetsRoute = AssetsRouteImport.update({
+  id: '/assets',
+  path: '/assets',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const JobsRoute = JobsRouteImport.update({
+  id: '/jobs',
+  path: '/jobs',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LibraryRoute = LibraryRouteImport.update({
   id: '/library',
   path: '/library',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PhotoTo3dRoute = PhotoTo3dRouteImport.update({
+  id: '/photo-to-3d',
+  path: '/photo-to-3d',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EditGuideIdRoute = EditGuideIdRouteImport.update({
@@ -40,50 +67,123 @@ const SceneGuideIdRoute = SceneGuideIdRouteImport.update({
   path: '/scene/$guideId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SourcesGuideIdRoute = SourcesGuideIdRouteImport.update({
+  id: '/sources/$guideId',
+  path: '/sources/$guideId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TrainingGuideIdRoute = TrainingGuideIdRouteImport.update({
+  id: '/training/$guideId',
+  path: '/training/$guideId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TrainingPlayerGuideIdRoute = TrainingPlayerGuideIdRouteImport.update({
+  id: '/training/player/$guideId',
+  path: '/training/player/$guideId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/assets': typeof AssetsRoute
+  '/jobs': typeof JobsRoute
   '/library': typeof LibraryRoute
+  '/photo-to-3d': typeof PhotoTo3dRoute
+  '/settings': typeof SettingsRoute
   '/edit/$guideId': typeof EditGuideIdRoute
   '/run/$guideId': typeof RunGuideIdRoute
   '/scene/$guideId': typeof SceneGuideIdRoute
+  '/sources/$guideId': typeof SourcesGuideIdRoute
+  '/training/$guideId': typeof TrainingGuideIdRoute
+  '/training/player/$guideId': typeof TrainingPlayerGuideIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/assets': typeof AssetsRoute
+  '/jobs': typeof JobsRoute
   '/library': typeof LibraryRoute
+  '/photo-to-3d': typeof PhotoTo3dRoute
+  '/settings': typeof SettingsRoute
   '/edit/$guideId': typeof EditGuideIdRoute
   '/run/$guideId': typeof RunGuideIdRoute
   '/scene/$guideId': typeof SceneGuideIdRoute
+  '/sources/$guideId': typeof SourcesGuideIdRoute
+  '/training/$guideId': typeof TrainingGuideIdRoute
+  '/training/player/$guideId': typeof TrainingPlayerGuideIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/assets': typeof AssetsRoute
+  '/jobs': typeof JobsRoute
   '/library': typeof LibraryRoute
+  '/photo-to-3d': typeof PhotoTo3dRoute
+  '/settings': typeof SettingsRoute
   '/edit/$guideId': typeof EditGuideIdRoute
   '/run/$guideId': typeof RunGuideIdRoute
   '/scene/$guideId': typeof SceneGuideIdRoute
+  '/sources/$guideId': typeof SourcesGuideIdRoute
+  '/training/$guideId': typeof TrainingGuideIdRoute
+  '/training/player/$guideId': typeof TrainingPlayerGuideIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/library' | '/edit/$guideId' | '/run/$guideId' | '/scene/$guideId'
-  fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/library' | '/edit/$guideId' | '/run/$guideId' | '/scene/$guideId'
-  id:
-    | '__root__'
     | '/'
+    | '/assets'
+    | '/jobs'
     | '/library'
+    | '/photo-to-3d'
+    | '/settings'
     | '/edit/$guideId'
     | '/run/$guideId'
     | '/scene/$guideId'
+    | '/sources/$guideId'
+    | '/training/$guideId'
+    | '/training/player/$guideId'
+  fileRoutesByTo: FileRoutesByTo
+  to:
+    | '/'
+    | '/assets'
+    | '/jobs'
+    | '/library'
+    | '/photo-to-3d'
+    | '/settings'
+    | '/edit/$guideId'
+    | '/run/$guideId'
+    | '/scene/$guideId'
+    | '/sources/$guideId'
+    | '/training/$guideId'
+    | '/training/player/$guideId'
+  id:
+    | '__root__'
+    | '/'
+    | '/assets'
+    | '/jobs'
+    | '/library'
+    | '/photo-to-3d'
+    | '/settings'
+    | '/edit/$guideId'
+    | '/run/$guideId'
+    | '/scene/$guideId'
+    | '/sources/$guideId'
+    | '/training/$guideId'
+    | '/training/player/$guideId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AssetsRoute: typeof AssetsRoute
+  JobsRoute: typeof JobsRoute
   LibraryRoute: typeof LibraryRoute
+  PhotoTo3dRoute: typeof PhotoTo3dRoute
+  SettingsRoute: typeof SettingsRoute
   EditGuideIdRoute: typeof EditGuideIdRoute
   RunGuideIdRoute: typeof RunGuideIdRoute
   SceneGuideIdRoute: typeof SceneGuideIdRoute
+  SourcesGuideIdRoute: typeof SourcesGuideIdRoute
+  TrainingGuideIdRoute: typeof TrainingGuideIdRoute
+  TrainingPlayerGuideIdRoute: typeof TrainingPlayerGuideIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -95,11 +195,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/assets': {
+      id: '/assets'
+      path: '/assets'
+      fullPath: '/assets'
+      preLoaderRoute: typeof AssetsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/jobs': {
+      id: '/jobs'
+      path: '/jobs'
+      fullPath: '/jobs'
+      preLoaderRoute: typeof JobsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/library': {
       id: '/library'
       path: '/library'
       fullPath: '/library'
       preLoaderRoute: typeof LibraryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/photo-to-3d': {
+      id: '/photo-to-3d'
+      path: '/photo-to-3d'
+      fullPath: '/photo-to-3d'
+      preLoaderRoute: typeof PhotoTo3dRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/edit/$guideId': {
@@ -123,15 +251,43 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SceneGuideIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/sources/$guideId': {
+      id: '/sources/$guideId'
+      path: '/sources/$guideId'
+      fullPath: '/sources/$guideId'
+      preLoaderRoute: typeof SourcesGuideIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/training/$guideId': {
+      id: '/training/$guideId'
+      path: '/training/$guideId'
+      fullPath: '/training/$guideId'
+      preLoaderRoute: typeof TrainingGuideIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/training/player/$guideId': {
+      id: '/training/player/$guideId'
+      path: '/training/player/$guideId'
+      fullPath: '/training/player/$guideId'
+      preLoaderRoute: typeof TrainingPlayerGuideIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AssetsRoute: AssetsRoute,
+  JobsRoute: JobsRoute,
   LibraryRoute: LibraryRoute,
+  PhotoTo3dRoute: PhotoTo3dRoute,
+  SettingsRoute: SettingsRoute,
   EditGuideIdRoute: EditGuideIdRoute,
   RunGuideIdRoute: RunGuideIdRoute,
   SceneGuideIdRoute: SceneGuideIdRoute,
+  SourcesGuideIdRoute: SourcesGuideIdRoute,
+  TrainingGuideIdRoute: TrainingGuideIdRoute,
+  TrainingPlayerGuideIdRoute: TrainingPlayerGuideIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

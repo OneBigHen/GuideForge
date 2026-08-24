@@ -12,6 +12,9 @@
     "test": "vitest run",
     "format:check": "prettier --check src"
   },
+  "dependencies": {
+    "@noble/hashes": "catalog:"
+  },
   "devDependencies": {
     "typescript": "catalog:",
     "vitest": "catalog:"

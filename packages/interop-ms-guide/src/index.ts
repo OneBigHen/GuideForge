@@ -11,8 +11,12 @@
  *  - exports ONLY the supported subset and refuses silent loss,
  *  - never hard-codes tenant/environment URIs.
  */
-import type { ContentHash, EntityId } from '@guideforge/domain';
-import type { GuideSnapshot } from '@guideforge/guide-schema';
+import { sha256Hex, type ContentHash, type EntityId } from '@guideforge/domain';
+import {
+  createEmptyScene,
+  createEmptyTraining,
+  type GuideSnapshot,
+} from '@guideforge/guide-schema';
 import { strFromU8, strToU8 } from 'fflate';
 
 export const MAX_GUIDE_BYTES = 512 * 1024 * 1024;
@@ -162,7 +166,11 @@ export function importMsGuide(bytes: Uint8Array, source: string): ImportedGuide 
     warnings: [],
     tools: [],
     parts: [],
+    values: [],
+    conditions: [],
+    verification: [],
     media: [],
+    claimIds: [],
   }));
   // Wire stepIds per task from step.taskId.
   for (const step of steps) {
@@ -181,7 +189,7 @@ export function importMsGuide(bytes: Uint8Array, source: string): ImportedGuide 
   const guideId = crypto.randomUUID() as EntityId;
   const now = new Date().toISOString();
   const snapshot: GuideSnapshot = {
-    schemaVersion: 1,
+    schemaVersion: 5,
     guideId,
     title: source.replace(/\.guide$/i, ''),
     description: '',
@@ -190,6 +198,12 @@ export function importMsGuide(bytes: Uint8Array, source: string): ImportedGuide 
     updatedAtIso: now,
     tasks,
     steps,
+    scene: createEmptyScene(),
+    training: createEmptyTraining(),
+    sources: [],
+    claims: [],
+    citations: [],
+    generationRuns: [],
   };
 
   // Assets: only Model/Image/Video bodies are extracted; all others dropped.
@@ -328,14 +342,6 @@ function writePosixTar(files: { name: string; data: Uint8Array }[]): Uint8Array 
 }
 
 function hashBytes(bytes: Uint8Array): ContentHash {
-  // FNV-1a 64-bit hex padded to 64 chars for determinism in tests.
-  let h1 = 0x811c9dc5;
-  let h2 = 0x01000193;
-  for (const byte of bytes) {
-    h1 ^= byte;
-    h1 = Math.imul(h1, 0x01000193);
-    h2 = Math.imul(h2 ^ byte, 0x01000193);
-  }
-  const hex = (n: number) => (n >>> 0).toString(16).padStart(8, '0');
-  return `${hex(h1)}${hex(h2)}`.padEnd(64, '0') as ContentHash;
+  // Real SHA-256 of the asset bytes — deterministic content identity.
+  return sha256Hex(bytes) as ContentHash;
 }

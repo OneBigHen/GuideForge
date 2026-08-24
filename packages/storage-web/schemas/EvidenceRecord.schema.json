@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://guideforge.dev/schemas/EvidenceRecord.schema.json",
+  "title": "GuideForge offline procedure evidence",
+  "type": "object",
+  "required": ["evidenceId", "guideId", "stepId", "kind", "capturedAtIso", "actorId"],
+  "properties": {
+    "evidenceId": { "type": "string", "minLength": 1 },
+    "guideId": { "type": "string", "minLength": 1 },
+    "stepId": { "type": "string", "minLength": 1 },
+    "kind": { "enum": ["photo", "note", "signature", "measurement"] },
+    "capturedAtIso": { "type": "string", "format": "date-time" },
+    "actorId": { "type": "string", "minLength": 1 },
+    "value": { "type": "string" },
+    "assetHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "mimeType": { "type": "string" },
+    "measurement": {
+      "type": "object",
+      "required": ["label", "value", "unit"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "value": { "type": "number" },
+        "unit": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "attestation": {
+      "type": "object",
+      "required": ["algorithm", "signerId", "payloadHash", "publicKeyJwk", "signatureHex"],
+      "properties": {
+        "algorithm": { "const": "ECDSA-P256-SHA256" },
+        "signerId": { "type": "string", "minLength": 1 },
+        "payloadHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "publicKeyJwk": { "type": "object" },
+        "signatureHex": { "type": "string", "minLength": 2, "pattern": "^[0-9a-f]+$" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "photo" } } },
+      "then": {
+        "required": ["assetHash", "mimeType"],
+        "properties": {
+          "assetHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "mimeType": { "enum": ["image/jpeg", "image/png", "image/webp"] }
+        },
+        "not": {
+          "anyOf": [
+            { "required": ["measurement"], "properties": { "measurement": {} } },
+            { "required": ["attestation"], "properties": { "attestation": {} } }
+          ]
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "note" } } },
+      "then": {
+        "required": ["value"],
+        "properties": { "value": { "type": "string" } },
+        "not": {
+          "anyOf": [
+            { "required": ["assetHash"], "properties": { "assetHash": {} } },
+            { "required": ["mimeType"], "properties": { "mimeType": {} } },
+            { "required": ["measurement"], "properties": { "measurement": {} } },
+            { "required": ["attestation"], "properties": { "attestation": {} } }
+          ]
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "measurement" } } },
+      "then": {
+        "required": ["value", "measurement"],
+        "properties": {
+          "value": { "type": "string" },
+          "measurement": { "$ref": "#/properties/measurement" }
+        },
+        "not": {
+          "anyOf": [
+            { "required": ["assetHash"], "properties": { "assetHash": {} } },
+            { "required": ["mimeType"], "properties": { "mimeType": {} } },
+            { "required": ["attestation"], "properties": { "attestation": {} } }
+          ]
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "signature" } } },
+      "then": {
+        "required": ["assetHash", "mimeType", "attestation"],
+        "properties": {
+          "assetHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "mimeType": { "const": "application/json" },
+          "attestation": { "$ref": "#/properties/attestation" }
+        },
+        "not": {
+          "anyOf": [{ "required": ["measurement"], "properties": { "measurement": {} } }]
+        }
+      }
+    }
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,32 @@
+{
+  "name": "@guideforge/companion",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "format:check": "prettier --check src",
+    "build:release": "tsc -p tsconfig.release.json",
+    "dev": "tsx src/server.ts",
+    "start": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@fastify/cookie": "catalog:",
+    "@fastify/cors": "catalog:",
+    "argon2": "catalog:",
+    "better-sqlite3": "catalog:",
+    "fastify": "catalog:",
+    "tsx": "catalog:"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "catalog:",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

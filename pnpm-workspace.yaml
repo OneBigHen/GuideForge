@@ -3,6 +3,13 @@ packages:
   - 'packages/*'
   - 'services/*'
 
+# Native postinstall scripts required for vite/tsx/libxmljs builds (pnpm 10).
+onlyBuiltDependencies:
+  - argon2
+  - better-sqlite3
+  - esbuild
+  - libxmljs2
+
 # Single source of truth for exact dependency versions (ADR 0001).
 catalog:
   # React
@@ -16,6 +23,7 @@ catalog:
   '@vitejs/plugin-react': 6.0.5
   typescript: 6.0.3
   '@types/node': 26.1.2
+  '@types/pg': 8.20.4
 
   # Data / routing / state
   '@tanstack/react-router': 1.170.18
@@ -36,6 +44,9 @@ catalog:
   '@react-three/xr': 6.6.30
 
   # Server
+  argon2: 0.45.1
+  better-sqlite3: 13.0.3
+  '@types/better-sqlite3': 9.6.0
   fastify: 5.11.2
   drizzle-orm: 0.45.2
   postgres: 3.4.9
@@ -54,6 +65,7 @@ catalog:
 
   # PWA / offline
   workbox-build: 7.4.1
+  ajv: 8.20.0
 
   # Tauri
   '@tauri-apps/cli': 2.11.4
@@ -62,15 +74,18 @@ catalog:
   # Tests
   vitest: 4.1.10
   '@playwright/test': 1.62.1
+  '@axe-core/playwright': 4.12.1
   jsdom: 27.2.0
   '@testing-library/react': 16.3.0
   fast-check: 4.9.0
   fake-indexeddb: 6.2.5
+  tsx: 4.23.5
 
   # Packaging
   fflate: 0.8.3
   canonicalize: 3.0.0
   '@noble/curves': 2.2.0
+  '@noble/hashes': 2.2.0
 
   # Lint / format
   eslint: 10.8.0
@@ -78,3 +93,6 @@ catalog:
   typescript-eslint: 8.66.0
   eslint-plugin-react-hooks: 7.1.1
   eslint-plugin-react-refresh: 0.4.20
+
+  # Supply chain (SBOM)
+  '@cyclonedx/cyclonedx-npm': 6.0.0

@@ -6,7 +6,7 @@
  * The trust model: source documents are untrusted; AI proposes, never
  * silently edits or publishes.
  */
-import type { ContentHash, EntityId } from '@guideforge/domain';
+import type { ContentHash, EntityId, SourceLocator } from '@guideforge/domain';
 
 // ---------------------------------------------------------------------------
 // Intake
@@ -74,6 +74,8 @@ export interface SourceRegion {
   /** Excerpt text (deterministic; used for citation excerpt-hash checks). */
   excerpt: string;
   kind: 'paragraph' | 'heading' | 'list-item' | 'table-row' | 'figure-caption' | 'warning';
+  /** Exact source location when the provider can prove one. */
+  locator?: SourceLocator;
 }
 
 export function stableRegionId(
@@ -112,7 +114,12 @@ export function estimateTokens(text: string): number {
 export function structuralChunking(
   sourceHash: ContentHash,
   pageIndex: number,
-  blocks: { kind: SourceRegion['kind']; text: string; structuralPath: string }[],
+  blocks: {
+    kind: SourceRegion['kind'];
+    text: string;
+    structuralPath: string;
+    locator?: SourceLocator;
+  }[],
 ): ChunkedRegion[] {
   return blocks.map((block) => {
     const region: SourceRegion = {
@@ -122,6 +129,7 @@ export function structuralChunking(
       structuralPath: block.structuralPath,
       excerpt: block.text,
       kind: block.kind,
+      ...(block.locator ? { locator: block.locator } : {}),
     };
     return { region, tokenEstimate: estimateTokens(block.text) };
   });
@@ -162,23 +170,59 @@ export interface ExtractionOutput {
 export function isExtractionOutput(value: unknown): value is ExtractionOutput {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Record<string, unknown>;
-  return (
-    v.schemaVersion === 1 &&
-    typeof v.guideId === 'string' &&
-    Array.isArray(v.tasks) &&
-    v.tasks.every(
-      (t) =>
-        typeof t === 'object' &&
-        t !== null &&
-        typeof (t as Record<string, unknown>).taskId === 'string' &&
-        typeof (t as Record<string, unknown>).title === 'string' &&
-        Array.isArray((t as Record<string, unknown>).steps),
-    )
-  );
+  if (v.schemaVersion !== 1 || typeof v.guideId !== 'string' || !Array.isArray(v.tasks)) {
+    return false;
+  }
+  // Deep validation: every task must carry a taskId, title, and non-empty
+  // steps; every step must have all required string/string[] fields and valid
+  // citation entries. The model's JSON mode guarantees JSON syntax only, so
+  // domain conformance must be proven here (AGENTS_SINGLE_USER.md).
+  return v.tasks.every((t) => {
+    if (typeof t !== 'object' || t === null) return false;
+    const task = t as Record<string, unknown>;
+    if (typeof task.taskId !== 'string' || task.taskId.length === 0) return false;
+    if (typeof task.title !== 'string') return false;
+    if (!Array.isArray(task.steps) || task.steps.length === 0) return false;
+    return task.steps.every((s) => {
+      if (typeof s !== 'object' || s === null) return false;
+      const step = s as Record<string, unknown>;
+      return (
+        typeof step.stepId === 'string' &&
+        step.stepId.length > 0 &&
+        typeof step.taskId === 'string' &&
+        typeof step.action === 'string' &&
+        step.action.length > 0 &&
+        Array.isArray(step.warnings) &&
+        step.warnings.every((w) => typeof w === 'string') &&
+        Array.isArray(step.prerequisites) &&
+        step.prerequisites.every((p) => typeof p === 'string') &&
+        Array.isArray(step.tools) &&
+        step.tools.every((tl) => typeof tl === 'string') &&
+        Array.isArray(step.parts) &&
+        step.parts.every((p) => typeof p === 'string') &&
+        Array.isArray(step.values) &&
+        step.values.every(
+          (val) =>
+            typeof val === 'object' &&
+            val !== null &&
+            typeof (val as Record<string, unknown>).label === 'string' &&
+            typeof (val as Record<string, unknown>).value === 'string',
+        ) &&
+        Array.isArray(step.conditions) &&
+        step.conditions.every((c) => typeof c === 'string') &&
+        Array.isArray(step.verificationSteps) &&
+        step.verificationSteps.every((v2) => typeof v2 === 'string') &&
+        Array.isArray(step.citations) &&
+        step.citations.every((c) => typeof c === 'string')
+      );
+    });
+  });
 }
 
 export interface Citation {
   regionId: string;
+  /** SHA-256 of the source owning the cited region. */
+  sourceHash?: ContentHash;
   pageIndex: number;
   excerptHash: string;
   /** SHA-256 of the region excerpt (deterministic check). */
@@ -220,6 +264,9 @@ export function validateCitations(
     }
     if (region.pageIndex !== citation.pageIndex) {
       issues.push(`page mismatch for ${citation.regionId}`);
+    }
+    if (citation.sourceHash && citation.sourceHash !== region.sourceHash) {
+      issues.push(`source hash mismatch for ${citation.regionId}`);
     }
     if (hashExcerpt(region.excerpt) !== citation.excerptHash) {
       issues.push(`excerpt hash mismatch for ${citation.regionId}`);

@@ -8,7 +8,7 @@
  */
 import { structuralChunking, type SourceRegion } from '@guideforge/ai-contracts';
 import { GUIDE_COMMAND_TYPES } from '@guideforge/commands';
-import type { ContentHash } from '@guideforge/domain';
+import { sha256Hex, type ContentHash } from '@guideforge/domain';
 import type { GuideSnapshot } from '@guideforge/guide-schema';
 import { FakeModelAdapter, ModelGateway } from '@guideforge/model-gateway';
 import { createProposal, type NewProposal } from './guideStore';
@@ -28,10 +28,33 @@ interface ServerProposal {
   name?: string;
 }
 
+interface ServerCitation {
+  regionId: string;
+  pageIndex: number;
+  excerptHash: string;
+  claimRef: string;
+}
+
+interface ServerReceipt {
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheTokens: number;
+  providerCostUsd: number;
+  latencyMs: number;
+  requestId: string;
+  schemaVersion: string;
+  promptVersion: string;
+  createdAtIso: string;
+}
+
 interface ServerAiResponse {
   proposals: ServerProposal[];
-  citations: number;
-  receipt: { provider: string; model: string };
+  citations: ServerCitation[];
+  sourceHash: string;
+  confidence: number | null;
+  receipt: ServerReceipt;
 }
 
 export async function generateGatewayProposals(snapshot: GuideSnapshot): Promise<AiProposalResult> {
@@ -60,13 +83,26 @@ async function tryServerProposals(snapshot: GuideSnapshot): Promise<AiProposalRe
     const body = (await res.json()) as ServerAiResponse;
 
     let created = 0;
+    const receipt = {
+      provider: body.receipt.provider,
+      model: body.receipt.model,
+      inputTokens: body.receipt.inputTokens,
+      outputTokens: body.receipt.outputTokens,
+      latencyMs: body.receipt.latencyMs,
+      promptVersion: body.receipt.promptVersion,
+      schemaVersion: body.receipt.schemaVersion,
+      requestId: body.receipt.requestId,
+      createdAtIso: body.receipt.createdAtIso,
+    };
     for (const p of body.proposals) {
       const step = snapshot.steps.find((s) => s.stepId === p.stepId);
       if (!step) continue;
       const base = {
         guideId: snapshot.guideId,
-        confidence: 0.7,
-        sourceHash: sha256Hex(snapshot.title) as ContentHash,
+        confidence: body.confidence ?? 0.7,
+        sourceHash: body.sourceHash,
+        citations: body.citations,
+        receipt,
       };
       if (p.kind === 'tool' && p.name) {
         await createProposal({
@@ -94,7 +130,7 @@ async function tryServerProposals(snapshot: GuideSnapshot): Promise<AiProposalRe
         created += 1;
       }
     }
-    return { created, citations: body.citations, receiptProvider: body.receipt.provider };
+    return { created, citations: body.citations.length, receiptProvider: body.receipt.provider };
   } catch {
     return null;
   }
@@ -102,7 +138,7 @@ async function tryServerProposals(snapshot: GuideSnapshot): Promise<AiProposalRe
 
 async function generateLocalProposals(snapshot: GuideSnapshot): Promise<AiProposalResult> {
   const sourceHash = sha256Hex(
-    JSON.stringify({ title: snapshot.title, tasks: snapshot.tasks }),
+    new TextEncoder().encode(JSON.stringify({ title: snapshot.title, tasks: snapshot.tasks })),
   ) as ContentHash;
   const regions = new Map<string, SourceRegion>();
   const blocks = snapshot.steps.map((step, i) => ({
@@ -131,6 +167,23 @@ async function generateLocalProposals(snapshot: GuideSnapshot): Promise<AiPropos
   }
 
   const proposals: NewProposal[] = [];
+  const localReceipt = {
+    provider: response.receipt.provider,
+    model: response.receipt.model,
+    inputTokens: response.receipt.inputTokens,
+    outputTokens: response.receipt.outputTokens,
+    latencyMs: response.receipt.latencyMs,
+    promptVersion: response.receipt.promptVersion,
+    schemaVersion: response.receipt.schemaVersion,
+    requestId: response.receipt.requestId,
+    createdAtIso: response.receipt.createdAtIso,
+  };
+  const localBase = {
+    guideId: snapshot.guideId,
+    sourceHash,
+    citations: response.citations ?? [],
+    receipt: localReceipt,
+  };
   for (const task of response.output.tasks) {
     for (const step of task.steps) {
       for (const warning of step.warnings) {
@@ -141,7 +194,7 @@ async function generateLocalProposals(snapshot: GuideSnapshot): Promise<AiPropos
         );
         if (!snapshotStep) continue;
         proposals.push({
-          guideId: snapshot.guideId,
+          ...localBase,
           commandType: GUIDE_COMMAND_TYPES.addWarning,
           payload: {
             stepId: snapshotStep.stepId,
@@ -151,7 +204,6 @@ async function generateLocalProposals(snapshot: GuideSnapshot): Promise<AiPropos
           },
           summary: `Add safety warning: ${warning}`,
           confidence: response.confidence?.overall ?? 0.5,
-          sourceHash,
         });
       }
       for (const tool of step.tools) {
@@ -160,7 +212,7 @@ async function generateLocalProposals(snapshot: GuideSnapshot): Promise<AiPropos
         );
         if (!snapshotStep) continue;
         proposals.push({
-          guideId: snapshot.guideId,
+          ...localBase,
           commandType: GUIDE_COMMAND_TYPES.addTool,
           payload: {
             stepId: snapshotStep.stepId,
@@ -169,7 +221,6 @@ async function generateLocalProposals(snapshot: GuideSnapshot): Promise<AiPropos
           },
           summary: `Add tool: ${tool}`,
           confidence: response.confidence?.overall ?? 0.5,
-          sourceHash,
         });
       }
       for (const verification of step.verificationSteps) {
@@ -178,7 +229,7 @@ async function generateLocalProposals(snapshot: GuideSnapshot): Promise<AiPropos
         );
         if (!snapshotStep) continue;
         proposals.push({
-          guideId: snapshot.guideId,
+          ...localBase,
           commandType: GUIDE_COMMAND_TYPES.addWarning,
           payload: {
             stepId: snapshotStep.stepId,
@@ -188,7 +239,6 @@ async function generateLocalProposals(snapshot: GuideSnapshot): Promise<AiPropos
           },
           summary: `Add verification note: ${verification}`,
           confidence: response.confidence?.overall ?? 0.5,
-          sourceHash,
         });
       }
     }
@@ -205,17 +255,4 @@ async function generateLocalProposals(snapshot: GuideSnapshot): Promise<AiPropos
     citations: response.citations?.length ?? 0,
     receiptProvider: response.receipt.provider,
   };
-}
-
-function sha256Hex(text: string): string {
-  // Browser-safe deterministic hash for the proposal source reference.
-  let h1 = 0xdeadbeef;
-  let h2 = 0x41c6ce57;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text.charCodeAt(i);
-    h1 = Math.imul(h1 ^ ch, 2654435761);
-    h2 = Math.imul(h2 ^ ch, 1597334677);
-  }
-  const toHex = (n: number) => (n >>> 0).toString(16).padStart(8, '0');
-  return `${toHex(h1)}${toHex(h2)}`.padEnd(64, '0');
 }

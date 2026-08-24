@@ -6,6 +6,8 @@ These instructions apply to every coding task in this repository.
 
 `docs/UNIVERSAL_BUILD_SPEC.md` is authoritative. Architecture decision records may refine it but cannot silently contradict its non-negotiable rules.
 
+For the single-user AI studio program, `AGENTS_SINGLE_USER.md` is the repository operating policy (per `GuideForge_Single_User_AI_Build_Pack/prompts/MASTER_EXECUTION_PROMPT.md`). Its no-corner-cutting rules take precedence over convenience; original phase reports are evidence of intent, not proof of completeness.
+
 ## Non-negotiable architecture
 
 - `apps/web` is the complete canonical product.

@@ -76,8 +76,27 @@ export function ProposalsPanel({
             <li key={p.proposalId} className="proposal-card">
               <p className="proposal-card__summary">{p.summary}</p>
               <p className="proposal-card__meta">
-                confidence {Math.round(p.confidence * 100)}% · {p.commandType}
+                confidence {Math.round(p.confidence * 100)}% · {commandLabel(p.commandType)}
+                {' · provider '}
+                <span
+                  className={
+                    p.receipt?.provider === 'deepseek'
+                      ? 'provider-badge provider-badge--live'
+                      : 'provider-badge'
+                  }
+                >
+                  {providerLabel(p.receipt?.provider)}
+                </span>
               </p>
+              {proposalDetail(p).length > 0 && (
+                <p className="proposal-card__detail">{proposalDetail(p)}</p>
+              )}
+              {p.citations.length > 0 && (
+                <p className="proposal-card__citations">
+                  {p.citations.length} source citation{p.citations.length === 1 ? '' : 's'} ·{' '}
+                  {p.citations.map((c) => c.regionId).join(', ')}
+                </p>
+              )}
               <div className="proposal-card__actions">
                 <button
                   type="button"
@@ -100,4 +119,76 @@ export function ProposalsPanel({
       )}
     </div>
   );
+}
+
+/** Human label for the provider that produced a proposal (explicit, honest). */
+function providerLabel(provider: string | undefined): string {
+  switch (provider) {
+    case 'deepseek':
+      return 'DeepSeek (live)';
+    case 'fake':
+      return 'offline deterministic';
+    case 'synthesis-local':
+      return 'source-grounded local';
+    case 'none':
+      return 'none';
+    default:
+      return provider && provider.length > 0 ? provider : 'unknown';
+  }
+}
+
+const COMMAND_LABELS: Record<string, string> = {
+  'guide/add-task': 'Create task',
+  'guide/add-step': 'Create step',
+  'guide/add-warning': 'Add safety warning',
+  'guide/add-tool': 'Add tool',
+  'guide/add-part': 'Add part',
+  'guide/add-value': 'Set value',
+  'guide/add-condition': 'Add condition',
+  'guide/add-verification': 'Add verification',
+  'guide/remove-value': 'Remove value',
+  'guide/remove-condition': 'Remove condition',
+  'guide/remove-verification': 'Remove verification',
+};
+
+function commandLabel(commandType: string): string {
+  return COMMAND_LABELS[commandType] ?? commandType;
+}
+
+/** Compact, human-readable detail for the proposal payload. */
+function proposalDetail(p: AiProposalRecord): string {
+  const payload = p.payload;
+  switch (p.commandType) {
+    case 'guide/add-value': {
+      const label = stringField(payload, 'label');
+      const unit = stringField(payload, 'unit');
+      return unit ? `${label} (${unit})` : label;
+    }
+    case 'guide/add-warning': {
+      const severity = stringField(payload, 'severity');
+      return severity && severity !== 'warning' ? `severity: ${severity}` : '';
+    }
+    case 'guide/add-tool':
+    case 'guide/add-part':
+    case 'guide/add-condition':
+    case 'guide/add-verification':
+    case 'guide/add-task':
+    case 'guide/add-step': {
+      const detail =
+        stringField(payload, 'name') ??
+        stringField(payload, 'title') ??
+        stringField(payload, 'text') ??
+        stringField(payload, 'message') ??
+        stringField(payload, 'action');
+      return detail;
+    }
+    default:
+      return '';
+  }
+}
+
+/** Read a string field from an unknown payload without base-to-string. */
+function stringField(payload: Record<string, unknown>, key: string): string {
+  const value = payload[key];
+  return typeof value === 'string' ? value : '';
 }

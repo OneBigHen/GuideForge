@@ -20,9 +20,168 @@ import type {
   SourceRegion,
 } from '@guideforge/ai-contracts';
 import { computeConfidence, isExtractionOutput } from '@guideforge/ai-contracts';
-import type { ContentHash } from '@guideforge/domain';
+import { sha256Hex, type ContentHash } from '@guideforge/domain';
 
 export type PrivacyPolicy = 'zdr' | 'eu-only' | 'default';
+
+/** Official DeepSeek profiles rechecked against the provider docs on 2026-08-11. */
+export interface DeepSeekModelProfile {
+  id: string;
+  contextWindow: number;
+  maxOutputTokens: number;
+  inputCostUsdPerMillion: number;
+  outputCostUsdPerMillion: number;
+  cacheReadCostUsdPerMillion: number;
+  providerApiVersion: string;
+  docsUrl: string;
+  verifiedAtIso: string;
+}
+
+export const DEEPSEEK_MODEL_PROFILES: Readonly<Record<string, DeepSeekModelProfile>> = {
+  'deepseek-v4-flash': {
+    id: 'deepseek-v4-flash',
+    contextWindow: 1_000_000,
+    maxOutputTokens: 384_000,
+    inputCostUsdPerMillion: 0.14,
+    outputCostUsdPerMillion: 0.28,
+    cacheReadCostUsdPerMillion: 0.028,
+    providerApiVersion: 'chat-completions-json-object',
+    docsUrl: 'https://api-docs.deepseek.com/api/create-chat-completion',
+    verifiedAtIso: '2026-08-11T00:00:00.000Z',
+  },
+  'deepseek-v4-pro': {
+    id: 'deepseek-v4-pro',
+    contextWindow: 1_000_000,
+    maxOutputTokens: 384_000,
+    inputCostUsdPerMillion: 1.74,
+    outputCostUsdPerMillion: 3.48,
+    cacheReadCostUsdPerMillion: 0.145,
+    providerApiVersion: 'chat-completions-json-object',
+    docsUrl: 'https://api-docs.deepseek.com/api/create-chat-completion',
+    verifiedAtIso: '2026-08-11T00:00:00.000Z',
+  },
+};
+
+/**
+ * OpenRouter-hosted DeepSeek profiles. These IDs and prices are pinned from
+ * the OpenRouter model catalog; the transport is OpenRouter, not the official
+ * DeepSeek endpoint.
+ */
+export const OPENROUTER_DEEPSEEK_MODEL_PROFILES: Readonly<Record<string, DeepSeekModelProfile>> = {
+  'deepseek/deepseek-v4-flash-0731': {
+    id: 'deepseek/deepseek-v4-flash-0731',
+    contextWindow: 1_048_576,
+    maxOutputTokens: 384_000,
+    inputCostUsdPerMillion: 0.08,
+    outputCostUsdPerMillion: 0.18,
+    cacheReadCostUsdPerMillion: 0.016,
+    providerApiVersion: 'chat-completions-json-schema',
+    docsUrl: 'https://openrouter.ai/docs/structured-outputs',
+    verifiedAtIso: '2026-08-12T00:00:00.000Z',
+  },
+};
+
+export const DEFAULT_OPENROUTER_DEEPSEEK_MODEL = 'deepseek/deepseek-v4-flash-0731';
+
+export function getOpenRouterDeepSeekModelProfile(
+  model = DEFAULT_OPENROUTER_DEEPSEEK_MODEL,
+): DeepSeekModelProfile {
+  const profile = OPENROUTER_DEEPSEEK_MODEL_PROFILES[model];
+  if (!profile) throw new Error(`unsupported OpenRouter DeepSeek model profile: ${model}`);
+  return profile;
+}
+
+/**
+ * Validate a server-side provider endpoint before it reaches fetch().
+ *
+ * Provider URLs are deployment configuration, not request data. Requiring an
+ * explicit HTTPS host allowlist (with an opt-in loopback seam for local
+ * providers) keeps a bad configuration from becoming an SSRF primitive.
+ */
+export function validateProviderBaseUrl(
+  baseUrl: string,
+  options: { allowedHosts?: readonly string[]; allowLoopback?: boolean } = {},
+): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    throw new Error('provider base URL is invalid');
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error('provider base URL must use HTTP(S)');
+  }
+  if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error('provider base URL cannot contain credentials, query, or fragment data');
+  }
+
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  const loopback = isLoopbackProviderHost(hostname);
+  if (loopback) {
+    if (!options.allowLoopback) throw new Error('loopback provider base URL is not allowed');
+  } else {
+    if (parsed.protocol !== 'https:') {
+      throw new Error('non-loopback provider endpoints require HTTPS');
+    }
+    if (isPrivateProviderHost(hostname)) {
+      throw new Error('private or metadata provider host is not allowed');
+    }
+    const allowed = (options.allowedHosts ?? []).some((candidate) => {
+      const normalized = candidate
+        .trim()
+        .toLowerCase()
+        .replace(/^\[|\]$/g, '');
+      return (
+        normalized.length > 0 && (hostname === normalized || hostname.endsWith(`.${normalized}`))
+      );
+    });
+    if (!allowed) throw new Error('provider base URL host is not allowlisted');
+  }
+
+  return parsed.toString().replace(/\/+$/, '');
+}
+
+function isLoopbackProviderHost(hostname: string): boolean {
+  return (
+    hostname === 'localhost' ||
+    hostname === '::1' ||
+    /^127\.(?:\d{1,3}\.){2}\d{1,3}$/.test(hostname)
+  );
+}
+
+function isPrivateProviderHost(hostname: string): boolean {
+  if (
+    hostname === 'metadata.google.internal' ||
+    hostname.endsWith('.internal') ||
+    hostname.endsWith('.local') ||
+    hostname === '0.0.0.0'
+  ) {
+    return true;
+  }
+  const octets = hostname.split('.').map(Number);
+  if (
+    octets.length !== 4 ||
+    octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)
+  ) {
+    return hostname.startsWith('fc') || hostname.startsWith('fd') || hostname.startsWith('fe80:');
+  }
+  const first = octets[0] ?? -1;
+  const second = octets[1] ?? -1;
+  return (
+    first === 10 ||
+    (first === 100 && second >= 64 && second <= 127) ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168) ||
+    (first === 198 && second >= 18 && second <= 19)
+  );
+}
+
+export function getDeepSeekModelProfile(model = 'deepseek-v4-flash'): DeepSeekModelProfile {
+  const profile = DEEPSEEK_MODEL_PROFILES[model];
+  if (!profile) throw new Error(`unsupported DeepSeek model profile: ${model}`);
+  return profile;
+}
 
 export interface ModelRequest {
   sourceHash: ContentHash | null;
@@ -31,6 +190,7 @@ export interface ModelRequest {
   promptVersion: string;
   policy: PrivacyPolicy;
   model?: string;
+  maxOutputTokens?: number;
 }
 
 export interface ModelResponse {
@@ -145,6 +305,92 @@ export interface OpenRouterAdapterConfig {
   baseUrl?: string;
   /** strict JSON schema enforcement via response_format */
   structuredOutputs?: boolean;
+  referer?: string;
+  appName?: string;
+  maxOutputTokens?: number;
+}
+
+const EXTRACTION_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    schemaVersion: { type: 'integer', const: 1 },
+    guideId: { type: 'string' },
+    tasks: {
+      type: 'array',
+      minItems: 1,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          taskId: { type: 'string' },
+          title: { type: 'string' },
+          steps: {
+            type: 'array',
+            minItems: 1,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                stepId: { type: 'string' },
+                taskId: { type: 'string' },
+                action: { type: 'string' },
+                warnings: { type: 'array', items: { type: 'string' } },
+                prerequisites: { type: 'array', items: { type: 'string' } },
+                tools: { type: 'array', items: { type: 'string' } },
+                parts: { type: 'array', items: { type: 'string' } },
+                values: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    properties: {
+                      label: { type: 'string' },
+                      value: { type: 'string' },
+                      unit: { type: ['string', 'null'] },
+                    },
+                    required: ['label', 'value', 'unit'],
+                  },
+                },
+                conditions: { type: 'array', items: { type: 'string' } },
+                verificationSteps: { type: 'array', items: { type: 'string' } },
+                citations: { type: 'array', items: { type: 'string' }, minItems: 1 },
+                uncertaintyReason: { type: ['string', 'null'] },
+              },
+              required: [
+                'stepId',
+                'taskId',
+                'action',
+                'warnings',
+                'prerequisites',
+                'tools',
+                'parts',
+                'values',
+                'conditions',
+                'verificationSteps',
+                'citations',
+                'uncertaintyReason',
+              ],
+            },
+          },
+        },
+        required: ['taskId', 'title', 'steps'],
+      },
+    },
+  },
+  required: ['schemaVersion', 'guideId', 'tasks'],
+} as const;
+
+interface OpenRouterCompletionBody {
+  model?: string;
+  choices?: { message?: { content?: string | Record<string, unknown> } }[];
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    prompt_cache_hit_tokens?: number;
+    prompt_tokens_details?: { cached_tokens?: number };
+    cost?: number;
+  };
 }
 
 export class OpenRouterAdapter implements ModelAdapter {
@@ -152,11 +398,23 @@ export class OpenRouterAdapter implements ModelAdapter {
   readonly model: string;
   readonly available: boolean;
   private readonly baseUrl: string;
+  private readonly apiKey: string;
+  private readonly structuredOutputs: boolean;
+  private readonly referer: string | undefined;
+  private readonly appName: string | undefined;
+  private readonly maxOutputTokens: number;
 
   constructor(config: OpenRouterAdapterConfig) {
-    this.model = config.model ?? 'anthropic/claude-sonnet-4.5';
-    this.available = config.apiKey.length > 0;
-    this.baseUrl = config.baseUrl ?? 'https://openrouter.ai/api/v1';
+    this.model = config.model ?? process.env.OPENROUTER_MODEL ?? DEFAULT_OPENROUTER_DEEPSEEK_MODEL;
+    this.apiKey = config.apiKey;
+    this.available = config.apiKey.trim().length > 0;
+    this.structuredOutputs = config.structuredOutputs ?? true;
+    this.referer = config.referer;
+    this.appName = config.appName;
+    this.maxOutputTokens = config.maxOutputTokens ?? 4096;
+    this.baseUrl = validateProviderBaseUrl(config.baseUrl ?? 'https://openrouter.ai/api/v1', {
+      allowedHosts: ['openrouter.ai'],
+    });
   }
 
   async extract(
@@ -166,40 +424,65 @@ export class OpenRouterAdapter implements ModelAdapter {
       throw new Error('OpenRouter adapter is not configured (no API key)');
     }
     const started = Date.now();
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+      authorization: `Bearer ${this.apiKey}`,
+    };
+    if (this.referer) headers['HTTP-Referer'] = this.referer;
+    if (this.appName) headers['X-OpenRouter-Title'] = this.appName;
+    const body: Record<string, unknown> = {
+      model: this.model,
+      provider: { require_parameters: true },
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Extract work instructions as strict JSON. Cite only the supplied source region IDs. ' +
+            'Do not invent procedures, values, warnings, or citations.',
+        },
+        { role: 'user', content: JSON.stringify(request.chunks) },
+      ],
+      max_tokens: Math.min(request.maxOutputTokens ?? this.maxOutputTokens, this.maxOutputTokens),
+      temperature: 0,
+      reasoning: { exclude: true },
+    };
+    if (this.structuredOutputs) {
+      body.response_format = {
+        type: 'json_schema',
+        json_schema: {
+          name: 'guideforge_extraction',
+          strict: true,
+          schema: EXTRACTION_JSON_SCHEMA,
+        },
+      };
+    } else {
+      body.response_format = { type: 'json_object' };
+    }
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${process.env.OPENROUTER_API_KEY ?? ''}`,
-      },
-      body: JSON.stringify({
-        model: this.model,
-        response_format: { type: 'json_schema', json_schema: { name: 'extraction', strict: true } },
-        messages: [
-          {
-            role: 'system',
-            content: 'Extract work instructions as strict JSON. Cite source regions.',
-          },
-          { role: 'user', content: JSON.stringify(request.chunks) },
-        ],
-      }),
+      headers,
+      body: JSON.stringify(body),
     });
     if (!response.ok) {
-      throw new Error(`openrouter http ${response.status}`);
+      const detail = await response.text().catch(() => '');
+      throw new Error(`openrouter http ${response.status}: ${detail.slice(0, 300)}`);
     }
-    const body = (await response.json()) as {
-      choices?: { message?: { content?: string } }[];
-      usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
-    };
-    const content = body.choices?.[0]?.message?.content;
+    const completion = (await response.json()) as OpenRouterCompletionBody;
+    const content = completion.choices?.[0]?.message?.content;
     if (!content) throw new Error('openrouter empty content');
-    const output = JSON.parse(content) as unknown;
+    const output = typeof content === 'string' ? (JSON.parse(content) as unknown) : content;
     if (!isExtractionOutput(output)) throw new Error('openrouter output failed schema validation');
+    const cacheTokens =
+      completion.usage?.prompt_cache_hit_tokens ??
+      completion.usage?.prompt_tokens_details?.cached_tokens ??
+      0;
     return {
       output,
       usage: makeReceipt(this, request, {
-        inputTokens: body.usage?.prompt_tokens ?? 0,
-        outputTokens: body.usage?.completion_tokens ?? 0,
+        inputTokens: completion.usage?.prompt_tokens ?? 0,
+        outputTokens: completion.usage?.completion_tokens ?? 0,
+        cacheTokens,
+        providerCostUsd: completion.usage?.cost ?? 0,
         latencyMs: Date.now() - started,
       }),
     };
@@ -221,18 +504,50 @@ export interface DeepSeekAdapterConfig {
   /** Official models: `deepseek-v4-flash` or `deepseek-v4-pro`. */
   model?: string;
   baseUrl?: string;
+  maxOutputTokens?: number;
 }
 
 export class DeepSeekAdapter implements ModelAdapter {
   readonly provider = 'deepseek';
   readonly model: string;
   readonly available: boolean;
+  readonly profile: DeepSeekModelProfile;
   private readonly baseUrl: string;
+  private readonly apiKey: string;
+  private readonly maxOutputTokens: number;
 
   constructor(config: DeepSeekAdapterConfig) {
     this.model = config.model ?? 'deepseek-v4-flash';
+    this.profile = getDeepSeekModelProfile(this.model);
+    this.apiKey = config.apiKey;
     this.available = config.apiKey.length > 0;
-    this.baseUrl = config.baseUrl ?? 'https://api.deepseek.com';
+    this.baseUrl = validateProviderBaseUrl(config.baseUrl ?? 'https://api.deepseek.com', {
+      allowedHosts: ['api.deepseek.com'],
+    });
+    this.maxOutputTokens = config.maxOutputTokens ?? 4096;
+  }
+
+  /** Verify that the configured model is currently advertised by DeepSeek. */
+  async verifyModelProfile(fetcher: typeof fetch = globalThis.fetch): Promise<{
+    ok: boolean;
+    checkedAtIso: string;
+    error?: string;
+  }> {
+    const checkedAtIso = new Date().toISOString();
+    try {
+      const response = await fetcher(`${this.baseUrl}/models`, {
+        headers: { authorization: `Bearer ${this.configApiKey()}` },
+      });
+      if (!response.ok)
+        return { ok: false, checkedAtIso, error: `deepseek models http ${response.status}` };
+      const body = (await response.json()) as { data?: { id?: string }[] };
+      const advertised = body.data?.some((model) => model.id === this.model) ?? false;
+      return advertised
+        ? { ok: true, checkedAtIso }
+        : { ok: false, checkedAtIso, error: `deepseek model not advertised: ${this.model}` };
+    } catch (err) {
+      return { ok: false, checkedAtIso, error: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   async extract(
@@ -276,7 +591,10 @@ export class DeepSeekAdapter implements ModelAdapter {
             ),
           },
         ],
-        max_tokens: 4096,
+        max_tokens: Math.min(
+          request.maxOutputTokens ?? this.maxOutputTokens,
+          this.profile.maxOutputTokens,
+        ),
       }),
     });
     if (!response.ok) {
@@ -285,7 +603,12 @@ export class DeepSeekAdapter implements ModelAdapter {
     }
     const body = (await response.json()) as {
       choices?: { message?: { content?: string } }[];
-      usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+      usage?: {
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
+        prompt_cache_hit_tokens?: number;
+      };
     };
     const content = body.choices?.[0]?.message?.content;
     if (!content) throw new Error('deepseek empty content');
@@ -298,15 +621,16 @@ export class DeepSeekAdapter implements ModelAdapter {
       usage: makeReceipt(this, request, {
         inputTokens: body.usage?.prompt_tokens ?? 0,
         outputTokens: body.usage?.completion_tokens ?? 0,
+        cacheTokens: body.usage?.prompt_cache_hit_tokens ?? 0,
         latencyMs: Date.now() - started,
       }),
     };
   }
 
   private configApiKey(): string {
-    // Prefer the explicit key passed to the constructor, else env.
-    // The env path is used by the server worker; both avoid browser exposure.
-    return process.env.DEEPSEEK_API_KEY ?? '';
+    // Prefer the key passed to the constructor. The environment fallback is
+    // retained for a server-only adapter constructed without explicit config.
+    return this.apiKey.length > 0 ? this.apiKey : (process.env.DEEPSEEK_API_KEY ?? '');
   }
 }
 
@@ -340,6 +664,7 @@ export class ModelGateway {
 
   /** Route by privacy policy; fall back through available adapters. */
   async run(request: ModelRequest): Promise<ModelResponse> {
+    this.lastError = null;
     const ordered = this.order
       .map((name) => this.adapters.find((a) => a.provider === name))
       .filter((a): a is ModelAdapter => Boolean(a?.available));
@@ -379,23 +704,35 @@ export class ModelGateway {
           error: `${adapter.provider}: invalid extraction schema`,
         };
       }
-      // Citation gate: every step's citations must resolve to real regions.
+      // Citation gate: every actionable step must have at least one citation
+      // that resolves to a real region (zero-citation output is rejected).
       const citations: Citation[] = [];
       const issues: string[] = [];
       for (const task of output.tasks) {
         for (const step of task.steps) {
+          const stepCitations: Citation[] = [];
           for (const regionId of step.citations) {
             const region = request.regions.get(regionId);
             if (!region) {
               issues.push(`uncited region ${regionId}`);
               continue;
             }
-            citations.push({
+            if (request.sourceHash && region.sourceHash !== request.sourceHash) {
+              issues.push(`source hash mismatch for region ${regionId}`);
+              continue;
+            }
+            stepCitations.push({
               regionId,
+              sourceHash: region.sourceHash,
               pageIndex: region.pageIndex,
               excerptHash: hashExcerpt(region.excerpt),
               claimRef: step.stepId,
             });
+          }
+          if (stepCitations.length === 0) {
+            issues.push(`step ${step.stepId} has no valid citation`);
+          } else {
+            citations.push(...stepCitations);
           }
         }
       }
@@ -439,11 +776,7 @@ export class ModelGateway {
 }
 
 function hashExcerpt(text: string): string {
-  // Browser-safe deterministic hash (FNV-1a 32-bit hex) for excerpt identity.
-  let h = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return (h >>> 0).toString(16).padStart(8, '0');
+  // Real SHA-256 (hex) of the excerpt bytes — deterministic content identity,
+  // not a padded short hash. Matches the ContentHash contract (64 hex chars).
+  return sha256Hex(new TextEncoder().encode(text));
 }

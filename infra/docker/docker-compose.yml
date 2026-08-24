@@ -36,8 +36,13 @@ services:
       CORS_ORIGIN: http://localhost:1420
       PORT: 8080
       # Real AI provider (server-side only; never exposed to the browser).
+      GUIDEFORGE_MODEL_PROVIDER: ${GUIDEFORGE_MODEL_PROVIDER:-openrouter}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-flash}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-deepseek/deepseek-v4-flash-0731}
+      OPENROUTER_REFERER: ${OPENROUTER_REFERER:-http://localhost:1420}
+      OPENROUTER_APP_NAME: ${OPENROUTER_APP_NAME:-GuideForge}
     depends_on:
       postgres:
         condition: service_healthy

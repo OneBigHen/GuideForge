@@ -23,6 +23,24 @@ coverage/
 playwright-report/
 test-results/
 
+# Supply-chain reports (generated in CI)
+sbom.xml
+licenses.json
+
 # Tauri
 apps/desktop/src-tauri/plugins/
 .turbo/
+
+# Single-user build pack (binding instructions, not repo content)
+GuideForge_Single_User_AI_Build_Pack/
+GuideForge_Single_User_AI_Build_Pack.zip
+
+# Production readiness pack is local audit input, not repository content
+GuideForge_Production_Readiness_Pack_abefa747/
+GuideForge_Production_Readiness_Pack_abefa747.zip
+
+# Local release candidates and native build outputs
+release-artifacts/
+
+# Universal V2 build pack (planning artifact, local-only)
+GuideForge_Universal_V2_Build_Pack.zip

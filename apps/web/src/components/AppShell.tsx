@@ -8,11 +8,38 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [caps] = useState<DeviceCapabilityProfile>(() => detectCapabilities());
   const [updateReady, setUpdateReady] = useState(false);
+  const [companion, setCompanion] = useState<'unknown' | 'offline' | 'online'>('unknown');
 
   useEffect(() => {
     const onUpdate = () => setUpdateReady(true);
     window.addEventListener('guideforge:update-ready', onUpdate);
     return () => window.removeEventListener('guideforge:update-ready', onUpdate);
+  }, []);
+
+  // Probe the companion once: the status pill must reflect reality, not a
+  // hardcoded label (Phase 01 provider/fallback transparency).
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 3000);
+    fetch('/api/health', { signal: controller.signal, credentials: 'include' })
+      .then(async (res) => {
+        const body: unknown = await res.json().catch(() => null);
+        const isCompanion =
+          body !== null &&
+          typeof body === 'object' &&
+          'companion' in body &&
+          body.companion === true;
+        if (!cancelled) setCompanion(res.ok && isCompanion ? 'online' : 'offline');
+      })
+      .catch(() => {
+        if (!cancelled) setCompanion('offline');
+      })
+      .finally(() => window.clearTimeout(timer));
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, []);
 
   return (
@@ -37,6 +64,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           >
             Library
           </Link>
+          <Link
+            to="/assets"
+            className="nav-link"
+            activeProps={{ className: 'nav-link nav-link--active' }}
+          >
+            Assets
+          </Link>
+          <Link
+            to="/jobs"
+            className="nav-link"
+            activeProps={{ className: 'nav-link nav-link--active' }}
+          >
+            Jobs
+          </Link>
+          <Link
+            to="/settings"
+            className="nav-link"
+            activeProps={{ className: 'nav-link nav-link--active' }}
+          >
+            Settings
+          </Link>
         </nav>
         <div className="app-header__actions">
           <ThemeToggle />
@@ -58,6 +106,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Link>
           <Link to="/library" onClick={() => setMenuOpen(false)}>
             Library
+          </Link>
+          <Link to="/assets" onClick={() => setMenuOpen(false)}>
+            Assets
+          </Link>
+          <Link to="/jobs" onClick={() => setMenuOpen(false)}>
+            Jobs
+          </Link>
+          <Link to="/settings" onClick={() => setMenuOpen(false)}>
+            Settings
           </Link>
         </nav>
       )}
@@ -81,8 +138,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             Saved locally
           </span>
           <span className="status-pill" title="Network sync state">
-            <span className="status-dot status-dot--offline" aria-hidden="true" />
-            Local only — no server connected
+            <span
+              className={`status-dot ${
+                companion === 'online' ? 'status-dot--local' : 'status-dot--offline'
+              }`}
+              aria-hidden="true"
+            />
+            {companion === 'online'
+              ? 'Companion connected'
+              : companion === 'unknown'
+                ? 'Probing companion…'
+                : 'Browser-only mode — no companion'}
           </span>
           <span className="status-pill status-pill--caps">
             {caps.pointer.coarse ? 'touch' : 'pointer'} ·{' '}

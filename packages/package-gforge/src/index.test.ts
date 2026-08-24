@@ -1,13 +1,18 @@
 import type { ContentHash } from '@guideforge/domain';
 import type { GuideSnapshot } from '@guideforge/guide-schema';
 import fc from 'fast-check';
+import { zipSync } from 'fflate';
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   buildDraftEntries,
   createDraftPackage,
+  extractZipArchive,
   FIXED_TIMESTAMP,
   PackageSafetyError,
+  preflightZipArchive,
+  sanitizeExternalResource,
+  sanitizePackageMetadata,
   validatePackagePath,
   verifyPackageStructure,
 } from './index.js';
@@ -16,7 +21,7 @@ const GUIDE_ID = '123e4567-e89b-42d3-a456-426614174000' as ContentHash & string;
 
 function snapshot(title: string): GuideSnapshot {
   return {
-    schemaVersion: 1,
+    schemaVersion: 5,
     guideId: GUIDE_ID as unknown as GuideSnapshot['guideId'],
     title,
     description: '',
@@ -25,6 +30,30 @@ function snapshot(title: string): GuideSnapshot {
     updatedAtIso: FIXED_TIMESTAMP,
     tasks: [],
     steps: [],
+    scene: {
+      nodes: [],
+      rootOrder: [],
+      layers: [
+        { layerId: 'default', name: 'Default', visible: true, locked: false, color: '#2dd4bf' },
+      ],
+      cameras: [],
+      measurements: [],
+      annotations: [],
+      anchors: [],
+      surfaceAttachments: [],
+      stepStates: {},
+    },
+    training: {
+      objectives: [],
+      assessmentItems: [],
+      modules: [],
+      lessons: [],
+      mastery: { requiredCriticalItems: 0, passThreshold: 0.8, maxAttempts: 3 },
+    },
+    sources: [],
+    claims: [],
+    citations: [],
+    generationRuns: [],
   };
 }
 
@@ -62,11 +91,32 @@ describe('package-gforge path safety', () => {
   it('property: rejects any path with traversal or absolute form', () => {
     fc.assert(
       fc.property(fc.string(), (s) => {
-        if (s.includes('..') || s.startsWith('/') || s.includes('\\')) {
+        // The traversal invariant is SEGMENT-level: `..` as a whole segment
+        // (including trailing-whitespace variants some filesystems normalize),
+        // absolute prefixes, and backslashes. A filename like `a..b` contains
+        // `..` as a substring but is NOT traversal and must be accepted.
+        const segments = s.split('/');
+        const hasParentSegment = segments.some((seg) => seg.trimEnd() === '..');
+        const hasNonNormalizedSegment = segments.some(
+          (seg) => seg.trimEnd() === '.' || seg.trimEnd() === '',
+        );
+        if (
+          hasParentSegment ||
+          hasNonNormalizedSegment ||
+          s.startsWith('/') ||
+          /^[A-Za-z]:/.test(s) ||
+          s.includes('\\')
+        ) {
           expect(() => validatePackagePath(s)).toThrow(PackageSafetyError);
         }
       }),
     );
+  });
+
+  it('accepts filenames that merely contain a dot-dot substring', () => {
+    // Regression: `a..b` is a legal filename; only `..` as a whole segment is
+    // traversal. The fuzzer surfaced this distinction.
+    expect(() => validatePackagePath('v1..2.glb')).not.toThrow();
   });
 });
 
@@ -143,5 +193,150 @@ describe('package-gforge verification', () => {
     tampered[0] = tampered[0]! ^ 0xff;
     target!.data = tampered;
     expect(() => verifyPackageStructure(entries)).toThrow(/hash mismatch for guide.json/);
+  });
+
+  it('rejects entries that are not bound by the manifest', () => {
+    const entries = buildDraftEntries({ snapshot: snapshot('Bound'), assets: new Map() });
+    entries.push({ path: 'rogue.json', data: new Uint8Array([1]) });
+    expect(() => verifyPackageStructure(entries)).toThrow(/unlisted package entry/);
+  });
+});
+
+describe('package-gforge bounded archive preflight', () => {
+  it('accepts a normal package archive', () => {
+    const bytes = createDraftPackage({ snapshot: snapshot('Preflight'), assets: new Map() });
+    const result = preflightZipArchive(bytes);
+    expect(result.entryCount).toBe(2); // guide.json + manifest.json
+    expect(result.totalUncompressed).toBeGreaterThan(0);
+  });
+
+  it('rejects a zip bomb via compression ratio before inflation', () => {
+    // A 1 MB entry of zeros compresses to a few KB; fflate deflates it. The
+    // preflight must reject the ratio without ever inflating the full data.
+    const big = new Uint8Array(1024 * 1024); // zeros — highly compressible
+    const bomb = zipSync({ 'bomb.bin': big }, { level: 9 });
+    expect(() => preflightZipArchive(bomb)).toThrow(/compression ratio exceeded/);
+  });
+
+  it('rejects unsafe entry paths during preflight (no extraction)', () => {
+    const evil = zipSync({ '../escape.txt': new Uint8Array([1]) });
+    expect(() => preflightZipArchive(evil)).toThrow(/unsafe entry path rejected/);
+    expect(() => extractZipArchive(evil)).toThrow(/unsafe entry path rejected/);
+  });
+
+  it('rejects non-zip input', () => {
+    expect(() => preflightZipArchive(new Uint8Array([1, 2, 3, 4, 5]))).toThrow(/no EOCD/);
+  });
+});
+
+describe('package-gforge attribution report (Phase 04)', () => {
+  it('emits reports/asset-licenses.json with licenses and attribution', () => {
+    const hash = realHash(new Uint8Array([9, 9, 9]));
+    const attributions = new Map<
+      string,
+      { name: string; licenseId?: string; attribution?: string }
+    >([[hash, { name: 'Pipette', licenseId: 'CC0', attribution: 'GuideForge' }]]);
+    const entries = buildDraftEntries({
+      snapshot: snapshot('Attributed'),
+      assets: new Map([[hash, assetBytes(hash, 'glb', new Uint8Array([9, 9, 9]))]]),
+      attributions: attributions as Map<
+        ContentHash,
+        { name: string; licenseId?: string; attribution?: string; source?: string }
+      >,
+    });
+    const reportEntry = entries.find((e) => e.path === 'reports/asset-licenses.json');
+    expect(reportEntry).toBeDefined();
+    const report = JSON.parse(new TextDecoder().decode(reportEntry!.data)) as {
+      format: string;
+      assets: { hash: string; name: string; licenseId: string }[];
+    };
+    expect(report.format).toBe('gforge-asset-licenses');
+    expect(report.assets[0]!.name).toBe('Pipette');
+    expect(report.assets[0]!.licenseId).toBe('CC0');
+  });
+
+  it('omits the report when no attributions are provided', () => {
+    const entries = buildDraftEntries({ snapshot: snapshot('NoAttrib'), assets: new Map() });
+    expect(entries.some((e) => e.path === 'reports/asset-licenses.json')).toBe(false);
+  });
+});
+
+describe('package-gforge v2 portability', () => {
+  it('stores source metadata, optional source bytes, reports, and backup evidence', async () => {
+    const sourceHash = realHash(new Uint8Array([4, 5, 6]));
+    const source = {
+      sourceId: '123e4567-e89b-42d3-a456-426614174001' as GuideSnapshot['guideId'],
+      sha256: sourceHash,
+      originalName: 'procedure.txt',
+      mediaType: 'text/plain',
+      kind: 'text' as const,
+      sizeBytes: 3,
+      pageCount: 1,
+      durationMs: null,
+      receivedAtIso: FIXED_TIMESTAMP,
+      pipeline: 'text-source',
+      pipelineVersion: '1',
+      status: 'ready' as const,
+      regions: [],
+      provenanceReceipt: {},
+    };
+    const entries = buildDraftEntries({
+      snapshot: { ...snapshot('Portable'), sources: [source] },
+      assets: new Map(),
+      packageType: 'backup',
+      sourceBytes: new Map([[sourceHash, { bytes: new Uint8Array([4, 5, 6]), extension: 'txt' }]]),
+      reports: {
+        generation: { runId: 'run-1', status: 'complete' },
+        validation: { missingAssets: [] },
+        cost: { inputTokens: 3 },
+      },
+      runtime: {
+        evidenceRecords: [{ evidenceId: 'e-1', stepId: 'step-1', kind: 'note' }],
+      },
+    });
+
+    const manifest = verifyPackageStructure(entries);
+    expect(manifest.version).toBe(2);
+    expect(manifest.packageType).toBe('backup');
+    expect(entries.map((entry) => entry.path)).toEqual([
+      'guide.json',
+      'manifest.json',
+      'reports/cost.json',
+      'reports/generation.json',
+      'reports/validation.json',
+      'runtime/evidence/index.json',
+      'sources/123e4567-e89b-42d3-a456-426614174001.json',
+      `sources/${sourceHash}.txt`,
+    ]);
+
+    const extracted = await extractZipArchive(
+      createDraftPackage({
+        snapshot: { ...snapshot('Portable'), sources: [source] },
+        assets: new Map(),
+        packageType: 'backup',
+        sourceBytes: new Map([
+          [sourceHash, { bytes: new Uint8Array([4, 5, 6]), extension: 'txt' }],
+        ]),
+      }),
+    );
+    expect(extracted.some((entry) => entry.path.endsWith('.txt'))).toBe(true);
+  });
+
+  it('sanitizes active and external resource values before metadata use', () => {
+    expect(sanitizeExternalResource('https://example.test/source')).toBe(
+      'https://example.test/source',
+    );
+    expect(sanitizeExternalResource('javascript:alert(1)')).toBeNull();
+    expect(sanitizeExternalResource('data:text/html,<script>alert(1)</script>')).toBeNull();
+    expect(() => sanitizePackageMetadata({ href: 'javascript:alert(1)' })).toThrow(
+      /unsafe external resource/,
+    );
+    expect(() => sanitizePackageMetadata({ description: '<svg onload="alert(1)">' })).toThrow(
+      /active content/,
+    );
+    expect(sanitizePackageMetadata({ title: 'plain text', count: 2 })).toEqual({
+      title: 'plain text',
+      count: 2,
+    });
   });
 });

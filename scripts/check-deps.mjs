@@ -21,7 +21,13 @@ const catalogEntries = new Set(
 
 function walk(dir, out = []) {
   for (const name of readdirSync(dir)) {
-    if (name === 'node_modules' || name === '.git' || name === '.pnpm') continue;
+    if (
+      name === 'node_modules' ||
+      name === '.git' ||
+      name === '.pnpm' ||
+      name === 'release-artifacts'
+    )
+      continue;
     const full = join(dir, name);
     if (statSync(full).isDirectory()) {
       walk(full, out);
@@ -59,7 +65,14 @@ for (const manifestPath of manifests) {
     }
   }
   // forbid domain/schema/scene-core from runtime deps outside their allowed set
-  const allowedRuntime = new Set(['@guideforge/domain', '@guideforge/guide-schema']);
+  // (@noble/hashes is a pure, audited crypto library — no React/Three/Yjs/
+  // Dexie/browser API/database/provider SDK — and powers real SHA-256 for the
+  // ContentHash contract).
+  const allowedRuntime = new Set([
+    '@guideforge/domain',
+    '@guideforge/guide-schema',
+    '@noble/hashes',
+  ]);
   for (const name of Object.keys(pkg.dependencies ?? {})) {
     if (
       (pkg.name === '@guideforge/domain' || pkg.name === '@guideforge/guide-schema') &&

@@ -1,84 +1,106 @@
-# Phase 00 Report — Repository Isolation and Evidence Inventory
+# Phase 00 Report — Current HEAD Certification
 
-## Outcome
+## Gate status
 
-The shipped reference application was preserved read-only, a clean independent
-GuideForge repository was created, and a full evidence inventory of the legacy
-codebase was produced. No product code was written in this phase.
+Local Phase 00 evidence is complete. The required Phase 00 gate is **verified**
+for certification SHA `8b97360f551af5e09a43b954b35994c22b2dd6ac`; no old phase
+report is used as proof. GitGuardian's separate third-party status remains
+pending and is not a required item in the pack acceptance matrix.
 
-## Discrepancy recorded (important)
+## Audit boundary
 
-The build pack identifies the reference as `OneBigHen/Guides-Studiov2` at commit
-`2c85e8409b125b1d337522d41aff615aacf68723`. That repository and commit are
-unreachable (both `OneBigHen/Guides-Studiov2` and `OneBigHen/Guides-Studio` return
-404; the commit hash exists in no local clone or reachable remote). The only
-shipped reference available is the local repository `/root/Vibe/Guides-Studio`
-(live remote `gsk-tech/Guides-Studio`), HEAD `ef07a2708991a1cd1797f3e428b313b2f2570ec3`.
-That shipped state was preserved as the read-only reference and audited. The
-discrepancy is fully documented in `LEGACY_ORIGIN.md`.
+- Repository: `/root/Vibe/GuideForge`
+- Branch: `feat/single-user-ai-studio`
+- Audited parent SHA: `abefa7475d52931957721b571df828c364c7e924`
+- Certified workflow SHA: `8b97360f551af5e09a43b954b35994c22b2dd6ac`
+- Pack: `GuideForge_Production_Readiness_Pack_abefa747/`
+- Runtime: Node `22.21.0`, pnpm `10.33.2`, PostgreSQL `17` in `guideforge-pg`
+- Audit date: 2026-08-11
 
-## Commits
+The pack was extracted from the repository-root ZIP and its binding files were
+read. Existing phase reports are now explicitly historical; the current
+matrix and ledger are the only status sources until each numbered phase is
+re-executed.
 
-- `b2762c9` — chore: initialize independent GuideForge repository (AGENTS.md + LEGACY_ORIGIN.md)
-- `(next)` — chore: add Phase 00 legacy audit reports
+## Exact local evidence
 
-## Tasks completed
+| Check                                  | Current result                                                                                                                                  |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Clean frozen install                   | Pass: all 24 workspaces, 930 packages, `pnpm install --frozen-lockfile`                                                                         |
+| PostgreSQL readiness                   | Pass: `docker exec guideforge-pg pg_isready -U guideforge -d guideforge` accepted connections on host port 15432                                |
+| Forced repository check                | Pass: `pnpm check --force`, 115/115 tasks, 0 cached, 6m11.877s                                                                                  |
+| Package fuzz/drills                    | Pass: `@guideforge/package-gforge`, 5 files / 35 tests                                                                                          |
+| Canonical collaboration smoke          | Pass: `@guideforge/collaboration`, 1 file / 4 tests                                                                                             |
+| Source/proposal/package targeted tests | Pass: 3 files / 9 tests (`sourceSynthesis`, `proposals`, `roundtrip`)                                                                           |
+| Browser E2E                            | Pass: 43 passed, 2 expected skips, 45 total, desktop + iPad + iPhone projects                                                                   |
+| Browser worker determinism             | `apps/web/playwright.config.ts` caps workers at 2 locally and 1 in CI after an 8-worker WebGL reproduction failed; the capped full suite passed |
+| Audit policy                           | Pass: one reviewed esbuild finding, SUPPLY-0001                                                                                                 |
+| License policy                         | Pass: no blocked licenses                                                                                                                       |
+| SBOM                                   | Pass, exit 0: `sbom.xml`, 2.0 MB, CycloneDX 1.6; `npm ls` diagnostics are ignored by the pinned command                                         |
+| Secret scan                            | Pass: gitleaks fallback regex, no matches                                                                                                       |
+| Policy tests                           | Pass: all policy-script positive/negative cases                                                                                                 |
+| Boundary/dependency checks             | Pass: `pnpm boundary` and `pnpm dep-check`                                                                                                      |
 
-1. ✅ Verified reference repo path and remotes (`gsk-tech/Guides-Studio` live; `OneBigHen/*` 404).
-2. ✅ Verified reference commit — build-pack hash unavailable; preserved actual shipped HEAD `ef07a270`.
-3. ✅ Created `legacy/guides-studio-reference` branch, annotated tag `guides-studio-reference-ef07a270`, read-only worktree `~/Vibe/Guides-Studio-reference`.
-4. ✅ Created new orphaned `main` branch in `~/Vibe/GuideForge` (clean git history).
-5. ✅ Created private GitHub repository `OneBigHen/GuideForge` (visibility verified PRIVATE).
-6. ✅ Disabled push to the reference remote (`origin` and `work` push URLs → `DISABLED`).
-7. ✅ Added `LEGACY_ORIGIN.md`.
-8. ✅ Installed `AGENTS.md` (hash matches pack manifest `dd9f1937…`).
-9. ✅ Ran secret scan, large/generated inventory, dependency/license inventory, customer/GSK scan, database/upload/runtime scan.
-10. ✅ Inspected package manifests, routes, domain types, parser/exporter, storage layers, backend/auth, scene editor, AR/XR components, tests, and CI.
-11. ✅ Produced `docs/progress/PHASE_00_REPORT.md`, `docs/legacy/BEHAVIOR_INVENTORY.md`, `docs/legacy/SECURITY_AND_CONTAMINATION_AUDIT.md`, `docs/legacy/REUSE_DECISIONS.md`.
-12. ✅ Committed only clean scaffolding and reports.
+The first forced-check attempt was intentionally retained as failed evidence:
+the helper Postgres container had exited (`exit 255`), and the API tests
+reported `ECONNREFUSED` on 127.0.0.1/::1:15432. After the container was
+restarted and readiness was verified, the complete forced check passed.
 
-## Acceptance evidence
+The first GitHub PR check was also retained as failed evidence: setup stopped
+before project execution because the repository `.npmrc` forced the hosted
+runner to use the non-writable absolute store path `/root/.cache/pnpm-store`.
+That path setting was removed so pnpm can use the runner's environment-owned
+store; `CI=true pnpm install --frozen-lockfile` then recreated all 930 packages
+locally. The replacement run then passed setup, install, format, lint, and
+typecheck, but its API tests still used the local 15432 fallback because Turbo
+did not pass `DATABASE_URL` through strict task environment filtering. The
+replacement now declares `DATABASE_URL` in `turbo.json` `globalEnv`; a focused
+Turbo API run against the local Postgres service passed 17/17. A fresh GitHub
+run then passed all preceding stages but gitleaks received a 403 while reading
+the pull request because the workflow granted only `contents: read`; its regex
+fallback passed. The workflow now grants `pull-requests: read`, and another
+fresh run then reached gitleaks, which could not resolve the PR base commit
+from the shallow checkout. The check job now fetches full history for that
+scan. GitHub run `31492608175` then passed both required jobs for the exact
+certification SHA: repository `check` and Playwright E2E.
 
-| Criterion                                                                                  | Evidence                                                                                                                |
-| ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| Original repo unchanged, no new commits/pushes                                             | `git log -1` still `ef07a270`; `git status` clean; push URLs `DISABLED`                                                 |
-| New repo exists and is private                                                             | `gh repo view OneBigHen/GuideForge` → `PRIVATE`                                                                         |
-| Exact source reference preserved                                                           | branch + annotated tag + read-only worktree at `ef07a270`                                                               |
-| No secrets/customer data/GSK branding/databases/uploads/runtime/node_modules in new `main` | audit in `SECURITY_AND_CONTAMINATION_AUDIT.md`; new `main` contains only scaffold + AGENTS.md + LEGACY_ORIGIN.md + docs |
-| Reports identify reuse/rewrite/fixture/discard per subsystem                               | `REUSE_DECISIONS.md`                                                                                                    |
+## Explicit pack-required probes
 
-## Test results
+- Source materialization is not certified: `materializeSnapshot` currently
+  emits `sources: []`, while Source Studio records live in Dexie. The current
+  round-trip test proves scene/training/assets, not source hydration.
+- Proposal provenance is partially exercised: the web proposal tests pass and
+  retain citations/receipts, but the complete source-backed package path is not
+  proven.
+- Source synthesis is only deterministic offline behavior: the current tests
+  pass with the `synthesis-rules-v1` rules path. No live DeepSeek request or
+  provider receipt has been proven in this audit.
+- License policy is explicitly exercised and passes; this does not certify
+  external asset-provider licensing.
+- The execution player vertical slice passes in E2E, but the implementation
+  labels photo capture as demo behavior and derives progress from evidence-row
+  count. Real media capture, required-step completion, resume, and report
+  semantics remain Phase 12 work.
 
-- Secret scan: 6 files matched benign templates/design flaws; **0 live secrets**.
-- Traversal/db/upload scan: only `.gitkeep` tracked; runtime state confirmed untracked.
-- No tests run in this phase (no product code; reference tests belong to legacy).
+## Reconciled historical claims
 
-## Security and privacy impact
+`docs/progress/PHASE_01_REPORT.md` through `PHASE_08_REPORT.md` now carry a
+historical-only warning. In particular, the old Phase 06 fake/offline-provider
+evidence is not treated as proof of real Docling or model-provider execution.
 
-- Legacy `VITE_API_KEY` design flaw, hard-coded tenant URI, and dual-store
-  fallback confirmed as risks to design out (all already required by spec).
-- No secrets or contamination entered the new repository.
+## Security/privacy/license impact
 
-## Persisted schema and migration impact
+No credentials, runtime databases, browser profiles, SBOM, or test artifacts
+were added to Git. The local install backup used during the clean-install
+probe is outside the repository at
+`/tmp/guideforge-node-modules-before-clean-20260811`.
 
-- None (no persisted schema in GuideForge yet). Migration strategy from legacy
-  is documented in `REUSE_DECISIONS.md`.
+## External status note
 
-## Known limitations
+PR #1 targets `main`; local and remote branch readback matched the certified
+SHA, and `gh pr view` matched it as `headRefOid`. The required GitHub `check`
+and `e2e (Playwright, desktop + iPad + iPhone)` statuses both passed. CodeRabbit
+also reported pass; GitGuardian remained pending as an external advisory
+integration.
 
-- The build pack's reference commit could not be preserved because it is
-  unreachable; the shipped HEAD was used instead and the discrepancy documented.
-- `Sample_Guide.guide` fixture is referenced for future interop tests but not
-  yet copied into `packages/test-fixtures` (deferred to Phase 02/07 with a
-  fixture-reuse note).
-
-## Blocked external dependencies
-
-- None.
-
-## Next phase readiness
-
-- READY. Phase 01 (universal foundation) can start: toolchain pinning via
-  Context7, monorepo scaffold, web + Tauri shell, CI.
-
-**Gate:** PASS
+**Gate: PASS — required GitHub current-SHA evidence**

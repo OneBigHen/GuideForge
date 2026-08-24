@@ -1,6 +1,7 @@
 import type { GuideCommand } from '@guideforge/commands';
 import { GUIDE_COMMAND_TYPES } from '@guideforge/commands';
-import type { EntityId } from '@guideforge/domain';
+import type { ContentHash, EntityId } from '@guideforge/domain';
+import type { GuideSnapshot } from '@guideforge/guide-schema';
 import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 import {
@@ -117,5 +118,58 @@ describe('working guide collaboration', () => {
     const w2 = createWorkingGuide(GUIDE_ID, 'x');
     hydrateWorkingGuide(w2, snap);
     expect(materializeSnapshot(w2)).toEqual(snap);
+  });
+
+  it('maps canonical sources and project provenance through Yjs', () => {
+    const w = createWorkingGuide(GUIDE_ID, 'source-backed');
+    const sourceHash = 'a'.repeat(64) as ContentHash;
+    const regionHash = 'b'.repeat(64) as ContentHash;
+    const source = {
+      sourceId: '123e4567-e89b-42d3-a456-426614174003' as EntityId,
+      sha256: sourceHash,
+      originalName: 'sop.txt',
+      mediaType: 'text/plain',
+      kind: 'text' as const,
+      sizeBytes: 12,
+      pageCount: 1,
+      durationMs: null,
+      receivedAtIso: '2026-01-01T00:00:00.000Z',
+      pipeline: 'text-source',
+      pipelineVersion: '1',
+      status: 'ready' as const,
+      regions: [
+        {
+          regionId: 'region-1',
+          sourceHash,
+          locator: { kind: 'page' as const, pageIndex: 0 },
+          structuralPath: 'block:1',
+          type: 'paragraph',
+          text: 'Calibrate.',
+          contentHash: regionHash,
+          confidence: 1,
+        },
+      ],
+      provenanceReceipt: { pipeline: 'text-source' },
+    };
+    const snapshot = {
+      ...materializeSnapshot(w),
+      sources: [source],
+      claims: [
+        {
+          claimId: '123e4567-e89b-42d3-a456-426614174004' as EntityId,
+          text: 'Calibrate.',
+          kind: 'procedure' as const,
+          citationIds: [],
+          confidence: 1,
+          reviewState: 'draft' as const,
+        },
+      ],
+      citations: [],
+      generationRuns: [],
+    } satisfies GuideSnapshot;
+
+    hydrateWorkingGuide(w, snapshot);
+    expect(w.sources.size).toBe(1);
+    expect(materializeSnapshot(w)).toEqual(snapshot);
   });
 });

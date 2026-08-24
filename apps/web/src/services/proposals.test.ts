@@ -50,4 +50,24 @@ describe('fake AI proposals', () => {
     expect(rows.find((r) => r.proposalId === proposalId)?.status).toBe('accepted');
     await closeGuide(session);
   });
+
+  it('proposals retain citations and provider receipt (provenance not lost)', async () => {
+    const session = await createGuide('Provenance');
+    const taskId = await addTask(session, 'T');
+    await addStep(session, taskId, 'Disconnect power before opening the housing.');
+
+    const count = await generateFakeProposals(session);
+    expect(count).toBeGreaterThan(0);
+    const rows = await listProposals(session.guideId);
+    // Every generated proposal must carry at least one citation and a receipt
+    // with an explicit provider (the audit found citations/receipts were
+    // dropped between generation and storage).
+    for (const p of rows) {
+      expect(p.citations.length).toBeGreaterThan(0);
+      expect(p.receipt.provider.length).toBeGreaterThan(0);
+      expect(p.sourceHash).toBeTruthy();
+      expect(p.receipt.requestId.length).toBeGreaterThan(0);
+    }
+    await closeGuide(session);
+  });
 });

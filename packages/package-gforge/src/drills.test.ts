@@ -1,4 +1,5 @@
 import type { GuideSnapshot } from '@guideforge/guide-schema';
+import { unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import {
   createReleasePackage,
@@ -12,7 +13,7 @@ const FIXED = '2026-01-01T00:00:00Z';
 
 function snapshot(): GuideSnapshot {
   return {
-    schemaVersion: 1,
+    schemaVersion: 5,
     guideId: GUIDE_ID as GuideSnapshot['guideId'],
     title: 'Drill',
     description: '',
@@ -21,6 +22,30 @@ function snapshot(): GuideSnapshot {
     updatedAtIso: FIXED,
     tasks: [],
     steps: [],
+    scene: {
+      nodes: [],
+      rootOrder: [],
+      layers: [
+        { layerId: 'default', name: 'Default', visible: true, locked: false, color: '#2dd4bf' },
+      ],
+      cameras: [],
+      measurements: [],
+      annotations: [],
+      anchors: [],
+      surfaceAttachments: [],
+      stepStates: {},
+    },
+    training: {
+      objectives: [],
+      assessmentItems: [],
+      modules: [],
+      lessons: [],
+      mastery: { requiredCriticalItems: 0, passThreshold: 0.8, maxAttempts: 3 },
+    },
+    sources: [],
+    claims: [],
+    citations: [],
+    generationRuns: [],
   };
 }
 
@@ -39,6 +64,33 @@ function releaseFor(
 }
 
 describe('GA drills (backup/restore, key rotation, revocation, rollback)', () => {
+  it('unsigned personal release verifies as valid and untrusted (no key in browser)', () => {
+    // Phase 01: browsers must never hold a signing key. An unsigned personal
+    // release is deterministic, valid, and clearly untrusted.
+    const release = createReleasePackage({
+      snapshot: snapshot(),
+      assets: new Map(),
+      release: {
+        releaseId: 'rel-unsigned',
+        releaseVersion: '1.0.0',
+        createdAt: FIXED,
+        guideId: GUIDE_ID,
+      },
+    });
+    const verification = verifyReleasePackage(release);
+    expect(verification.ok).toBe(true);
+    expect(verification.issues).toHaveLength(0);
+    // The manifest must declare itself unsigned.
+    const entries = unzipSync(release);
+    const manifest = JSON.parse(new TextDecoder().decode(entries['manifest.json'])) as {
+      signed?: boolean;
+      keyId?: string;
+    };
+    expect(manifest.signed).toBe(false);
+    expect(manifest.keyId).toBe('unsigned');
+    expect('signatures/release-signature.json' in entries).toBe(false);
+  });
+
   it('backup + restore: a release verified before backup verifies after restore', () => {
     const pair = generateSigningKeyPair();
     const release = releaseFor(pair, '1.0.0', 'rel-backup');

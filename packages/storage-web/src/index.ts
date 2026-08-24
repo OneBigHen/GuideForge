@@ -9,10 +9,27 @@
  *
  * Browser-only package (imports `indexedDB`, `navigator.storage`).
  */
+import type { PhotoTo3DJob } from '@guideforge/assets';
 import type { ContentHash } from '@guideforge/domain';
+import {
+  migrateLegacySourceRecord,
+  migrateRuntimeSession,
+  type GuideSource,
+  type LegacySourceRecord,
+  type RuntimeAttestation,
+  type RuntimeMeasurement,
+  type RuntimeSession,
+  type TrainingSession,
+} from '@guideforge/guide-schema';
 import Dexie, { type Table } from 'dexie';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import type * as Y from 'yjs';
+
+export {
+  validateEvidenceRecordSchema,
+  validateRuntimeCompletionReportSchema,
+  validateRuntimeSessionSchema,
+} from './schema-validation.js';
 
 // ---------------------------------------------------------------------------
 // Dexie metadata schema
@@ -40,6 +57,27 @@ export interface AssetMetaRecord {
   location: 'opfs' | 'indexeddb';
 }
 
+export interface SourceBlobRecord {
+  sha256: ContentHash;
+  bytes: Uint8Array | ArrayBuffer | Blob;
+}
+
+export interface PackageReportRecord {
+  id: string;
+  guideId: string;
+  path: string;
+  report: unknown;
+}
+
+export interface RuntimeBlobRecord {
+  id: string;
+  guideId: string;
+  path: string;
+  bytes: Uint8Array | ArrayBuffer | Blob;
+  mimeType: string;
+  extension: string;
+}
+
 /** Execution evidence captured on-device (photo/note/signature). */
 export interface EvidenceRecord {
   evidenceId: string;
@@ -53,7 +91,18 @@ export interface EvidenceRecord {
   /** SHA-256 of an optional captured media asset. */
   assetHash?: string;
   mimeType?: string;
+  measurement?: RuntimeMeasurement;
+  attestation?: RuntimeAttestation;
 }
+
+/** Offline procedure execution state; the Yjs guide remains authoritative. */
+export type RuntimeSessionRecord = RuntimeSession;
+
+/** Offline learner progress; the canonical training graph stays in Yjs. */
+export type TrainingSessionRecord = TrainingSession;
+
+/** Local browser queue record; the native companion mirrors it in SQLite. */
+export type PhotoTo3DJobRecord = PhotoTo3DJob;
 
 /** AI proposal awaiting human review. */
 export interface AiProposalRecord {
@@ -64,16 +113,46 @@ export interface AiProposalRecord {
   summary: string;
   confidence: number;
   sourceHash: string | null;
+  /** Source regions cited by this proposal (regionId + page + excerpt hash). */
+  citations: {
+    regionId: string;
+    sourceHash?: string;
+    pageIndex: number;
+    excerptHash: string;
+    claimRef: string;
+  }[];
+  /** Provider/model/receipt provenance for the generation that produced it. */
+  receipt: {
+    provider: string;
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    latencyMs: number;
+    promptVersion: string;
+    schemaVersion: string;
+    requestId: string;
+    createdAtIso: string;
+  };
   createdAtIso: string;
   status: 'pending' | 'accepted' | 'rejected';
 }
 
+/** Legacy Dexie row retained for v3 -> v4 source migration. */
+export type SourceRecord = LegacySourceRecord;
+
 export class GuideForgeDb extends Dexie {
   guides!: Table<LibraryGuideMeta, string>;
   assets!: Table<AssetMetaRecord, string>;
-  assetBlobs!: Table<{ hash: string; bytes: Blob }, string>;
+  assetBlobs!: Table<{ hash: string; bytes: Uint8Array | ArrayBuffer | Blob }, string>;
+  sourceBlobs!: Table<SourceBlobRecord, string>;
+  reports!: Table<PackageReportRecord, string>;
+  runtimeBlobs!: Table<RuntimeBlobRecord, string>;
   evidence!: Table<EvidenceRecord, string>;
   proposals!: Table<AiProposalRecord, string>;
+  sources!: Table<SourceRecord, string>;
+  trainingSessions!: Table<TrainingSessionRecord, string>;
+  photoJobs!: Table<PhotoTo3DJobRecord, string>;
+  runtimeSessions!: Table<RuntimeSessionRecord, string>;
 
   constructor() {
     super('guideforge');
@@ -89,11 +168,164 @@ export class GuideForgeDb extends Dexie {
       evidence: 'evidenceId, guideId, stepId, capturedAtIso',
       proposals: 'proposalId, guideId, status, createdAtIso',
     });
+    // v3: proposals retain full citation + provider receipt provenance.
+    this.version(3).stores({
+      guides: 'guideId, title, updatedAtIso, lifecycleState',
+      assets: 'hash, mimeType, sizeBytes',
+      assetBlobs: 'hash',
+      evidence: 'evidenceId, guideId, stepId, capturedAtIso',
+      proposals: 'proposalId, guideId, status, createdAtIso',
+    });
+    // v4: multimodal source documents (Phase 05 Source Studio).
+    this.version(4).stores({
+      guides: 'guideId, title, updatedAtIso, lifecycleState',
+      assets: 'hash, mimeType, sizeBytes',
+      assetBlobs: 'hash',
+      evidence: 'evidenceId, guideId, stepId, capturedAtIso',
+      proposals: 'proposalId, guideId, status, createdAtIso',
+      sources: 'sourceId, guideId, sha256, receivedAtIso',
+    });
+    // v5: optional original source bytes for portable backup packages.
+    this.version(5).stores({
+      guides: 'guideId, title, updatedAtIso, lifecycleState',
+      assets: 'hash, mimeType, sizeBytes',
+      assetBlobs: 'hash',
+      sourceBlobs: 'sha256',
+      evidence: 'evidenceId, guideId, stepId, capturedAtIso',
+      proposals: 'proposalId, guideId, status, createdAtIso',
+      sources: 'sourceId, guideId, sha256, receivedAtIso',
+    });
+    // v6: restore reports with the package so migration and validation facts
+    // remain available after the import call returns.
+    this.version(6).stores({
+      guides: 'guideId, title, updatedAtIso, lifecycleState',
+      assets: 'hash, mimeType, sizeBytes',
+      assetBlobs: 'hash',
+      sourceBlobs: 'sha256',
+      evidence: 'evidenceId, guideId, stepId, capturedAtIso',
+      proposals: 'proposalId, guideId, status, createdAtIso',
+      sources: 'sourceId, guideId, sha256, receivedAtIso',
+      reports: 'id, guideId, path',
+    });
+    // v7: preserve optional runtime/evidence files carried by full backups.
+    this.version(7).stores({
+      guides: 'guideId, title, updatedAtIso, lifecycleState',
+      assets: 'hash, mimeType, sizeBytes',
+      assetBlobs: 'hash',
+      sourceBlobs: 'sha256',
+      evidence: 'evidenceId, guideId, stepId, capturedAtIso',
+      proposals: 'proposalId, guideId, status, createdAtIso',
+      sources: 'sourceId, guideId, sha256, receivedAtIso',
+      reports: 'id, guideId, path',
+      runtimeBlobs: 'id, guideId, path',
+    });
+    // v8: resumable, offline training attempts and deterministic mastery.
+    this.version(8).stores({
+      guides: 'guideId, title, updatedAtIso, lifecycleState',
+      assets: 'hash, mimeType, sizeBytes',
+      assetBlobs: 'hash',
+      sourceBlobs: 'sha256',
+      evidence: 'evidenceId, guideId, stepId, capturedAtIso',
+      proposals: 'proposalId, guideId, status, createdAtIso',
+      sources: 'sourceId, guideId, sha256, receivedAtIso',
+      reports: 'id, guideId, path',
+      runtimeBlobs: 'id, guideId, path',
+      trainingSessions: 'sessionId, guideId, learnerId, status, updatedAtIso',
+    });
+    // v9: resumable local photo-to-3D jobs and provider provenance.
+    this.version(9).stores({
+      guides: 'guideId, title, updatedAtIso, lifecycleState',
+      assets: 'hash, mimeType, sizeBytes',
+      assetBlobs: 'hash',
+      sourceBlobs: 'sha256',
+      evidence: 'evidenceId, guideId, stepId, capturedAtIso',
+      proposals: 'proposalId, guideId, status, createdAtIso',
+      sources: 'sourceId, guideId, sha256, receivedAtIso',
+      reports: 'id, guideId, path',
+      runtimeBlobs: 'id, guideId, path',
+      trainingSessions: 'sessionId, guideId, learnerId, status, updatedAtIso',
+      photoJobs: 'jobId, status, providerId, reuseKey, updatedAtIso',
+    });
+    // v10: resumable procedure execution sessions and explicit completions.
+    this.version(10).stores({
+      guides: 'guideId, title, updatedAtIso, lifecycleState',
+      assets: 'hash, mimeType, sizeBytes',
+      assetBlobs: 'hash',
+      sourceBlobs: 'sha256',
+      evidence: 'evidenceId, guideId, stepId, capturedAtIso',
+      proposals: 'proposalId, guideId, status, createdAtIso',
+      sources: 'sourceId, guideId, sha256, receivedAtIso',
+      reports: 'id, guideId, path',
+      runtimeBlobs: 'id, guideId, path',
+      trainingSessions: 'sessionId, guideId, learnerId, status, updatedAtIso',
+      photoJobs: 'jobId, status, providerId, reuseKey, updatedAtIso',
+      runtimeSessions: 'sessionId, guideId, learnerId, status, updatedAtIso',
+    });
+    // v11: migrate runtime-session contract v1 to v2 before the database is
+    // exposed to the application. The table shape is unchanged; the
+    // persisted JSON contract is versioned by the record itself.
+    this.version(11)
+      .stores({
+        guides: 'guideId, title, updatedAtIso, lifecycleState',
+        assets: 'hash, mimeType, sizeBytes',
+        assetBlobs: 'hash',
+        sourceBlobs: 'sha256',
+        evidence: 'evidenceId, guideId, stepId, capturedAtIso',
+        proposals: 'proposalId, guideId, status, createdAtIso',
+        sources: 'sourceId, guideId, sha256, receivedAtIso',
+        reports: 'id, guideId, path',
+        runtimeBlobs: 'id, guideId, path',
+        trainingSessions: 'sessionId, guideId, learnerId, status, updatedAtIso',
+        photoJobs: 'jobId, status, providerId, reuseKey, updatedAtIso',
+        runtimeSessions: 'sessionId, guideId, learnerId, status, updatedAtIso',
+      })
+      .upgrade(async (tx) => {
+        const table = tx.table('runtimeSessions');
+        for (const value of await table.toArray()) {
+          const migrated = migrateRuntimeSession(value);
+          if (migrated) await table.put(migrated);
+        }
+      });
   }
 }
 
 export function openDb(): GuideForgeDb {
   return new GuideForgeDb();
+}
+
+/** Read legacy Dexie source rows once and convert them to project provenance. */
+export async function migrateDexieSourcesToCanonical(
+  db: GuideForgeDb,
+  guideId: string,
+): Promise<GuideSource[]> {
+  const rows = await db.sources.where('guideId').equals(guideId).toArray();
+  return rows.map(migrateLegacySourceRecord);
+}
+
+export async function storeSourceBytes(
+  db: GuideForgeDb,
+  sha256: ContentHash,
+  bytes: Uint8Array,
+): Promise<void> {
+  const actual = (await sha256Hex(bytes)) as ContentHash;
+  if (actual !== sha256) throw new Error(`source bytes hash mismatch for ${sha256}`);
+  await db.sourceBlobs.put({ sha256, bytes: bytes.slice() });
+}
+
+export async function loadSourceBytes(
+  db: GuideForgeDb,
+  sha256: ContentHash,
+): Promise<Uint8Array | null> {
+  const row = await db.sourceBlobs.get(sha256);
+  if (!row) return null;
+  const bytes = row.bytes;
+  const loaded =
+    typeof bytes === 'object' && bytes !== null && 'length' in bytes
+      ? Uint8Array.from(bytes as unknown as ArrayLike<number>)
+      : bytes instanceof ArrayBuffer
+        ? new Uint8Array(bytes)
+        : new Uint8Array(await bytes.arrayBuffer());
+  return (await sha256Hex(loaded)) === sha256 ? loaded : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -126,7 +358,10 @@ export interface AssetStore {
   put(bytes: Uint8Array, mimeType: string, extension: string): Promise<AssetMetaRecord>;
   get(hash: ContentHash): Promise<Uint8Array | null>;
   has(hash: ContentHash): Promise<boolean>;
-  /** Deduplicates: returns existing record if the hash is already present. */
+  list(): Promise<AssetMetaRecord[]>;
+  remove(hash: ContentHash): Promise<void>;
+  /** Remove unreferenced content and return the hashes removed. */
+  garbageCollect(referenced: ReadonlySet<ContentHash>): Promise<ContentHash[]>;
   status(): Promise<StorageHealth>;
 }
 
@@ -135,6 +370,8 @@ export interface StorageHealth {
   persistentGranted: boolean;
   estimatedQuotaBytes: number | null;
   estimatedUsageBytes: number | null;
+  usageRatio: number | null;
+  quotaWarning: 'none' | 'near-limit' | 'unknown';
 }
 
 function sha256Hex(bytes: Uint8Array): Promise<string> {
@@ -155,7 +392,7 @@ export function isOpfsSupported(): boolean {
 
 class IndexedDbAssetStore {
   private db: GuideForgeDb;
-  private readonly blobs: Table<{ hash: string; bytes: Blob }, string>;
+  private readonly blobs: Table<{ hash: string; bytes: Uint8Array | ArrayBuffer | Blob }, string>;
 
   constructor(db: GuideForgeDb) {
     this.db = db;
@@ -168,7 +405,11 @@ class IndexedDbAssetStore {
   ): Promise<AssetMetaRecord> {
     const hash = (await sha256Hex(bytes)) as ContentHash;
     const record: AssetMetaRecord = { ...meta, hash, location: 'indexeddb' };
-    await this.blobs.put({ hash, bytes: new Blob([bytes as BlobPart], { type: meta.mimeType }) });
+    // Store the bytes as a plain Uint8Array (not a bare ArrayBuffer or Blob):
+    // some WebKit builds fail to structured-clone a bare ArrayBuffer into
+    // IndexedDB ("Error preparing Blob/File data"), while typed arrays clone
+    // reliably everywhere.
+    await this.blobs.put({ hash, bytes: bytes.slice() });
     await this.db.assets.put(record);
     return record;
   }
@@ -176,11 +417,39 @@ class IndexedDbAssetStore {
   async get(hash: ContentHash): Promise<Uint8Array | null> {
     const row = await this.blobs.get(hash);
     if (!row) return null;
-    return new Uint8Array(await row.bytes.arrayBuffer());
+    const bytes = row.bytes;
+    // Cross-realm structured-clone results defeat `instanceof` in some
+    // engines (WebKit, fake-indexeddb). Duck-type instead.
+    const loaded =
+      typeof bytes === 'object' && bytes !== null && 'length' in bytes
+        ? Uint8Array.from(bytes as unknown as ArrayLike<number>)
+        : bytes instanceof ArrayBuffer
+          ? new Uint8Array(bytes)
+          : new Uint8Array(await bytes.arrayBuffer());
+    return (await sha256Hex(loaded)) === hash ? loaded : null;
   }
 
   async has(hash: ContentHash): Promise<boolean> {
     return (await this.db.assets.get(hash)) !== undefined;
+  }
+
+  async list(): Promise<AssetMetaRecord[]> {
+    return this.db.assets.toArray();
+  }
+
+  async remove(hash: ContentHash): Promise<void> {
+    await this.blobs.delete(hash);
+    await this.db.assets.delete(hash);
+  }
+
+  async garbageCollect(referenced: ReadonlySet<ContentHash>): Promise<ContentHash[]> {
+    const removed: ContentHash[] = [];
+    for (const record of await this.list()) {
+      if (referenced.has(record.hash)) continue;
+      await this.remove(record.hash);
+      removed.push(record.hash);
+    }
+    return removed;
   }
 }
 
@@ -248,7 +517,8 @@ export class OpfsAssetStore implements AssetStore {
     try {
       const handle = await root.getFileHandle(this.assetFileName(hash));
       const file = await handle.getFile();
-      return new Uint8Array(await file.arrayBuffer());
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      return (await sha256Hex(bytes)) === hash ? bytes : null;
     } catch {
       return this.fallback.get(hash);
     }
@@ -256,6 +526,34 @@ export class OpfsAssetStore implements AssetStore {
 
   async has(hash: ContentHash): Promise<boolean> {
     return (await this.db.assets.get(hash)) !== undefined;
+  }
+
+  async list(): Promise<AssetMetaRecord[]> {
+    return this.db.assets.toArray();
+  }
+
+  async remove(hash: ContentHash): Promise<void> {
+    const record = await this.db.assets.get(hash);
+    if (!record) return;
+    if (record.location === 'indexeddb') {
+      await this.fallback.remove(hash);
+      return;
+    }
+    const root = await this.ensureRoot();
+    if (root) {
+      await root.removeEntry(this.assetFileName(hash));
+    }
+    await this.db.assets.delete(hash);
+  }
+
+  async garbageCollect(referenced: ReadonlySet<ContentHash>): Promise<ContentHash[]> {
+    const removed: ContentHash[] = [];
+    for (const record of await this.list()) {
+      if (referenced.has(record.hash)) continue;
+      await this.remove(record.hash);
+      removed.push(record.hash);
+    }
+    return removed;
   }
 
   async status(): Promise<StorageHealth> {
@@ -274,7 +572,18 @@ export class OpfsAssetStore implements AssetStore {
         estimatedUsageBytes = est.usage ?? null;
       }
     }
-    return { opfsSupported, persistentGranted, estimatedQuotaBytes, estimatedUsageBytes };
+    const usageRatio =
+      estimatedQuotaBytes !== null && estimatedUsageBytes !== null && estimatedQuotaBytes > 0
+        ? estimatedUsageBytes / estimatedQuotaBytes
+        : null;
+    return {
+      opfsSupported,
+      persistentGranted,
+      estimatedQuotaBytes,
+      estimatedUsageBytes,
+      usageRatio,
+      quotaWarning: usageRatio === null ? 'unknown' : usageRatio >= 0.8 ? 'near-limit' : 'none',
+    };
   }
 
   /** Request persistent storage; returns whether the grant was issued. */

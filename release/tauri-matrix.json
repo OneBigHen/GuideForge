@@ -1,0 +1,26 @@
+{
+  "releaseVersion": "0.14.0-rc.1",
+  "matrix": [
+    {
+      "platform": "linux-x86_64",
+      "status": "supported-here",
+      "command": "pnpm --filter @guideforge/desktop build:tauri:linux",
+      "artifacts": ["deb"],
+      "signing": "release checksum and signed .gforge only; OS package signing is not configured"
+    },
+    {
+      "platform": "windows-x86_64",
+      "status": "external-runner-required",
+      "command": "pnpm --filter @guideforge/desktop exec tauri build --ci --target x86_64-pc-windows-msvc",
+      "artifacts": ["msi", "nsis"],
+      "signing": "requires a Windows certificate and CI secret; no local claim"
+    },
+    {
+      "platform": "macos-universal",
+      "status": "external-runner-required",
+      "command": "pnpm --filter @guideforge/desktop exec tauri build --ci --target universal-apple-darwin",
+      "artifacts": ["dmg", "app"],
+      "signing": "requires Apple Developer identity and notarization; no local claim"
+    }
+  ]
+}

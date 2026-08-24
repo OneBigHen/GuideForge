@@ -17,9 +17,34 @@ import type {
   SourceDocument,
   SourceRegion,
 } from '@guideforge/ai-contracts';
-import { evaluateIntake, structuralChunking } from '@guideforge/ai-contracts';
-import type { ContentHash, EntityId } from '@guideforge/domain';
-import type { ModelGateway, ModelRequest, ModelResponse } from '@guideforge/model-gateway';
+import { evaluateIntake, stableRegionId, structuralChunking } from '@guideforge/ai-contracts';
+import type { ContentHash, EntityId, SourceLocator } from '@guideforge/domain';
+import {
+  buildRegions,
+  decideOcrRoute,
+  detectConflicts,
+  detectFormat,
+  makeReceipt,
+  scoreConversionQuality,
+  segmentId,
+  serializeTable,
+  type CancellationToken,
+  type ConversionQualityReport,
+  type ConversionReceipt,
+  type ConvertedSource,
+  type FigureRegion,
+  type MediaSegment,
+  type OcrRoute,
+  type ProviderReceipt,
+  type SourceConflict,
+  type TableRegion,
+} from '@guideforge/ingestion';
+import {
+  validateProviderBaseUrl,
+  type ModelGateway,
+  type ModelRequest,
+  type ModelResponse,
+} from '@guideforge/model-gateway';
 import { createHash } from 'node:crypto';
 
 /**
@@ -34,8 +59,8 @@ export const DOCLING_CONFIG = {
   package: 'docling',
   version: '2.118.0',
   image: 'ai/granite-docling',
-  ocrBackend: 'disabled (deterministic text-layer extraction)',
-  pipeline: 'standard (no OCR, no table structure)',
+  ocrBackend: 'Docling standard pipeline (provider/model configured at runtime)',
+  pipeline: 'standard (OCR + table structure enabled)',
   language: ['en'],
   executionEnvironment: 'python-venv',
 } as const;
@@ -49,14 +74,114 @@ export interface NormalizedBlock {
   text: string;
   structuralPath: string;
   pageIndex: number;
+  locator?: SourceLocator;
+}
+
+export interface DocumentConversionOutput {
+  blocks: NormalizedBlock[];
+  pageCount: number;
+  tables?: TableRegion[];
+  figures?: FigureRegion[];
+  providers?: ProviderReceipt[];
+  qualityReport?: ConversionQualityReport;
+  pageImages?: { pageIndex: number; dataBase64: string; mimeType: string }[];
 }
 
 /** Boundary for document → normalized blocks. */
 export interface DocumentConverter {
-  convert(
-    bytes: Uint8Array,
-    detectedType: string,
-  ): Promise<{ blocks: NormalizedBlock[]; pageCount: number }>;
+  convert(bytes: Uint8Array, detectedType: string): Promise<DocumentConversionOutput>;
+}
+
+export function parsePdfFigureXml(xml: string, sourceHash: ContentHash): FigureRegion[] {
+  const figures: FigureRegion[] = [];
+  for (const pageMatch of xml.matchAll(/<page\b([^>]*)>([\s\S]*?)<\/page>/gi)) {
+    const pageAttrs = pageMatch[1] ?? '';
+    const pageNumber = Number(xmlAttribute(pageAttrs, 'number') ?? 1);
+    const pageIndex = Number.isInteger(pageNumber) && pageNumber > 0 ? pageNumber - 1 : 0;
+    const pageWidth = Number(xmlAttribute(pageAttrs, 'width'));
+    const pageHeight = Number(xmlAttribute(pageAttrs, 'height'));
+    const pageXml = pageMatch[2] ?? '';
+    let imageIndex = 0;
+    for (const imageMatch of pageXml.matchAll(/<image\b([^>]*)\/?\s*>/gi)) {
+      const attrs = imageMatch[1] ?? '';
+      const left = Number(xmlAttribute(attrs, 'left'));
+      const top = Number(xmlAttribute(attrs, 'top'));
+      const width = Number(xmlAttribute(attrs, 'width'));
+      const height = Number(xmlAttribute(attrs, 'height'));
+      const currentIndex = imageIndex++;
+      if (![left, top, width, height].every(Number.isFinite) || width <= 0 || height <= 0) {
+        continue;
+      }
+      const isFullPage =
+        pageWidth > 0 &&
+        pageHeight > 0 &&
+        left <= 1 &&
+        top <= 1 &&
+        width >= pageWidth * 0.95 &&
+        height >= pageHeight * 0.95;
+      if (isFullPage) continue;
+      const structuralPath = `pdf/image:${pageIndex}:${currentIndex}`;
+      figures.push({
+        regionId: stableRegionId(sourceHash, pageIndex, `figure:${structuralPath}`),
+        sourceHash,
+        pageIndex,
+        structuralPath,
+        caption: '',
+        bbox: { left, top, width, height },
+      });
+    }
+  }
+  return figures;
+}
+
+function xmlAttribute(attrs: string, name: string): string | undefined {
+  return new RegExp(`${name}=["']([^"']*)["']`, 'i').exec(attrs)?.[1];
+}
+
+async function renderPdfPageImages(bytes: Uint8Array): Promise<{
+  pageCount: number;
+  pageImages: { pageIndex: number; dataBase64: string; mimeType: string }[];
+}> {
+  const { execFile } = await import('node:child_process');
+  const { mkdtemp, readFile, readdir, rm, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = await mkdtemp(join(tmpdir(), 'gforge-pdf-pages-'));
+  const inputPath = join(dir, 'input.pdf');
+  const prefix = join(dir, 'page');
+  await writeFile(inputPath, bytes);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      execFile(
+        process.env.PDFTOPPM ?? 'pdftoppm',
+        ['-jpeg', '-r', '120', inputPath, prefix],
+        { maxBuffer: 8 * 1024 * 1024, timeout: 60_000 },
+        (err, _stdout, stderr) => {
+          if (err) {
+            reject(new Error(`PDF page rendering failed: ${stderr.toString().slice(0, 300)}`));
+            return;
+          }
+          resolve();
+        },
+      );
+    });
+    const names = (await readdir(dir))
+      .filter((name) => /^page-\d+\.jpg$/.test(name))
+      .sort((a, b) => Number(/\d+/.exec(a)?.[0] ?? 0) - Number(/\d+/.exec(b)?.[0] ?? 0));
+    if (names.length === 0) throw new Error('PDF page rendering produced no images');
+    return {
+      pageCount: names.length,
+      pageImages: await Promise.all(
+        names.map(async (name, pageIndex) => ({
+          pageIndex,
+          dataBase64: (await readFile(join(dir, name))).toString('base64'),
+          mimeType: 'image/jpeg',
+        })),
+      ),
+    };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -64,9 +189,9 @@ export interface DocumentConverter {
  *
  * Runs `python -m docling` (via the configured interpreter) on a temp file
  * and reads back the normalized JSON (text blocks with bounding boxes,
- * reading order, page index, and structural labels). The OCR step is disabled
- * so conversion is deterministic and needs no model downloads; scanned pages
- * are reported as warnings by the caller.
+ * reading order, page index, and structural labels). OCR and table structure
+ * are enabled in the bridge; scanned pages still need a successful provider
+ * result before the caller can mark the conversion complete.
  *
  * Configuration:
  *   DOCLING_PYTHON  — path to the interpreter with `docling` installed
@@ -78,10 +203,7 @@ export class DoclingConverter implements DocumentConverter {
     private readonly script = DOCLING_BRIDGE_SCRIPT,
   ) {}
 
-  async convert(
-    bytes: Uint8Array,
-    detectedType: string,
-  ): Promise<{ blocks: NormalizedBlock[]; pageCount: number }> {
+  async convert(bytes: Uint8Array, detectedType: string): Promise<DocumentConversionOutput> {
     const { execFile } = await import('node:child_process');
     const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
     const { tmpdir } = await import('node:os');
@@ -101,7 +223,7 @@ export class DoclingConverter implements DocumentConverter {
             timeout: 300_000,
             // Disable torch dynamo graph compilation: dramatically faster and
             // deterministic for CPU inference.
-            env: { ...process.env, TORCHDYNAMO_DISABLE: '1', DOCLING_DISABLE_TABLE: '1' },
+            env: { ...process.env, TORCHDYNAMO_DISABLE: '1' },
           },
           (err, stdout, stderr) => {
             if (err) {
@@ -120,16 +242,140 @@ export class DoclingConverter implements DocumentConverter {
       });
       const parsed = JSON.parse(Buffer.from(output as Buffer).toString('utf8')) as {
         pageCount: number;
-        blocks: { kind: string; text: string; path: string; page: number }[];
+        blocks: {
+          kind: string;
+          text: string;
+          path: string;
+          page: number;
+          bbox?: [number, number, number, number];
+        }[];
+        tables?: {
+          path: string;
+          page: number;
+          header: string[];
+          rows: string[][];
+          bbox?: [number, number, number, number];
+        }[];
+        figures?: {
+          path: string;
+          page: number;
+          caption: string;
+          bbox?: [number, number, number, number];
+        }[];
+        providers?: ProviderReceipt[];
+        pageImages?: { pageIndex: number; dataBase64: string; mimeType: string }[];
       };
+      const sourceHash = hashBytes(bytes);
+      const tables = (parsed.tables ?? []).map((table) => ({
+        regionId: stableRegionId(sourceHash, table.page, `table:${table.path}`),
+        sourceHash,
+        pageIndex: table.page,
+        structuralPath: table.path,
+        header: table.header,
+        rows: table.rows,
+        ...(table.bbox ? { bbox: bboxFromArray(table.bbox) } : {}),
+        excerptHash: createHash('sha256')
+          .update(serializeTable(table.header, table.rows))
+          .digest('hex'),
+      }));
+      let figures = (parsed.figures ?? []).map((figure) => ({
+        regionId: stableRegionId(sourceHash, figure.page, `figure:${figure.path}`),
+        sourceHash,
+        pageIndex: figure.page,
+        structuralPath: figure.path,
+        caption: figure.caption,
+        ...(figure.bbox ? { bbox: bboxFromArray(figure.bbox) } : {}),
+      }));
+      if (detectedType.includes('pdf') && figures.length === 0) {
+        try {
+          const xml = await new Promise<Uint8Array>((resolve, reject) => {
+            execFile(
+              process.env.PDFTOHTML ?? 'pdftohtml',
+              ['-q', '-xml', '-stdout', '-noroundcoord', inputPath],
+              { maxBuffer: 16 * 1024 * 1024, timeout: 60_000 },
+              (err, stdout, stderr) => {
+                if (err) {
+                  reject(new Error(stderr.toString().slice(0, 300) || err.message));
+                  return;
+                }
+                resolve(stdout as unknown as Uint8Array);
+              },
+            );
+          });
+          figures = parsePdfFigureXml(Buffer.from(xml as Buffer).toString('utf8'), sourceHash);
+        } catch {
+          // Figure extraction is additive; the primary Docling result remains authoritative.
+        }
+      }
+      const normalizedBlocks = parsed.blocks.map((b) => ({
+        kind: mapKind(b.kind),
+        text: b.text,
+        structuralPath: b.path,
+        pageIndex: b.page,
+        ...(b.bbox ? { locator: { kind: 'page' as const, pageIndex: b.page, bbox: b.bbox } } : {}),
+      }));
+      const existingBlockPaths = new Set(
+        normalizedBlocks.map((block) => `${block.pageIndex}:${block.structuralPath}`),
+      );
+      const tableBlocks = tables
+        .map((table) => ({
+          kind: 'table-row' as const,
+          text: serializeTable(table.header, table.rows),
+          structuralPath: table.structuralPath,
+          pageIndex: table.pageIndex,
+          ...(table.bbox
+            ? {
+                locator: {
+                  kind: 'page' as const,
+                  pageIndex: table.pageIndex,
+                  bbox: [
+                    table.bbox.left,
+                    table.bbox.top,
+                    table.bbox.left + table.bbox.width,
+                    table.bbox.top + table.bbox.height,
+                  ] as [number, number, number, number],
+                },
+              }
+            : {}),
+        }))
+        .filter(
+          (table) =>
+            table.text.length > 0 &&
+            !existingBlockPaths.has(`${table.pageIndex}:${table.structuralPath}`),
+        );
+      const blocks = [...normalizedBlocks, ...tableBlocks];
+      const chars = blocks.reduce((sum, block) => sum + block.text.length, 0);
+      const route = decideOcrRoute({
+        kind: detectFormat(`input${extensionFor(detectedType)}`, null).kind,
+        hasTextLayer: chars > 0,
+        charsPerPage: parsed.pageCount > 0 ? chars / parsed.pageCount : chars,
+        pageCount: Math.max(1, parsed.pageCount),
+      });
+      let pageImages = parsed.pageImages ?? [];
+      if (detectedType.includes('pdf') && pageImages.length === 0 && route !== 'text-layer') {
+        try {
+          pageImages = (await renderPdfPageImages(bytes)).pageImages;
+        } catch {
+          // Keep the provider's original output; callers still fail closed
+          // when the selected OCR/VLM route lacks citable evidence.
+        }
+      }
       return {
         pageCount: parsed.pageCount,
-        blocks: parsed.blocks.map((b) => ({
-          kind: mapKind(b.kind),
-          text: b.text,
-          structuralPath: b.path,
-          pageIndex: b.page,
-        })),
+        blocks,
+        tables,
+        figures,
+        ...(parsed.providers ? { providers: parsed.providers } : {}),
+        ...(pageImages.length > 0 ? { pageImages } : {}),
+        qualityReport: scoreConversionQuality({
+          pages: parsed.pageCount,
+          regionCount: blocks.length,
+          tableCount: tables.length,
+          figureCount: figures.length,
+          mediaSegmentCount: 0,
+          hasTextLayer: chars > 0,
+          route,
+        }),
       };
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -159,36 +405,117 @@ export class FakeDoclingConverter implements DocumentConverter {
   }
 }
 
-const DOCLING_BRIDGE_SCRIPT = String.raw`
+export const DOCLING_BRIDGE_SCRIPT = String.raw`
+import base64, io
+import importlib.metadata
 import json, sys
+from datetime import datetime, timezone
 from docling.document_converter import DocumentConverter, PdfFormatOption
-from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import PdfPipelineOptions
 
 pipeline_options = PdfPipelineOptions()
-pipeline_options.do_ocr = False
-pipeline_options.do_table_structure = False
+pipeline_options.do_ocr = True
+pipeline_options.do_table_structure = True
 conv = DocumentConverter(format_options={
-    InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
+    # The standard converter handles Office/CSV/image inputs; PDF gets the
+    # explicit OCR/table pipeline because those options are format-specific.
+    __import__('docling.datamodel.base_models', fromlist=['InputFormat']).InputFormat.PDF:
+        PdfFormatOption(pipeline_options=pipeline_options),
 })
 result = conv.convert(sys.argv[1])
 blocks = []
+tables = []
+figures = []
+page_images = []
+
+def bbox_for(prov):
+    bbox = getattr(prov, 'bbox', None) if prov else None
+    if bbox is None:
+        return None
+    values = []
+    for name in ('l', 't', 'r', 'b'):
+        value = getattr(bbox, name, None)
+        if value is None:
+            value = getattr(bbox, name.upper(), None)
+        if value is None:
+            return None
+        values.append(float(value))
+    return values
+
+def page_and_bbox(item):
+    prov = item.prov[0] if getattr(item, 'prov', None) else None
+    page = (getattr(prov, 'page_no', 1) - 1) if prov else 0
+    return max(0, page), bbox_for(prov)
+
 for item, level in result.document.iterate_items():
     label = item.label.value if hasattr(item.label, 'value') else str(item.label)
-    text = (item.text or '').strip()
-    prov = item.prov[0] if item.prov else None
-    page = (prov.page_no - 1) if prov and prov.page_no else 0
+    text = (getattr(item, 'text', '') or '').strip()
+    page, bbox = page_and_bbox(item)
+    path = getattr(item, 'self_ref', None) or f'{label}:{len(blocks)}'
     if text:
-        blocks.append({"kind": label, "text": text, "path": item.parent.origin if hasattr(item.parent, 'origin') else str(len(blocks)), "page": page})
-print(json.dumps({"pageCount": len(result.document.pages), "blocks": blocks}), flush=True)
-import os
-os._exit(0)
+        blocks.append({"kind": label, "text": text, "path": path, "page": page, "bbox": bbox})
+    if label.lower() == 'table':
+        header, rows = [], []
+        try:
+            dataframe = item.export_to_dataframe(doc=result.document)
+            values = dataframe.fillna('').astype(str).values.tolist()
+            if values:
+                header, rows = values[0], values[1:]
+        except Exception:
+            pass
+        tables.append({"path": path, "page": page, "header": header, "rows": rows, "bbox": bbox})
+    if label.lower() in ('picture', 'figure'):
+        caption = text
+        figures.append({"path": path, "page": page, "caption": caption, "bbox": bbox})
+
+pages = getattr(result.document, 'pages', {})
+page_items = pages.items() if hasattr(pages, 'items') else enumerate(pages, start=1)
+for page_no, page in page_items:
+    image = getattr(getattr(page, 'image', None), 'pil_image', None)
+    if image is not None:
+        stream = io.BytesIO()
+        image.save(stream, format='JPEG', quality=85)
+        page_images.append({"pageIndex": int(page_no) - 1, "dataBase64": base64.b64encode(stream.getvalue()).decode('ascii'), "mimeType": "image/jpeg"})
+
+provider_name = 'docling'
+try:
+    version = importlib.metadata.version('docling')
+except Exception:
+    provider_name = 'docling-slim'
+    try:
+        version = importlib.metadata.version('docling-slim')
+    except Exception:
+        version = 'unknown'
+print(json.dumps({
+    "pageCount": len(result.document.pages),
+    "blocks": blocks,
+    "tables": tables,
+    "figures": figures,
+    "pageImages": page_images,
+    "providers": [{
+        "provider": provider_name,
+        "version": version,
+        "status": "used",
+        "checkedAtIso": datetime.now(timezone.utc).isoformat(),
+        "details": {"ocr": True, "tableStructure": True}
+    }]
+}), flush=True)
 `;
 
 function extensionFor(detectedType: string): string {
   if (detectedType.includes('pdf')) return '.pdf';
   if (detectedType.includes('word')) return '.docx';
-  return '.pdf';
+  if (detectedType.includes('presentation')) return '.pptx';
+  if (detectedType.includes('spreadsheet')) return '.xlsx';
+  if (detectedType.includes('csv')) return '.csv';
+  if (detectedType.startsWith('image/')) return `.${detectedType.slice('image/'.length)}`;
+  if (detectedType.includes('html')) return '.html';
+  return '.bin';
+}
+
+function bboxFromArray(bbox: [number, number, number, number]) {
+  const [left, top, right, bottom] = bbox;
+  return { left, top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
 }
 
 function mapKind(kind: string): SourceRegion['kind'] {
@@ -212,12 +539,394 @@ function mapKind(kind: string): SourceRegion['kind'] {
   }
 }
 
+export interface VlmPageProvider {
+  extractPage(args: {
+    pageIndex: number;
+    imageBase64: string;
+    mimeType: string;
+  }): Promise<{ text: string; provider: ProviderReceipt }>;
+}
+
+/** OpenAI-compatible VLM adapter. It is only called for the hard-page route. */
+export const DEFAULT_OPENROUTER_VLM_MODEL = 'google/gemini-3.5-flash-lite';
+
+export class OpenAiCompatibleVlmProvider implements VlmPageProvider {
+  private readonly baseUrl: string;
+  private readonly apiKey: string | undefined;
+  private readonly model: string;
+  private readonly referer: string | undefined;
+  private readonly appName: string | undefined;
+  private readonly providerName: string;
+
+  constructor(
+    options: {
+      baseUrl?: string;
+      apiKey?: string;
+      model?: string;
+      allowedHosts?: readonly string[];
+      referer?: string;
+      appName?: string;
+    } = {},
+  ) {
+    const configuredApiKey =
+      options.apiKey ?? process.env.VLM_API_KEY ?? process.env.OPENROUTER_API_KEY;
+    const openRouterDefaults =
+      !options.baseUrl && !process.env.VLM_BASE_URL && Boolean(configuredApiKey);
+    const configuredBaseUrl =
+      options.baseUrl ??
+      process.env.VLM_BASE_URL ??
+      (openRouterDefaults ? 'https://openrouter.ai/api/v1' : '');
+    const configuredAllowedHosts = (process.env.VLM_ALLOWED_HOSTS ?? '')
+      .split(',')
+      .map((host) => host.trim())
+      .filter(Boolean);
+    const allowedHosts =
+      options.allowedHosts ??
+      (openRouterDefaults ? ['openrouter.ai', ...configuredAllowedHosts] : configuredAllowedHosts);
+    this.baseUrl = configuredBaseUrl
+      ? validateProviderBaseUrl(configuredBaseUrl, { allowedHosts, allowLoopback: true })
+      : '';
+    this.apiKey = configuredApiKey;
+    this.model =
+      options.model ??
+      process.env.VLM_MODEL ??
+      process.env.OPENROUTER_VLM_MODEL ??
+      (openRouterDefaults ? DEFAULT_OPENROUTER_VLM_MODEL : 'Qwen2-VL-7B-Instruct');
+    this.referer = options.referer ?? process.env.OPENROUTER_REFERER;
+    this.appName = options.appName ?? process.env.OPENROUTER_APP_NAME;
+    const hostname = this.baseUrl ? new URL(this.baseUrl).hostname : '';
+    this.providerName = hostname === 'openrouter.ai' ? 'openrouter-vlm' : 'vlm-openai-compatible';
+  }
+
+  async extractPage(args: {
+    pageIndex: number;
+    imageBase64: string;
+    mimeType: string;
+  }): Promise<{ text: string; provider: ProviderReceipt }> {
+    if (!this.baseUrl) throw new ProviderUnavailableError('VLM_BASE_URL is not configured');
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+      ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}),
+    };
+    if (this.referer) headers['HTTP-Referer'] = this.referer;
+    if (this.appName) headers['X-OpenRouter-Title'] = this.appName;
+    const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: this.model,
+        temperature: 0,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `Transcribe page ${args.pageIndex + 1}. Return only faithful source text; preserve table rows and warnings. Do not invent missing content.`,
+              },
+              {
+                type: 'image_url',
+                image_url: { url: `data:${args.mimeType};base64,${args.imageBase64}` },
+              },
+            ],
+          },
+        ],
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(
+        `VLM request failed (${response.status}): ${(await response.text()).slice(0, 300)}`,
+      );
+    }
+    const body = (await response.json()) as {
+      choices?: { message?: { content?: string | { text?: string }[] } }[];
+      model?: string;
+    };
+    const content = body.choices?.[0]?.message?.content;
+    const text = Array.isArray(content)
+      ? content
+          .map((part) => part.text ?? '')
+          .join('\n')
+          .trim()
+      : (content ?? '').trim();
+    if (!text) throw new Error('VLM returned no page text');
+    return {
+      text,
+      provider: {
+        provider: this.providerName,
+        version: body.model ?? this.model,
+        status: 'used',
+        checkedAtIso: new Date().toISOString(),
+        details: { pageIndex: args.pageIndex, model: body.model ?? this.model },
+      },
+    };
+  }
+}
+
+export interface WhisperMediaOptions {
+  python?: string;
+  model?: string;
+  ffprobe?: string;
+  ffmpeg?: string;
+  keyframeIntervalSec?: number;
+}
+
+/** Real ffprobe + Whisper/faster-whisper media adapter with timestamped output. */
+export class WhisperMediaConverter {
+  private readonly options: Required<WhisperMediaOptions>;
+
+  constructor(options: WhisperMediaOptions = {}) {
+    this.options = {
+      python: options.python ?? process.env.WHISPER_PYTHON ?? 'python3',
+      model: options.model ?? process.env.WHISPER_MODEL ?? '',
+      ffprobe: options.ffprobe ?? process.env.FFPROBE ?? 'ffprobe',
+      ffmpeg: options.ffmpeg ?? process.env.FFMPEG ?? 'ffmpeg',
+      keyframeIntervalSec: options.keyframeIntervalSec ?? 10,
+    };
+  }
+
+  asConverter(): MediaConverter {
+    return (source, bytes) => this.convert(source, bytes);
+  }
+
+  async convert(
+    source: SourceDocument,
+    bytes: Uint8Array,
+  ): Promise<{
+    mediaSegments: MediaSegment[];
+    converted: ConvertedSource;
+    blocks: NormalizedBlock[];
+  }> {
+    if (!this.options.model) {
+      throw new ProviderUnavailableError('WHISPER_MODEL is not configured');
+    }
+    const { mkdtemp, writeFile, rm, readdir, readFile } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join, extname } = await import('node:path');
+    const dir = await mkdtemp(join(tmpdir(), 'gforge-media-'));
+    const inputPath = join(dir, `input${extname(source.originalFilename) || '.media'}`);
+    await writeFile(inputPath, bytes);
+    try {
+      const probe = await runCommand(this.options.ffprobe, [
+        '-v',
+        'error',
+        '-show_entries',
+        'format=duration',
+        '-of',
+        'json',
+        inputPath,
+      ]);
+      const ffprobeVersion = await runCommand(this.options.ffprobe, ['-version']);
+      const duration = Number(
+        (JSON.parse(probe) as { format?: { duration?: string } }).format?.duration ?? 0,
+      );
+      const whisperJson = await runCommand(
+        this.options.python,
+        ['-c', WHISPER_BRIDGE_SCRIPT, inputPath, this.options.model],
+        { WHISPER_MODEL: this.options.model },
+      );
+      const parsed = JSON.parse(whisperJson) as {
+        version: string;
+        segments: { start: number; end: number; text: string }[];
+      };
+      const speech = parsed.segments
+        .filter((segment) => segment.end > segment.start && segment.text.trim())
+        .map((segment) => ({
+          segmentId: segmentId(source.sha256, 'speech', segment.start),
+          sourceHash: source.sha256,
+          startSec: segment.start,
+          endSec: segment.end,
+          kind: 'speech' as const,
+          transcript: segment.text.trim(),
+        }));
+      const blocks = speech.map((segment, index) => ({
+        kind: 'paragraph' as const,
+        text: segment.transcript ?? '',
+        structuralPath: `media:speech:${index}`,
+        pageIndex: 0,
+        locator: {
+          kind: 'time' as const,
+          startMs: Math.round(segment.startSec * 1000),
+          endMs: Math.round(segment.endSec * 1000),
+        },
+      }));
+      const keyframes = /\.(mp4|webm|mov)$/.exec(source.originalFilename.toLowerCase())
+        ? await this.extractKeyframes(
+            this.options.ffmpeg,
+            inputPath,
+            dir,
+            duration,
+            readFile,
+            readdir,
+            join,
+            source,
+          )
+        : [];
+      const ffmpegVersion =
+        keyframes.length > 0 ? await runCommand(this.options.ffmpeg, ['-version']) : '';
+      const mediaSegments = [...speech, ...keyframes].sort((a, b) => a.startSec - b.startSec);
+      const checkedAtIso = new Date().toISOString();
+      const providers: ProviderReceipt[] = [
+        {
+          provider: 'ffprobe',
+          version: probeVersion(ffprobeVersion),
+          status: 'used',
+          checkedAtIso,
+          details: { durationSec: duration },
+        },
+        { provider: 'whisper', version: parsed.version, status: 'used', checkedAtIso },
+        ...(keyframes.length > 0
+          ? [
+              {
+                provider: 'ffmpeg',
+                version: probeVersion(ffmpegVersion),
+                status: 'used' as const,
+                checkedAtIso,
+              },
+            ]
+          : []),
+      ];
+      const qualityReport = scoreConversionQuality({
+        pages: 1,
+        regionCount: blocks.length,
+        tableCount: 0,
+        figureCount: 0,
+        mediaSegmentCount: mediaSegments.length,
+        hasTextLayer: blocks.length > 0,
+        route: 'ocr',
+      });
+      const converted: ConvertedSource = {
+        sourceHash: source.sha256,
+        pages: blocks.length > 0 ? [{ pageIndex: 0, blocks }] : [],
+        tables: [],
+        figures: [],
+        mediaSegments,
+        charsPerPage: blocks.reduce((sum, block) => sum + block.text.length, 0),
+        hasTextLayer: blocks.length > 0,
+        converter: 'whisper',
+        converterVersion: parsed.version,
+        providers,
+        qualityReport,
+      };
+      return { mediaSegments, converted, blocks };
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  private async extractKeyframes(
+    ffmpeg: string,
+    inputPath: string,
+    dir: string,
+    duration: number,
+    readFile: (path: string) => Promise<Uint8Array>,
+    readdir: (path: string) => Promise<string[]>,
+    join: (a: string, b: string) => string,
+    source: SourceDocument,
+  ): Promise<MediaSegment[]> {
+    const pattern = join(dir, 'frame-%06d.jpg');
+    await runCommand(ffmpeg, [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-i',
+      inputPath,
+      '-vf',
+      `fps=1/${this.options.keyframeIntervalSec}`,
+      '-frames:v',
+      '120',
+      pattern,
+    ]);
+    const names = (await readdir(dir)).filter((name) => /^frame-\d+\.jpg$/.test(name)).sort();
+    return Promise.all(
+      names.map(async (name, index) => {
+        const startSec = index * this.options.keyframeIntervalSec;
+        const bytes = await readFile(join(dir, name));
+        return {
+          segmentId: segmentId(source.sha256, 'keyframe', startSec),
+          sourceHash: source.sha256,
+          startSec,
+          endSec: Math.min(
+            duration > 0 ? duration : startSec + this.options.keyframeIntervalSec,
+            startSec + this.options.keyframeIntervalSec,
+          ),
+          kind: 'keyframe' as const,
+          keyframeHash: hashBytes(bytes),
+        };
+      }),
+    );
+  }
+}
+
+const WHISPER_BRIDGE_SCRIPT = String.raw`
+import importlib.metadata, json, sys
+path, model_name = sys.argv[1], sys.argv[2]
+try:
+    from faster_whisper import WhisperModel
+    model = WhisperModel(model_name, device='auto', compute_type='auto')
+    segments, _ = model.transcribe(path, vad_filter=True)
+    rows = [{'start': float(s.start), 'end': float(s.end), 'text': s.text} for s in segments]
+    version = importlib.metadata.version('faster-whisper')
+except ImportError:
+    import whisper
+    model = whisper.load_model(model_name)
+    result = model.transcribe(path, fp16=False)
+    rows = [{'start': float(s['start']), 'end': float(s['end']), 'text': s['text']} for s in result.get('segments', [])]
+    version = importlib.metadata.version('openai-whisper')
+print(json.dumps({'version': version, 'segments': rows}), flush=True)
+`;
+
+async function runCommand(
+  command: string,
+  args: string[],
+  extraEnv: Record<string, string> = {},
+): Promise<string> {
+  const { execFile } = await import('node:child_process');
+  return new Promise((resolve, reject) => {
+    execFile(
+      command,
+      args,
+      { env: { ...process.env, ...extraEnv }, maxBuffer: 64 * 1024 * 1024, timeout: 1_800_000 },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(
+            new Error(`${command} failed: ${stderr.toString().slice(0, 500) || error.message}`),
+          );
+        } else resolve(stdout.toString());
+      },
+    );
+  });
+}
+
+function probeVersion(output: string): string {
+  const firstLine = output.split(/\r?\n/, 1)[0]?.trim().slice(0, 120);
+  return firstLine ?? 'unknown';
+}
+
 export const DEFAULT_INTAKE_POLICY: IntakePolicy = {
-  maxSizeBytes: 50 * 1024 * 1024,
+  maxSizeBytes: 100 * 1024 * 1024,
   maxPages: 200,
   allowedTypes: [
     'application/pdf',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'text/csv',
+    'text/html',
+    'text/plain',
+    'text/markdown',
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+    'image/gif',
+    'image/svg+xml',
+    'audio/mpeg',
+    'audio/wav',
+    'audio/mp4',
+    'audio/ogg',
+    'video/mp4',
+    'video/webm',
+    'video/quicktime',
   ],
 };
 
@@ -300,4 +1009,347 @@ export async function runExtractionPipeline(
   };
   const response = await gateway.run(request);
   return { chunks, response };
+}
+
+// ---------------------------------------------------------------------------
+// Offline deterministic text converter (no Docling install required)
+// ---------------------------------------------------------------------------
+
+/**
+ * Deterministic, dependency-free converter for plain text and markdown. Also
+ * used by the browser path so text sources are fully local-first. Splits into
+ * heading/paragraph blocks by line and emits stable structural paths.
+ */
+export class TextSourceConverter implements DocumentConverter {
+  convert(bytes: Uint8Array, _detectedType: string): Promise<DocumentConversionOutput> {
+    const text = new TextDecoder('utf-8').decode(bytes);
+    const lines = text.split(/\r?\n/);
+    const blocks: NormalizedBlock[] = [];
+    let section = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (/^#{1,3}\s+/.test(trimmed)) {
+        section++;
+        blocks.push({
+          kind: 'heading',
+          text: trimmed.replace(/^#{1,3}\s+/, ''),
+          structuralPath: `heading:${section}`,
+          pageIndex: 0,
+        });
+        continue;
+      }
+      const kind: SourceRegion['kind'] = /^[-*]\s+/.test(trimmed) ? 'list-item' : 'paragraph';
+      blocks.push({
+        kind,
+        text: trimmed,
+        structuralPath: `heading:${section}/block:${i}`,
+        pageIndex: 0,
+      });
+    }
+    return Promise.resolve({ blocks, pageCount: 1 });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Multimodal pipeline (Phase 05)
+// ---------------------------------------------------------------------------
+
+export interface MultimodalConvertResult {
+  converted: ConvertedSource;
+  blocks: NormalizedBlock[];
+}
+
+export class ProviderUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ProviderUnavailableError';
+  }
+}
+
+export type MediaConverter = (
+  source: SourceDocument,
+  bytes: Uint8Array,
+) => Promise<{
+  mediaSegments: MediaSegment[];
+  converted: ConvertedSource;
+  blocks?: NormalizedBlock[];
+}>;
+
+/**
+ * Convert any supported source type to normalized blocks + rich regions
+ * (tables/figures/media), routing OCR/vision decisions deterministically.
+ * `converterFor` lets callers plug in the real Docling/ASR converters on the
+ * companion; the browser/offline path uses `TextSourceConverter` for text and
+ * reports image/audio/video for OCR/ASR routing.
+ */
+export async function convertMultimodal(
+  source: SourceDocument,
+  bytes: Uint8Array,
+  converters: {
+    document?: DocumentConverter;
+    media?: MediaConverter;
+    vlm?: VlmPageProvider;
+  } = {},
+): Promise<MultimodalConvertResult> {
+  const format = detectFormat(source.originalFilename, bytes.slice(0, 4));
+  if (format.kind === 'audio' || format.kind === 'video') {
+    if (converters.media) {
+      const res = await converters.media(source, bytes);
+      return { converted: res.converted, blocks: res.blocks ?? [] };
+    }
+    throw new ProviderUnavailableError(
+      `No ASR provider configured for ${source.originalFilename}; configure WHISPER_PYTHON/WHISPER_MODEL`,
+    );
+  }
+
+  const useTextConverter = format.kind === 'text';
+  const converter =
+    converters.document ?? (useTextConverter ? new TextSourceConverter() : new DoclingConverter());
+  let output: DocumentConversionOutput;
+  try {
+    output = await converter.convert(bytes, format.mimeType);
+  } catch (error) {
+    if (format.kind !== 'pdf' || !converters.vlm) throw error;
+    const rendered = await renderPdfPageImages(bytes);
+    output = {
+      blocks: [],
+      pageCount: rendered.pageCount || source.pageCount,
+      pageImages: rendered.pageImages,
+      providers: [
+        {
+          provider: 'docling',
+          version: DOCLING_CONFIG.version,
+          status: 'failed',
+          checkedAtIso: new Date().toISOString(),
+          details: { fallback: 'poppler-page-render' },
+          error: error instanceof Error ? error.message : String(error),
+        },
+      ],
+    };
+  }
+  let blocks = output.blocks;
+  let providers = output.providers ?? [];
+  const preliminaryRoute = decideOcrRoute({
+    kind: format.kind,
+    hasTextLayer: blocks.length > 0,
+    charsPerPage: estimateCharsPerPage(blocks, output.pageCount),
+    pageCount: Math.max(1, output.pageCount),
+  });
+  const useVlmFallback =
+    preliminaryRoute === 'vlm-fallback' ||
+    (preliminaryRoute === 'ocr' && blocks.length === 0 && (output.pageImages?.length ?? 0) > 0);
+  if (useVlmFallback) {
+    if (!converters.vlm) {
+      throw new ProviderUnavailableError(
+        'VLM fallback required for hard pages but no VLM provider is configured',
+      );
+    }
+    if (!output.pageImages || output.pageImages.length === 0) {
+      throw new ProviderUnavailableError(
+        'VLM fallback required but the document provider returned no page images',
+      );
+    }
+    const vlmResults = await Promise.all(
+      output.pageImages.map((image) =>
+        converters.vlm!.extractPage({
+          pageIndex: image.pageIndex,
+          imageBase64: image.dataBase64,
+          mimeType: image.mimeType,
+        }),
+      ),
+    );
+    const hardPages = new Set(output.pageImages.map((image) => image.pageIndex));
+    blocks = blocks.filter((block) => !hardPages.has(block.pageIndex));
+    blocks.push(
+      ...vlmResults.map((result, index) => ({
+        kind: 'paragraph' as const,
+        text: result.text,
+        structuralPath: `vlm/page:${output.pageImages![index]!.pageIndex}`,
+        pageIndex: output.pageImages![index]!.pageIndex,
+        locator: { kind: 'page' as const, pageIndex: output.pageImages![index]!.pageIndex },
+      })),
+    );
+    providers = [...providers, ...vlmResults.map((result) => result.provider)];
+  }
+  const { pageCount } = output;
+  const finalRoute = decideOcrRoute({
+    kind: format.kind,
+    hasTextLayer: blocks.length > 0,
+    charsPerPage: estimateCharsPerPage(blocks, pageCount),
+    pageCount: Math.max(1, pageCount),
+  });
+  const converterName = converter instanceof TextSourceConverter ? 'text-source' : 'docling';
+  const converted: ConvertedSource = {
+    sourceHash: source.sha256,
+    pages: groupByPage(blocks, pageCount),
+    tables: output.tables ?? [],
+    figures: output.figures ?? [],
+    mediaSegments: [],
+    charsPerPage: blocks.length > 0 ? estimateCharsPerPage(blocks, pageCount) : 0,
+    hasTextLayer: blocks.length > 0,
+    converter: converterName,
+    converterVersion:
+      converterName === 'docling'
+        ? (providers.find(
+            (provider) => provider.provider === 'docling' || provider.provider === 'docling-slim',
+          )?.version ?? DOCLING_CONFIG.version)
+        : '1',
+    ...(providers.length > 0 ? { providers } : {}),
+    qualityReport: scoreConversionQuality({
+      pages: pageCount,
+      regionCount: blocks.length,
+      tableCount: output.tables?.length ?? 0,
+      figureCount: output.figures?.length ?? 0,
+      mediaSegmentCount: 0,
+      hasTextLayer: blocks.length > 0,
+      route: finalRoute,
+      ...(output.qualityReport?.errors ? { providerErrors: output.qualityReport.errors } : {}),
+    }),
+  };
+  return { converted, blocks };
+}
+
+function groupByPage(blocks: NormalizedBlock[], pageCount: number): ConvertedSource['pages'] {
+  const byPage = new Map<number, NormalizedBlock[]>();
+  for (const b of blocks) {
+    const list = byPage.get(b.pageIndex) ?? [];
+    list.push(b);
+    byPage.set(b.pageIndex, list);
+  }
+  return Array.from({ length: Math.max(1, pageCount) }, (_, p) => ({
+    pageIndex: p,
+    blocks: (byPage.get(p) ?? []).map((b) => ({
+      kind: b.kind,
+      text: b.text,
+      structuralPath: b.structuralPath,
+      ...(b.locator ? { locator: b.locator } : {}),
+    })),
+  }));
+}
+
+function estimateCharsPerPage(blocks: NormalizedBlock[], pageCount: number): number {
+  const chars = blocks.reduce((n, b) => n + b.text.length, 0);
+  return pageCount > 0 ? Math.ceil(chars / pageCount) : chars;
+}
+
+export interface MultimodalResult {
+  regions: ChunkedRegion[];
+  tables: TableRegion[];
+  mediaSegments: MediaSegment[];
+  ocrRoute: OcrRoute;
+  receipt: ConversionReceipt;
+  conflicts: SourceConflict[];
+  partial: boolean;
+  cancelledReason: string | null;
+}
+
+/**
+ * Full multimodal intake for one source: detect format, convert, build stable
+ * regions, compute OCR route, detect conflicts against existing sources, and
+ * emit a versioned receipt. Cancellable with partial results.
+ */
+export async function ingestMultimodal(args: {
+  source: SourceDocument;
+  bytes: Uint8Array;
+  converters?: {
+    document?: DocumentConverter;
+    media?: MediaConverter;
+    vlm?: VlmPageProvider;
+  };
+  existingSources?: { sourceHash: ContentHash; textPreview: string }[];
+  pipelineVersion?: string;
+  token?: CancellationToken;
+  startedAtIso?: string;
+}): Promise<MultimodalResult> {
+  const {
+    source,
+    bytes,
+    converters,
+    existingSources = [],
+    pipelineVersion = '1',
+    token,
+    startedAtIso = new Date().toISOString(),
+  } = args;
+
+  const { converted, blocks } = await convertMultimodal(source, bytes, converters);
+  const built = buildRegions(converted, pipelineVersion, token);
+
+  const ocrRoute = decideOcrRoute({
+    kind: detectFormat(source.originalFilename, bytes.slice(0, 4)).kind,
+    hasTextLayer: converted.hasTextLayer,
+    charsPerPage: converted.charsPerPage,
+    pageCount: Math.max(1, converted.pages.length, source.pageCount),
+  });
+
+  const conflicts =
+    existingSources.length > 0
+      ? detectConflicts([
+          {
+            sourceHash: source.sha256,
+            textPreview: blocks
+              .map((b) => b.text)
+              .join(' ')
+              .slice(0, 8000),
+          },
+          ...existingSources,
+        ])
+      : [];
+
+  const qualityReport =
+    converted.qualityReport ??
+    scoreConversionQuality({
+      pages: converted.pages.length,
+      regionCount: built.regions.length,
+      tableCount: built.tables.length,
+      figureCount: converted.figures.length,
+      mediaSegmentCount: built.mediaSegments.length,
+      hasTextLayer: converted.hasTextLayer,
+      route: ocrRoute,
+    });
+  const providerFailure =
+    qualityReport.errors.length > 0 ||
+    qualityReport.checks.some((check) => check.status === 'fail');
+  const status = providerFailure
+    ? ('failed' as const)
+    : built.partial
+      ? ('partial' as const)
+      : token?.cancelled
+        ? ('cancelled' as const)
+        : ('complete' as const);
+
+  const finishedAtIso = new Date().toISOString();
+  const receipt = makeReceipt({
+    sourceHash: source.sha256,
+    converter: converted.converter,
+    converterVersion: converted.converterVersion,
+    pipelineVersion,
+    status,
+    startedAtIso,
+    finishedAtIso,
+    pages: converted.pages.length,
+    regionCount: built.regions.length,
+    tableCount: built.tables.length,
+    figureCount: built.figures.length,
+    mediaSegmentCount: built.mediaSegments.length,
+    notes: [
+      `ocr-route:${ocrRoute}`,
+      ...(conflicts.length > 0 ? [`conflicts:${conflicts.length}`] : []),
+    ],
+    qualityReport,
+    ...(converted.providers ? { providers: converted.providers } : {}),
+    ...(providerFailure ? { error: qualityReport.errors.join('; ') } : {}),
+  });
+
+  return {
+    regions: built.regions,
+    tables: built.tables,
+    mediaSegments: built.mediaSegments,
+    ocrRoute,
+    receipt,
+    conflicts,
+    partial: built.partial,
+    cancelledReason: built.cancelledReason,
+  };
 }

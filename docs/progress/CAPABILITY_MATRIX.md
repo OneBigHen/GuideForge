@@ -1,0 +1,212 @@
+# GuideForge Capability Matrix — Current Production Re-audit
+
+Audited SHA: `43af4fc3af292664dec97cbdadd12a4086b4d62a`; production-pack parent
+SHA was `abefa7475d52931957721b571df828c364c7e924`.
+Audit date: 2026-08-12
+Authority: GuideForge Production Readiness Pack, `ACCEPTANCE_MATRIX.md`
+
+This replaces the prior baseline matrix. A green unit test or an old phase
+report is not evidence of a production capability. `verified` below means the
+named current-tree check proves that narrow behavior; `partial` means a seam
+or incomplete primary path remains; `missing` means the pack requirement is
+not implemented; `blocked` means external hardware/provider access is needed.
+
+## Phase 00 baseline
+
+| Requirement                     | Current evidence                                                                                                          | Status           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| Exact current-tree forced check | `pnpm check --force`: 125/125 on audited SHA `0a6765d`                                                                    | verified locally |
+| Clean frozen install            | 24 workspaces / 930 packages from zero                                                                                    | verified locally |
+| Browser E2E                     | Current CI-mode run: 78 passed / 6 documented skips across 84 desktop/iPad/iPhone emulation tests                         | verified locally |
+| Postgres integration            | API test file: 17/17 with live `guideforge-pg`                                                                            | verified locally |
+| Package fuzz/drills             | package-gforge: 38/38                                                                                                     | verified locally |
+| Supply-chain gates              | audit, licenses, SBOM, secret scan, policy, boundary, dep-check                                                           | verified locally |
+| Current SHA GitHub status       | Audited SHA `0a6765d` is local-only; GitHub readback is pending with zero statuses. Prior successful runs are historical. | blocked          |
+
+## Single-owner security and control plane
+
+| Requirement                                                   | Current source signal                                                                                                  | Status            |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Real owner credential with Argon2id/current equivalent        | `apps/companion/src/server.test.ts`: owner setup, dummy unknown-owner path, wrong password, Argon2id hash verification | verified locally  |
+| Loopback-default companion and secure LAN mode                | `apps/companion`: `127.0.0.1` default; non-loopback requires TLS; real HTTPS listener/client test                      | verified locally  |
+| HTTPS required for non-loopback mode                          | `assertTransportConfig` rejects missing key/cert; generated-cert network test receives Secure cookie                   | verified locally  |
+| Secure HttpOnly cookie, CSRF/origin, rotation/revoke/recovery | 10 companion tests cover flags, Origin allowlist, rotation, logout, revoke-all, recovery, expiry                       | verified locally  |
+| Provider and signing secrets protected from browser storage   | AES-256-GCM `SecretBox`, `0600` storage, metadata-only settings API and settings UX                                    | verified locally  |
+| No primary org/RBAC dependency                                | Companion owner/pairing/settings path uses SQLite owner record, not legacy org/workspace/RBAC                          | verified narrowly |
+| Rate/resource limits and cancellation                         | Login/request/body/secret limits are tested; durable job cancellation remains a later phase concern                    | partial           |
+
+## Canonical project and package
+
+| Requirement                                           | Current source/test evidence                                                                                                                                          | Status            |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Canonical source records materialize/hydrate          | `materializeSnapshot` source map plus Dexie legacy promotion; `roundtrip.test.ts` clears Dexie before import                                                          | verified          |
+| Scene/training/assets canonical round-trip            | `roundtrip.test.ts`: 2/2; GitHub Playwright and repository check passed                                                                                               | verified narrowly |
+| Claims/citations/generation records                   | v4 schema/domain/Yjs mapping and collaboration hydration coverage; non-live provider generation remains later                                                         | verified narrowly |
+| SHA-256 source-region integrity                       | Legacy mapper and ingestion adapter hash regions; round-trip asserts canonical region hashes                                                                          | verified narrowly |
+| v1/v2/v3 to canonical v4 migration                    | Pure contiguous migration tests plus legacy Dexie source mapper                                                                                                       | verified locally  |
+| Complete `.gforge` package with all referenced assets | v2 draft/backup package round-trip binds scene assets, canonical sources, optional source bytes, reports, and runtime evidence; provider-produced assets remain later | verified narrowly |
+| Signed release binding and restore                    | package-gforge drills: 38/38                                                                                                                                          | verified narrowly |
+
+## Phase 03 package, storage, backup, and recovery
+
+| Requirement                                       | Current source/test evidence                                                                                        | Status            |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| `.gforge` v2 manifest/layout                      | `PackageManifest.schema.json`; deterministic guide/assets/sources/reports/runtime entries and manifest-bound hashes | verified narrowly |
+| Source metadata and optional source bytes         | source inventory binding, SHA-256 verification, Dexie `sourceBlobs`, and package tests                              | verified narrowly |
+| Generation/validation/cost/license reports        | backup report emission plus asset-license attribution report                                                        | verified narrowly |
+| Runtime/evidence inclusion policy                 | evidence index and runtime files are backup-only and rejected when policy is absent                                 | verified narrowly |
+| Hostile archive handling                          | central-directory preflight, async fflate extraction, path/size/ratio/total limits, active-content sanitization     | verified narrowly |
+| Storage persistence/quota and blob GC             | OPFS with IndexedDB fallback, quota/persistence health, list/remove/garbage collection tests                        | verified narrowly |
+| Project export/full backup/restore                | web 4-test suite restores assets, evidence, runtime bytes, reports, and a restore/migration report                  | verified narrowly |
+| Companion signing key custody/rotation/revocation | encrypted Ed25519 companion key store, public-key-only web UX, 11 companion tests                                   | verified narrowly |
+
+## Real multimodal ingestion
+
+| Requirement                                           | Current source signal                                                                                                                                                         | Status            |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Digital PDF, scanned PDF/OCR, tables, figures/bboxes  | Real CPU Docling: digital PDF 3 regions/1 table; worker now emits citable table blocks, Poppler page images, and bounded XML figure bboxes, but the golden rerun remains open | partial           |
+| DOCX/PPTX/XLSX and image intake                       | Real DOCX 2 regions/1 table and PNG 1 region passed; CSV/XLSX table metadata now becomes citable blocks, with golden rerun pending                                            | partial           |
+| Real audio ASR and video timestamps                   | Real faster-whisper 1.2.1 produced timestamped speech; MP4 path completed with 4 ffmpeg keyframes and receipts; semantic accuracy remains unproven                            | partial           |
+| VLM hard-page fallback                                | OpenRouter hosted VLM transport passed; Poppler pages now feed the fallback after missing/failed Docling, but no live golden scanned-PDF fallback receipt yet                 | partial           |
+| Quality report, cancellation, partial/revision impact | Quality/provider receipts and 28 ingestion tests                                                                                                                              | verified narrowly |
+| Source Studio upload/regions/receipts/conflicts       | Failed binary state, locator navigation, and 24 web tests                                                                                                                     | partial           |
+
+## AI and synthesis
+
+| Requirement                                               | Current source/test evidence                                                                                                                                                                                             | Status            |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------- |
+| Real DeepSeek Source Studio synthesis                     | Live OpenRouter-hosted `deepseek/deepseek-v4-flash-0731` source probe and API endpoint return cited schema-valid output with `provider: openrouter`; golden multi-source corpus and official-direct endpoint remain open | verified narrowly |
+| Explicit offline fallback                                 | `offline-rules` / `synthesis-rules-v1` is separately labeled and tested                                                                                                                                                  | verified narrowly |
+| Multi-source citations and SHA-256 integrity              | Request validation, source-hash citations, and SHA-256 excerpt tests                                                                                                                                                     | verified narrowly |
+| Deep schema/unit/value gates                              | Runtime output schema, citation, numeric/unit grounding, and repair tests                                                                                                                                                | verified narrowly |
+| Bounded repair, profiles, cache/cost receipt, hard budget | 19 gateway tests plus live OpenRouter usage/cost receipt cover profiles, cache, budget refusal, and repair                                                                                                               | verified narrowly |
+| AI proposes; owner accepts/signs/masters                  | Proposal tests cover pending/accept path                                                                                                                                                                                 | partial           |
+
+## Training
+
+| Requirement                                                | Current source signal                                                                                                            | Status            |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Competencies/objectives/lessons/activities/blueprint/items | `dbf992d` generator, v4 schema, deterministic quality gate, canonical commands; training browser path passed desktop/iPad/iPhone | verified narrowly |
+| Deterministic mastery/remediation                          | `TrainingSession` scorer proves fail → remediation → retest → mastery with objective and critical-item outcomes                  | verified narrowly |
+| Training studio/player/offline attempts                    | `/training/:guideId` plus iPhone-first `/training/player/:guideId`; Dexie v8 resume record and 3/3 browser runtime path          | verified narrowly |
+| QTI 3 and xAPI-aligned export                              | QTI 3 package subset/compatibility report and xAPI JSON export tests; external conformance/LRS delivery not claimed              | verified narrowly |
+
+## Execution and evidence
+
+| Requirement                               | Current source/test evidence                                                                                                                                  | Status            |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Procedure player renders authored steps   | `/run/:guideId` renders ordered authored steps, authored verification checks, scene transforms/camera/annotations, and offline status                         | verified narrowly |
+| Real step completion state                | Versioned `RuntimeSession` with `StepAttempt`/`StepCompletion`; progress derives from active-attempt evidence, authored check count, and explicit completion  | verified narrowly |
+| Real photo/signature/measurement evidence | Native camera/file input with sanitized content hash, cryptographically verified local ECDSA artifact on restore, typed measurement and note records          | verified narrowly |
+| 3D step state, resume, offline report     | Dexie v11 runtime resume with v1-to-v2 migration, schema/domain validation, service-worker offline reload, full backup/import, and downloaded JSON report E2E | verified narrowly |
+
+## Assets and 3D
+
+| Requirement                                          | Current source/test evidence                                                                                                                                                                                | Status            |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Blank/unknown/GPL license fails closed               | Asset license tests pass                                                                                                                                                                                    | verified narrowly |
+| Asset manager/previews/health/providers/STEP-OBJ-STL | `/assets` local-first manager, safe GLB/glTF inspection, provider request contracts, license blocks, and explicit companion-conversion metadata; external download/conversion/derivatives remain unverified | verified narrowly |
+| Local photo-to-3D GPU wizard                         | `/photo-to-3d` multi-view wizard, JPEG/PNG/WebP sanitation, quality checks, Dexie v9 jobs, cancellation, and 3/3 browser acceptance; no GPU output                                                          | verified narrowly |
+| Hunyuan/license gate/Blender/scale/provenance        | Hunyuan3D-2GP/TripoSR contracts, license/VRAM gates, SQLite queue, reuse key, provenance, and validated Blender argv/LOD plan; provider inference and cleanup execution unverified                          | verified narrowly |
+
+## Spatial intelligence
+
+| Requirement                                | Current source/test evidence                                                                                                                                                                                                                                                                                             | Status            |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------- |
+| Durable surface anchors                    | Schema v5 `SurfaceAttachment`, v4 migration, mesh-local/barycentric fields, Yjs persistence, transform-stability/rebind tests, and scene editor correction/review controls                                                                                                                                               | verified narrowly |
+| Arrows/callouts/measurements/step-state UI | Annotation kinds include arrows, labels, callouts, highlights, and paths; measurement and step-state commands/UI plus accessible DOM alternatives; live overlay rendering remains unverified                                                                                                                             | verified narrowly |
+| Semantic AI spatial compiler               | `@guideforge/spatial-compiler`: explicit equipment requirements, semantic relations, consumed constraints, asset resolution, stable-seed bounded solver, ranked visibility/occlusion-aware cameras, validation, annotations, step states, and typed scene commands; micropipette tests plus 6/6 scene browser acceptance | verified narrowly |
+| Deterministic transforms and cameras       | Stable-seed workspace/collision solver and camera candidates materialize through the canonical scene editor; physical/rendered camera proof remains open                                                                                                                                                                 | verified narrowly |
+
+## Devices, storage, release, reliability
+
+| Requirement                                   | Current source/test evidence                                                                                                                                                                                                                                         | Status            |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Real iPad/iPhone/Pencil/camera/PWA tests      | Phase 13 dashboard/job/backup flow and 18/18 Axe scans pass in desktop/iPad/iPhone emulation; real device unavailable here                                                                                                                                           | blocked           |
+| Persistence/quota/backup/restore              | Settings reads live quota/persistence state; near-quota and persistence-request tests, hash-verified corrupted-blob reads, offline reload, full backup/import, and release recovery drill pass; physical browser deletion/recovery remains open                      | verified narrowly |
+| PWA production deploy                         | Manifest, Apple metadata, service-worker generation, checked-in CSP/cache/security-header policy, and candidate packaging pass; external HTTPS deploy/install lifecycle not proven                                                                                   | verified narrowly |
+| Tauri artifacts/signing/upgrade/rollback      | Linux x86_64 `.deb` builds; Windows/macOS matrix and signing/notarization are explicit external targets; manifest verification and data-preserving recovery drill pass                                                                                               | verified narrowly |
+| Golden micropipette/pump/filter certification | Phase 16 table-driven 3/3 local certification passes source/citation, training/mastery, runtime evidence, spatial validation, procedural assets, package reports, clean-profile import, and semantic comparison; real provider corpus/GPU/physical gates remain open | verified narrowly |
+| Production 1.0 cut                            | Phase 17 local candidate/recovery/release evidence passes, but current-SHA CI, real providers/corpus, GPU, physical devices, and deployment remain open                                                                                                              | blocked           |
+
+## Phase certification
+
+Phase 01 is verified on implementation commit `b6ec6b8` by GitHub run
+`31498373276` (`check` and Playwright desktop/iPad/iPhone passed), in addition
+to the local evidence recorded in its report. Physical iPad/iPhone hardware
+and trusted LAN certificate installation remain explicitly unproven. Phase 02
+is verified on implementation commit
+`2158d5123fca96e088aaf2bf1010ec83523036ba` by GitHub run `31525700447`
+(`check` and Playwright desktop/iPad/iPhone passed), with the clean-profile
+source round-trip passing locally. Phase 03 is verified on implementation
+commit `3f70f67e8c72662bb8a383162d41325df6721a00`, with follow-up TLS test
+stability fix `64bc8671073e88f765ff68fa52ee11c805688cc3`; GitHub run
+`31533935448` passed on the implementation and `31535994450` passed the fix
+(check and Playwright). The Phase 03 gate is verified in clean test storage and emulated
+browsers; physical devices, native OS keychains, and live providers remain
+unproven. Phase 04 remains active and unverified; Phase 05 is verified narrowly
+for the live OpenRouter-hosted DeepSeek path, while its golden multi-source and
+official-direct provider gates remain open. Historical reports do not change
+their status. Phase 04 now has real CPU Docling/Whisper/ffmpeg smoke evidence,
+citable table blocks, Poppler PDF rendering/figure-geometry seams, and a hosted
+OpenRouter VLM transport probe, but its Pack golden-provider gate remains
+**UNVERIFIED** until the scanned/table/figure fallback corpus is rerun end to
+end.
+Phase 06 is verified
+narrowly on current commit `dbf992d`: the authoring graph, citation quality
+gate, canonical edit commands, and browser review path pass. Phase 07 is
+verified narrowly on the current tree for local deterministic runtime, Dexie
+persistence, QTI subset, xAPI JSON, and emulated browser flow; external QTI
+conformance, LRS/LMS delivery, cmi5 launch, and physical devices remain
+unverified. Phase 08 is verified narrowly for local asset safety, provider
+request contracts, metadata, and emulated browser management; external
+provider, converter, derivative, and clean-profile gates remain unverified.
+Phase 09 is verified narrowly for local photo sanitation, quality/provider/GPU
+policy, Dexie and SQLite queue persistence, lifecycle transitions, reuse
+planning, and emulated browser cancellation. Hardware-backed Hunyuan3D/TripoSR
+inference, Blender execution, reviewed reusable GLB output, and physical camera
+behavior remain unverified. No later phase may inherit a `verified` status from
+a historical ledger. Phase 10 is verified narrowly for schema v5 surface
+attachments, v4 migration, transform stability, correction/review controls,
+annotation/measurement/step-state persistence, package round trip, and 6/6
+scene-editor browser acceptance. Live multiview vision, mesh raycast,
+rendered overlays, and physical-device input remain unverified.
+Phase 11 is verified narrowly for the deterministic compiler, licensed
+local-asset-first resolution, explicit proxy fallback, stable-seed bounded
+layout, semantic graph/constraints, cameras, step states, annotations,
+validation, and canonical editor acceptance. Live provider asset quality, mesh
+observations, rendered overlays, and physical-device input remain unverified.
+Phase 12 is verified narrowly for review-hardened local execution, including
+runtime v2 with v1 migration, checked-in Ajv/schema validation, attempt-scoped
+evidence, authored verification mappings, atomic metadata restore, attestation
+restore checks, report JSON inspection, and procedure-player Axe coverage.
+Physical camera, trusted identity, external signature verification, browser
+quota recovery, and real-device offline reload remain unverified.
+Phase 13 is verified narrowly for the route-split web shell, real local
+readiness/job/storage surfaces, full-backup download UX, 44px responsive
+controls, measured bundle budgets, and 18/18 Axe scans across emulated
+desktop/iPad/iPhone profiles. Physical device input/camera, installed-PWA
+lifecycle, production CSP/headers/deployment, and native packaging remain
+unverified.
+Phase 14 is verified narrowly for the local release candidate, Linux `.deb`,
+signed personal package path, manifest verification, and data-preserving
+upgrade/rollback drill; platform signing, notarization, external deployment,
+and physical installation remain unverified. Phase 15 is verified narrowly for
+the local attack/recovery loop: provider endpoint validation, inert source
+handling, content-addressed corruption detection, quota/job/update seams, the
+offline shell, a 1.047s desktop cold-shell p95 pass, a forced 125/125 workspace
+gate, and a clean 78-pass/6-skip browser run. Strix was inconclusive because
+the local CLI was unavailable; live providers, network penetration, physical
+recovery, and DNS/egress enforcement remain external gates.
+Phase 16 is verified narrowly for the shared golden path: all three required
+project shapes pass the data-driven local ingestion, citation, training,
+offline mastery, typed evidence, spatial, procedural-asset, report, backup,
+clean-profile import, and semantic comparison harness. Real Docling/OCR/ASR/
+VLM/DeepSeek sources, photo-generated mesh quality, GPU inference, physical
+devices, and deployment remain unverified.
+Phase 17 is **blocked for 1.0**. The current SHA passes the forced repository
+gate, current browser emulation, release preparation, candidate verification,
+and recovery drill, but it has no GitHub status because it has not been pushed.
+The host also lacks the real multimodal/DeepSeek corpus, GPU/provider output,
+physical-device/PWA deployment evidence, and a conclusive Strix run. The local
+candidate remains `0.14.0-rc.1`; no 1.0 tag or publication is authorized.

@@ -19,13 +19,13 @@
     "@hocuspocus/extension-logger": "catalog:",
     "@hocuspocus/server": "catalog:",
     "pg": "catalog:",
-    "tsx": "4.23.5",
+    "tsx": "catalog:",
     "yjs": "catalog:"
   },
   "devDependencies": {
     "@hocuspocus/provider": "catalog:",
     "@types/node": "catalog:",
-    "@types/pg": "8.20.4",
+    "@types/pg": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

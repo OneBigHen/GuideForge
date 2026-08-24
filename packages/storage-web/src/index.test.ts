@@ -1,9 +1,24 @@
-import type { EntityId } from '@guideforge/domain';
+import { createPhotoTo3DJob } from '@guideforge/assets';
+import type { ContentHash, EntityId } from '@guideforge/domain';
+import {
+  createEmptyTraining,
+  createRuntimeSession,
+  startTrainingSession,
+} from '@guideforge/guide-schema';
 import 'fake-indexeddb/auto';
 import { beforeAll, describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
-import type { GuideForgeDb } from './index.js';
-import { OpfsAssetStore, openDb, persistWorkingDoc } from './index.js';
+import type { GuideForgeDb, SourceRecord } from './index.js';
+import {
+  loadSourceBytes,
+  migrateDexieSourcesToCanonical,
+  openDb,
+  OpfsAssetStore,
+  persistWorkingDoc,
+  storeSourceBytes,
+  validateEvidenceRecordSchema,
+  validateRuntimeSessionSchema,
+} from './index.js';
 
 // fake-indexeddb ships its own structuredClone + IDB; Node's webcrypto is the
 // crypto global in vitest's node environment.
@@ -39,6 +54,117 @@ describe('storage-web Dexie metadata', () => {
     });
     const meta = await db.guides.get(GUIDE_ID);
     expect(meta?.title).toBe('Demo');
+  });
+
+  it('migrates legacy source rows for a guide into canonical sources', async () => {
+    const row: SourceRecord = {
+      sourceId: '123e4567-e89b-42d3-a456-426614174005',
+      guideId: GUIDE_ID,
+      originalFilename: 'notes.txt',
+      detectedType: 'text/plain',
+      kind: 'text',
+      sha256: 'c'.repeat(64),
+      sizeBytes: 4,
+      pageCount: 1,
+      receivedAtIso: '2026-01-01T00:00:00.000Z',
+      ocrRoute: 'text-layer',
+      status: 'complete',
+      receipt: null,
+      regions: [
+        {
+          regionId: 'region-2',
+          pageIndex: 0,
+          kind: 'paragraph',
+          excerpt: 'Done.',
+          structuralPath: 'block:1',
+        },
+      ],
+      conflicts: [],
+      tables: [],
+      mediaSegments: [],
+    };
+    await db.sources.put(row);
+
+    const sources = await migrateDexieSourcesToCanonical(db, GUIDE_ID);
+    expect(sources).toHaveLength(1);
+    expect(sources[0]?.sha256).toBe(row.sha256);
+    expect(sources[0]?.regions[0]?.contentHash).toHaveLength(64);
+  });
+
+  it('fails closed when a stored source blob is corrupted', async () => {
+    const hash = 'd'.repeat(64) as ContentHash;
+    await db.sourceBlobs.put({ sha256: hash, bytes: new Uint8Array([1, 2, 3]) });
+    expect(await loadSourceBytes(db, hash)).toBeNull();
+    await expect(storeSourceBytes(db, hash, new Uint8Array([1, 2, 3]))).rejects.toThrow(
+      /hash mismatch/,
+    );
+  });
+
+  it('persists a resumable training session in the v8 store', async () => {
+    const session = startTrainingSession(
+      createEmptyTraining(),
+      GUIDE_ID,
+      'learner-1',
+      '2026-01-01T00:00:00.000Z',
+    );
+    await db.trainingSessions.put(session);
+    expect(await db.trainingSessions.get(session.sessionId)).toMatchObject({
+      guideId: GUIDE_ID,
+      status: 'in-progress',
+    });
+  });
+
+  it('persists a photo-to-3D job in the v9 store', async () => {
+    const job = createPhotoTo3DJob({
+      jobId: 'photo-job-1',
+      sourceHashes: ['a'.repeat(64), 'b'.repeat(64), 'c'.repeat(64)] as ContentHash[],
+      providerId: 'tripo-sr',
+      gpuProfileId: 'cpu',
+      licenseAccepted: false,
+      nowIso: '2026-01-01T00:00:00.000Z',
+    });
+    await db.photoJobs.put(job);
+    expect(await db.photoJobs.get(job.jobId)).toMatchObject({ status: 'blocked' });
+  });
+
+  it('persists a versioned procedure runtime session in the v10 store', async () => {
+    const runtime = createRuntimeSession({
+      sessionId: 'runtime-v10',
+      guideId: GUIDE_ID,
+      learnerId: 'learner-1',
+      stepIds: ['step-1'],
+      nowIso: '2026-01-01T00:00:00.000Z',
+    });
+    await db.runtimeSessions.put(runtime);
+    expect(await db.runtimeSessions.get(runtime.sessionId)).toMatchObject({
+      runtimeVersion: 2,
+      guideId: GUIDE_ID,
+      status: 'in-progress',
+    });
+  });
+
+  it('enforces checked-in schemas at the storage boundary', () => {
+    const note = {
+      evidenceId: 'evidence-1',
+      guideId: GUIDE_ID,
+      stepId: 'step-1',
+      kind: 'note',
+      capturedAtIso: '2026-01-01T00:00:00.000Z',
+      actorId: 'local-user',
+      value: 'Observed',
+    };
+    expect(validateEvidenceRecordSchema(note)).toBe(true);
+    expect(validateEvidenceRecordSchema({ ...note, unexpected: true })).toBe(false);
+    expect(validateEvidenceRecordSchema({ ...note, capturedAtIso: '2026-01-01' })).toBe(false);
+    const runtime = createRuntimeSession({
+      sessionId: 'runtime-schema',
+      guideId: GUIDE_ID,
+      learnerId: 'learner-1',
+      stepIds: ['step-1'],
+      nowIso: '2026-01-01T00:00:00.000Z',
+    });
+    expect(validateRuntimeSessionSchema(runtime)).toBe(true);
+    expect(validateRuntimeSessionSchema({ ...runtime, unexpected: true })).toBe(false);
   });
 });
 
@@ -78,6 +204,12 @@ describe('storage-web OPFS asset store (IndexedDB fallback path)', () => {
     expect(loaded).toEqual(bytes);
   });
 
+  it('fails closed when content-addressed asset bytes are corrupted', async () => {
+    const record = await store.put(new Uint8Array([8, 9, 10]), 'application/octet-stream', 'bin');
+    await db.assetBlobs.put({ hash: record.hash, bytes: new Uint8Array([0]) });
+    expect(await store.get(record.hash)).toBeNull();
+  });
+
   it('deduplicates identical content', async () => {
     const bytes = new Uint8Array([7, 7, 7, 7]);
     const a = await store.put(bytes, 'application/octet-stream', 'bin');
@@ -87,8 +219,42 @@ describe('storage-web OPFS asset store (IndexedDB fallback path)', () => {
     expect(count).toBe(1);
   });
 
+  it('lists assets and removes only unreferenced content', async () => {
+    const keep = await store.put(new Uint8Array([1, 2]), 'application/octet-stream', 'bin');
+    const drop = await store.put(new Uint8Array([3, 4]), 'application/octet-stream', 'bin');
+    expect((await store.list()).some((record) => record.hash === keep.hash)).toBe(true);
+
+    const removed = await store.garbageCollect(new Set([keep.hash]));
+    expect(removed).toContain(drop.hash);
+    expect(await store.has(keep.hash)).toBe(true);
+    expect(await store.has(drop.hash)).toBe(false);
+  });
+
   it('reports storage health without OPFS', async () => {
     const health = await store.status();
     expect(health.opfsSupported).toBe(false);
+    expect(health.quotaWarning).toBe('unknown');
+  });
+
+  it('surfaces near-quota pressure and persistence request results', async () => {
+    const original = navigator.storage;
+    Object.defineProperty(navigator, 'storage', {
+      configurable: true,
+      value: {
+        estimate: () => Promise.resolve({ quota: 1_000, usage: 900 }),
+        persisted: () => Promise.resolve(false),
+        persist: () => Promise.resolve(true),
+      },
+    });
+    try {
+      await expect(store.status()).resolves.toMatchObject({
+        usageRatio: 0.9,
+        quotaWarning: 'near-limit',
+        persistentGranted: false,
+      });
+      await expect(store.requestPersistence()).resolves.toBe(true);
+    } finally {
+      Object.defineProperty(navigator, 'storage', { configurable: true, value: original });
+    }
   });
 });

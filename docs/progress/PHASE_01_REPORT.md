@@ -1,110 +1,81 @@
-# Phase 01 Report — Universal Foundation
+# Phase 01 Report — Production Companion and Owner Security
 
-## Outcome
+Date: 2026-08-11
+Authority: `GuideForge_Production_Readiness_Pack_abefa747`
+Baseline audited: `abefa7475d52931957721b571df828c364c7e924`
 
-The GuideForge monorepo foundation is complete: pnpm workspaces with a version
-catalog, Turborepo task graph, strict TypeScript, a Vite 8 + React 19
-`apps/web` with TanStack Router/Query, an accessible minimal app shell, a thin
-Tauri 2 `apps/desktop` shell that loads the exact `apps/web` build, CI, and a
-full `pnpm check` gate. Exact tool versions are pinned and recorded in
-ADR 0001 with Context7/registry evidence.
+## Status
 
-## Commits
+The Phase 01 implementation commit
+`b6ec6b8e5c3d99e796845d2a336e7e77a6e1d8b7` is verified locally and by GitHub
+run `31498373276`: the required `check` job and Playwright desktop/iPad/iPhone
+job both passed. The follow-up documentation commit does not change the
+implementation under test.
 
-- `b2762c9` chore: initialize independent GuideForge repository
-- `06350d4` chore: add Phase 00 legacy audit reports
-- `(this commit)` feat: Phase 01 universal foundation
+The physical iPad/iPhone path is not executed in this environment. The
+network gate is covered by a real HTTPS listener and a separate HTTPS client,
+and the responsive settings path is exercised in an iPhone 13 emulation.
 
-## Delivered vertical slices
+## Delivered path
 
-1. Monorepo: `pnpm-workspace.yaml` (catalog), `turbo.json`, root scripts.
-2. `apps/web`: Vite 8 + React 19 + TanStack Router (file routes `/`, `/library`)
-   - TanStack Query, typed `routeTree.gen.ts` via `@tanstack/router-plugin`,
-     accessible AppShell with theme toggle, focus-visible, reduced-motion.
-3. `apps/desktop`: Tauri 2.11 shell (`tauri.conf.json`, `Cargo.toml`,
-   capabilities) with `frontendDist: ../../web/dist` and `devUrl`
-   `http://localhost:1420` — verified to load the same web build.
-4. Shared packages: `@guideforge/domain`, `@guideforge/guide-schema`,
-   `@guideforge/ui` (framework-independent, tested).
-5. Tooling: ESLint 10 + typescript-eslint (type-aware), Prettier, boundary
-   checker (`scripts/check-boundaries.mjs` + `boundaries.json`), dependency
-   checker (`scripts/check-deps.mjs`, catalog enforcement).
-6. CI (`.github/workflows/ci.yml`): lockfile install, format, lint, typecheck,
-   unit tests, build, boundary, dep-check, secret scan, audit, license, SBOM.
-7. Changesets + `.changeset/config.json`.
-8. Playwright e2e across Desktop Chrome, iPad Pro 11, iPhone 13 projects.
+- Added `apps/companion`, a loopback-default Fastify service with SQLite
+  migrations and no organization/workspace/RBAC dependency in its primary
+  owner path.
+- Added first-run owner setup, Argon2id password and recovery hashes, opaque
+  rotating session cookies, logout/revoke/recovery, exact Origin allowlisting,
+  request/body/login limits, and a WebAuthn seam.
+- Required TLS for non-loopback hosts; the entrypoint also rejects permissive
+  private-key file modes. SQLite and generated key material are restricted to
+  the owner (`0600` files, `0700` data directory).
+- Added AES-256-GCM provider/signing secret storage. Settings APIs expose only
+  metadata; secret values never return to the browser.
+- Added one-time device pairing and the web `/settings` setup, sign-in,
+  pairing, secret, and sign-out UX. The web build must use a same-site
+  `VITE_COMPANION_URL` (for example `http://localhost:4317`) because the
+  session cookie is `SameSite=Strict`.
 
 ## Acceptance evidence
 
-| Criterion                                          | Evidence                                                                                                                                                      |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| No duplicate desktop frontend                      | `apps/desktop` has no React editor; only Rust shell + `verify-shell.mjs` proving `frontendDist` == `apps/web/dist`                                            |
-| `pnpm check` passes                                | `Tasks: 25 successful, 25 total` (format, lint, typecheck, tests, build)                                                                                      |
-| Workspace cycles fail                              | pnpm install enforces acyclic workspace graph; install succeeds with no cycles                                                                                |
-| Browser and Tauri load the same web build          | `verify-shell.mjs` OK (frontendDist + devUrl + dist/index.html); Playwright renders same app in 3 form factors; production `vite preview` screenshot captured |
-| Exact versions and official documentation recorded | `docs/adr/0001-toolchain-and-monorepo.md` with Context7 library IDs + registry-verified versions                                                              |
+| Requirement                             | Current evidence                                                                                                                                                                                                |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unknown owner and wrong password        | `apps/companion/src/server.test.ts`: dummy-hash unknown-owner path and invalid-password path return 401                                                                                                         |
+| User ID alone cannot authenticate       | Login accepts only the password; the test supplies an ignored user ID and verifies the real owner password is required                                                                                          |
+| Brute force                             | Per-IP login bucket returns 429 after the configured threshold                                                                                                                                                  |
+| CSRF and bad Origin                     | Cookie-authenticated secret writes without Origin or with `https://evil.example` return 403; the configured Origin passes                                                                                       |
+| Session rotation/revoke/recovery/expiry | Rotation invalidates the old cookie; logout/revoke-all/recovery invalidate sessions; expiry and revoked records fail closed                                                                                     |
+| Loopback and LAN HTTPS                  | Loopback defaults to HTTP for local use; non-loopback config without TLS throws; generated-cert listener/client test authenticates over HTTPS and receives `Secure` cookie                                      |
+| Capabilities                            | `/api/capabilities` reports Argon2id, opaque rotating cookies, SQLite, encrypted secrets, pairing, and the passkey seam                                                                                         |
+| Secret boundary                         | Provider value is decrypted only inside the injected `SecretBox`; HTTP reads return configured metadata, never plaintext                                                                                        |
+| Pairing                                 | Authenticated owner creates a one-time code; a second client consumes it once and reuse returns 401                                                                                                             |
+| Settings UX                             | Playwright flow completes owner setup, sign-in, pairing on desktop and sign-in on iPhone 13 emulation; screenshots reviewed at `/tmp/guideforge-settings-desktop.png` and `/tmp/guideforge-settings-iphone.png` |
 
-## Test results
+## Exact verification
 
-- `pnpm check`: 25/25 tasks pass.
-- Vitest: domain 3, guide-schema 3, ui 2, desktop 2, web 1 = 11 unit tests pass.
-- Playwright e2e: 6/6 pass (desktop-chromium, ipad, iphone projects).
-- Boundary check: pass. Dependency check: pass (catalog + workspace only).
+| Command                                                        | Result                                                                            |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `pnpm --filter @guideforge/companion test`                     | 10/10                                                                             |
+| companion typecheck, lint, format, `git diff --check`          | pass                                                                              |
+| `pnpm --filter @guideforge/web test`                           | 23/23                                                                             |
+| web typecheck, lint, build                                     | pass                                                                              |
+| rendered settings flow with real companion + Playwright        | desktop setup/login/pairing and iPhone 13 login pass; no console/request failures |
+| `pnpm check --force`                                           | 120/120 tasks, 6m12.562s, fresh/no cache                                          |
+| `pnpm security:audit`                                          | pass; reviewed esbuild SUPPLY-0001 remains documented                             |
+| `pnpm security:licenses`                                       | pass                                                                              |
+| `pnpm security:sbom`                                           | pass; CycloneDX 1.6 JSON generated to ignored `sbom.xml`                          |
+| `pnpm security:secret-scan`                                    | pass (regex fallback; gitleaks unavailable locally)                               |
+| `pnpm security:policy-test`, `pnpm boundary`, `pnpm dep-check` | pass                                                                              |
 
-## Responsive/device evidence
+## Deliberate boundaries
 
-- Playwright iPad Pro 11 and iPhone 13 projects render the shell and navigate;
-  layouts are container/capability based, not UA-only (Phase 03 completes the
-  full responsive matrix).
-
-## Accessibility evidence
-
-- AppShell: semantic landmarks (`header`, `nav`, `main`, `footer`), `aria-label`
-  on navs, focus-visible outlines, `prefers-reduced-motion` support, 44px touch
-  targets, theme toggle `aria-pressed`. Full WCAG 2.2 AA audit is a Phase 08
-  gate.
-
-## Security and privacy impact
-
-- No secrets anywhere; `.env*` ignored; `pnpm audit`, license check, secret
-  scan, and SBOM in CI.
-- ESLint type-aware rules (`no-explicit-any` error, strict unused checks) in
-  all packages.
-- Domain/guide-schema packages verified free of React/Node/db imports by
-  boundary check.
-
-## Persisted schema and migration impact
-
-- `guide-schema` introduces `GuideSnapshot` v1 (draft of canonical schema);
-  migration runner is a Phase 02 deliverable.
-
-## Context7/ADR updates
-
-- `docs/adr/0001-toolchain-and-monorepo.md` added (accepted).
-- Context7 consulted for Tauri 2 (create-project, vite integration,
-  capabilities) and pnpm (workspaces, catalogs).
-
-## Known limitations
-
-- **Native Tauri build cannot run in this sandbox**: the root filesystem is
-  read-only, so Tauri's system libraries (`libwebkit2gtk-4.1-dev`,
-  `libgtk-3-dev`, `libsoup-3.0-dev`) cannot be installed. The Rust shell is
-  fully scaffolded and `verify-shell.mjs` proves the config loads the same web
-  build; `tauri build`/`cargo build` must be executed on a machine with the
-  system deps (CI/dev machine). This is an environment blocker, not a code gap.
-- Playwright webkit required a one-time `playwright install webkit` (done).
-- Vite 8 / ESLint 10 / TS 6 are new majors; pinned exactly with revisit
-  triggers in ADR 0001.
-
-## Blocked external dependencies
-
-- Tauri native compile: blocked on system libraries (read-only root FS).
-  Smallest action to resume: run `pnpm --filter @guideforge/desktop build:tauri`
-  on a host with webkit2gtk-4.1 installed.
+- Passkeys are an explicit `501` WebAuthn seam, not a fake login path.
+- Rate buckets are per-process; a shared limiter belongs with a later durable
+  job/runtime phase.
+- `apps/api` remains a compatibility BFF for existing proposal/review routes.
+  The new companion owner authentication, pairing, and secret paths do not
+  accept or depend on its legacy JWT/org/RBAC identity model.
+- Physical Safari/iPad/iPhone hardware, certificate trust installation, and
+  end-user LAN discovery remain unproven here.
 
 ## Next phase readiness
 
-- READY. Phase 02 (domain, commands, Yjs, local-first storage, draft package)
-  can build on the verified foundation.
-
-**Gate:** PASS
+Phase 02 can proceed. No prior Phase 01 PASS claim is reused.

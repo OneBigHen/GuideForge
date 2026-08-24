@@ -1,11 +1,11 @@
 {
   "name": "@guideforge/web",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --port 1420",
-    "build": "vite build",
+    "build": "vite build && node ../../scripts/check-web-bundle.mjs",
     "preview": "vite preview --port 1420",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
@@ -19,12 +19,15 @@
     "@guideforge/commands": "workspace:*",
     "@guideforge/domain": "workspace:*",
     "@guideforge/guide-schema": "workspace:*",
+    "@guideforge/ingestion": "workspace:*",
     "@guideforge/interop-ms-guide": "workspace:*",
     "@guideforge/model-gateway": "workspace:*",
     "@guideforge/package-gforge": "workspace:*",
     "@guideforge/scene-core": "workspace:*",
     "@guideforge/scene-react": "workspace:*",
+    "@guideforge/spatial-compiler": "workspace:*",
     "@guideforge/storage-web": "workspace:*",
+    "@guideforge/synthesis": "workspace:*",
     "@guideforge/telemetry": "workspace:*",
     "@guideforge/ui": "workspace:*",
     "@tanstack/react-query": "catalog:",
@@ -33,10 +36,11 @@
     "fflate": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
-    "zustand": "catalog:"
+    "zustand": "catalog:",
+    "@guideforge/assets": "workspace:*"
   },
   "devDependencies": {
-    "@axe-core/playwright": "4.12.1",
+    "@axe-core/playwright": "catalog:",
     "@playwright/test": "catalog:",
     "@tanstack/router-plugin": "catalog:",
     "@testing-library/react": "catalog:",

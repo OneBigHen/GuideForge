@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DoclingConverter, FakeDoclingConverter } from './index.js';
+import { DoclingConverter, FakeDoclingConverter, parsePdfFigureXml } from './index.js';
 
 // Minimal valid PDF (text layer only) generated inline.
 function makePdf(): Uint8Array {
@@ -69,4 +69,54 @@ describe('Docling converter', () => {
       expect(text).toContain('Disconnect power');
     },
   );
+
+  it('turns returned table metadata into a citable table block', async () => {
+    const script = String.raw`
+import json
+print(json.dumps({
+  "pageCount": 1,
+  "blocks": [],
+  "tables": [{"path": "table:1", "page": 0, "header": ["Setting"], "rows": [["5 Nm"]]}],
+  "figures": [],
+  "providers": []
+}))
+`;
+    const conv = new DoclingConverter('python3', script);
+    const out = await conv.convert(new TextEncoder().encode('table'), 'text/csv');
+    expect(out.blocks).toEqual([
+      expect.objectContaining({
+        kind: 'table-row',
+        structuralPath: 'table:1',
+        text: 'Setting␟5 Nm',
+        pageIndex: 0,
+      }),
+    ]);
+  });
+
+  it('renders PDF pages when Docling returns no page images', async () => {
+    const script = String.raw`
+import json
+print(json.dumps({"pageCount": 1, "blocks": [], "tables": [], "figures": [], "providers": []}))
+`;
+    const conv = new DoclingConverter('python3', script);
+    const out = await conv.convert(makePdf(), 'application/pdf');
+    expect(out.pageImages).toHaveLength(1);
+    expect(out.pageImages?.[0]?.mimeType).toBe('image/jpeg');
+    expect(Buffer.from(out.pageImages?.[0]?.dataBase64 ?? '', 'base64').subarray(0, 2)).toEqual(
+      Buffer.from([0xff, 0xd8]),
+    );
+  });
+
+  it('keeps embedded-image geometry but ignores full-page scan images', () => {
+    const figures = parsePdfFigureXml(
+      '<page number="1" width="612" height="792">' +
+        '<image left="72" top="120" width="240" height="180" src="a.jpg"/>' +
+        '<image left="0" top="0" width="612" height="792" src="scan.jpg"/>' +
+        '</page>',
+      'a'.repeat(64) as never,
+    );
+    expect(figures).toHaveLength(1);
+    expect(figures[0]?.bbox).toEqual({ left: 72, top: 120, width: 240, height: 180 });
+    expect(figures[0]?.pageIndex).toBe(0);
+  });
 });

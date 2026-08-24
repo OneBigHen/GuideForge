@@ -9,17 +9,28 @@
  *
  * All reducers are deterministic: same (state, command) => same output.
  */
-import type { EntityId } from '@guideforge/domain';
-import type { GuideSnapshot, GuideTask } from '@guideforge/guide-schema';
+import { isContentHash, type ContentHash, type EntityId } from '@guideforge/domain';
+import {
+  createEmptyScene,
+  createEmptyTraining,
+  type GuideSnapshot,
+  type GuideTask,
+} from '@guideforge/guide-schema';
 import {
   GUIDE_COMMAND_TYPES,
   findTask,
+  type AddAssessmentItemPayload,
+  type AddObjectivePayload,
   type AddStepPayload,
   type AddTaskPayload,
   type RemoveStepPayload,
   type RemoveTaskPayload,
   type RenameTaskPayload,
   type ReorderTasksPayload,
+  type ReplaceTrainingPayload,
+  type ReviewAssessmentItemPayload,
+  type UpdateAssessmentItemPayload,
+  type UpdateTrainingObjectivePayload,
 } from './guide-commands.js';
 import type { GuideCommand } from './index.js';
 
@@ -32,8 +43,20 @@ function cloneSnapshot(s: GuideSnapshot): GuideSnapshot {
       warnings: st.warnings.map((w) => ({ ...w })),
       tools: st.tools.map((t) => ({ ...t })),
       parts: st.parts.map((p) => ({ ...p })),
+      values: st.values.map((v) => ({ ...v })),
+      conditions: st.conditions.map((c) => ({ ...c })),
+      verification: st.verification.map((v) => ({ ...v })),
       media: st.media.map((m) => ({ ...m })),
+      claimIds: [...st.claimIds],
     })),
+    // Deep-clone the canonical scene + training so reducer mutations never
+    // alias the previous state (Phase 02 canonical structures).
+    scene: JSON.parse(JSON.stringify(s.scene)) as GuideSnapshot['scene'],
+    training: JSON.parse(JSON.stringify(s.training)) as GuideSnapshot['training'],
+    sources: JSON.parse(JSON.stringify(s.sources)) as GuideSnapshot['sources'],
+    claims: JSON.parse(JSON.stringify(s.claims)) as GuideSnapshot['claims'],
+    citations: JSON.parse(JSON.stringify(s.citations)) as GuideSnapshot['citations'],
+    generationRuns: JSON.parse(JSON.stringify(s.generationRuns)) as GuideSnapshot['generationRuns'],
   };
 }
 
@@ -96,7 +119,11 @@ export function applyGuideCommand(state: GuideSnapshot, command: GuideCommand): 
         warnings: [],
         tools: [],
         parts: [],
+        values: [],
+        conditions: [],
+        verification: [],
         media: [],
+        claimIds: [],
       });
       return next;
     }
@@ -178,6 +205,160 @@ export function applyGuideCommand(state: GuideSnapshot, command: GuideCommand): 
       step.parts = step.parts.filter((pt) => pt.partId !== p.partId);
       return next;
     }
+    case GUIDE_COMMAND_TYPES.addValue: {
+      const p = command.payload as {
+        stepId: EntityId;
+        valueId: EntityId;
+        label: string;
+        value: string;
+        unit?: string;
+      };
+      const next = cloneSnapshot(state);
+      const step = next.steps.find((s) => s.stepId === p.stepId);
+      if (!step) return state;
+      if (step.values.some((v) => v.valueId === p.valueId)) return state;
+      step.values.push({
+        valueId: p.valueId,
+        label: p.label,
+        value: p.value,
+        ...(p.unit ? { unit: p.unit } : {}),
+      });
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.removeValue: {
+      const p = command.payload as { stepId: EntityId; valueId: EntityId };
+      const next = cloneSnapshot(state);
+      const step = next.steps.find((s) => s.stepId === p.stepId);
+      if (!step) return state;
+      step.values = step.values.filter((v) => v.valueId !== p.valueId);
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.addCondition: {
+      const p = command.payload as { stepId: EntityId; conditionId: EntityId; text: string };
+      const next = cloneSnapshot(state);
+      const step = next.steps.find((s) => s.stepId === p.stepId);
+      if (!step) return state;
+      if (step.conditions.some((c) => c.conditionId === p.conditionId)) return state;
+      step.conditions.push({ conditionId: p.conditionId, text: p.text });
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.removeCondition: {
+      const p = command.payload as { stepId: EntityId; conditionId: EntityId };
+      const next = cloneSnapshot(state);
+      const step = next.steps.find((s) => s.stepId === p.stepId);
+      if (!step) return state;
+      step.conditions = step.conditions.filter((c) => c.conditionId !== p.conditionId);
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.addVerification: {
+      const p = command.payload as { stepId: EntityId; verificationId: EntityId; text: string };
+      const next = cloneSnapshot(state);
+      const step = next.steps.find((s) => s.stepId === p.stepId);
+      if (!step) return state;
+      if (step.verification.some((v) => v.verificationId === p.verificationId)) return state;
+      step.verification.push({ verificationId: p.verificationId, text: p.text });
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.removeVerification: {
+      const p = command.payload as { stepId: EntityId; verificationId: EntityId };
+      const next = cloneSnapshot(state);
+      const step = next.steps.find((s) => s.stepId === p.stepId);
+      if (!step) return state;
+      step.verification = step.verification.filter((v) => v.verificationId !== p.verificationId);
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.addObjective: {
+      const p = command.payload as AddObjectivePayload;
+      if (p.citations.some((citation) => !isContentHash(citation.sourceHash))) return state;
+      if (state.training.objectives.some((o) => o.objectiveId === p.objectiveId)) return state;
+      const next = cloneSnapshot(state);
+      next.training.objectives.push({
+        objectiveId: p.objectiveId,
+        verb: p.verb,
+        target: p.target,
+        conditions: p.conditions,
+        criterion: p.criterion,
+        stepIds: [...p.stepIds],
+        citations: p.citations.map((citation) => ({
+          ...citation,
+          sourceHash: citation.sourceHash as ContentHash,
+        })),
+        criticality: p.criticality,
+      });
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.addAssessmentItem: {
+      const p = command.payload as AddAssessmentItemPayload;
+      if (p.citations.some((citation) => !isContentHash(citation.sourceHash))) return state;
+      if (state.training.assessmentItems.some((i) => i.itemId === p.itemId)) return state;
+      const next = cloneSnapshot(state);
+      next.training.assessmentItems.push({
+        itemId: p.itemId,
+        objectiveId: p.objectiveId,
+        prompt: p.prompt,
+        interaction: p.interaction,
+        options: p.options.map((o) => ({ ...o })),
+        scoringRule: { ...p.scoringRule },
+        rationale: p.rationale,
+        citations: p.citations.map((citation) => ({
+          ...citation,
+          sourceHash: citation.sourceHash as ContentHash,
+        })),
+        criticality: p.criticality,
+        reviewState: 'draft',
+      });
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.replaceTraining: {
+      const p = command.payload as ReplaceTrainingPayload;
+      const next = cloneSnapshot(state);
+      next.training = JSON.parse(JSON.stringify(p.training)) as GuideSnapshot['training'];
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.updateTrainingObjective: {
+      const p = command.payload as UpdateTrainingObjectivePayload;
+      const objective = state.training.objectives.find(
+        (item) => item.objectiveId === p.objectiveId,
+      );
+      if (!objective) return state;
+      const next = cloneSnapshot(state);
+      const target = next.training.objectives.find((item) => item.objectiveId === p.objectiveId);
+      if (!target) return state;
+      if (p.verb !== undefined) target.verb = p.verb;
+      if (p.target !== undefined) target.target = p.target;
+      if (p.conditions !== undefined) target.conditions = p.conditions;
+      if (p.criterion !== undefined) target.criterion = p.criterion;
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.updateAssessmentItem: {
+      const p = command.payload as UpdateAssessmentItemPayload;
+      const item = state.training.assessmentItems.find(
+        (candidate) => candidate.itemId === p.itemId,
+      );
+      if (!item) return state;
+      const next = cloneSnapshot(state);
+      const target = next.training.assessmentItems.find(
+        (candidate) => candidate.itemId === p.itemId,
+      );
+      if (!target) return state;
+      if (p.prompt !== undefined) target.prompt = p.prompt;
+      if (p.rationale !== undefined) target.rationale = p.rationale;
+      if (p.feedback !== undefined) target.feedback = { ...p.feedback };
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.reviewAssessmentItem: {
+      const p = command.payload as ReviewAssessmentItemPayload;
+      const item = state.training.assessmentItems.find(
+        (candidate) => candidate.itemId === p.itemId,
+      );
+      if (!item) return state;
+      const next = cloneSnapshot(state);
+      const target = next.training.assessmentItems.find(
+        (candidate) => candidate.itemId === p.itemId,
+      );
+      if (target) target.reviewState = p.reviewState;
+      return next;
+    }
     default:
       return state;
   }
@@ -197,7 +378,7 @@ export function applyCommands(
 export function freshGuideState(guideId: EntityId, title: string): GuideSnapshot {
   const now = new Date(0).toISOString(); // deterministic epoch for tests
   return {
-    schemaVersion: 1,
+    schemaVersion: 5,
     guideId,
     title,
     description: '',
@@ -206,5 +387,11 @@ export function freshGuideState(guideId: EntityId, title: string): GuideSnapshot
     updatedAtIso: now,
     tasks: [],
     steps: [],
+    scene: createEmptyScene(),
+    training: createEmptyTraining(),
+    sources: [],
+    claims: [],
+    citations: [],
+    generationRuns: [],
   };
 }
