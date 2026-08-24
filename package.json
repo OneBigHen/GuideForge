@@ -42,5 +42,10 @@
     "typescript": "6.0.3",
     "typescript-eslint": "8.66.0",
     "@cyclonedx/cyclonedx-npm": "catalog:"
+  },
+  "pnpm": {
+    "overrides": {
+      "nanoid": "3.3.18"
+    }
   }
 }
