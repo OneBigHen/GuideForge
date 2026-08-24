@@ -94,10 +94,12 @@ test('completes, resumes offline, and exports a multi-step procedure report', as
       expect(evidenceById.get(evidenceId)?.stepId).toBe(step.stepId);
     }
   }
-  expect(report.evidence.find((item) => item.kind === 'photo')?.assetHash).toMatch(/^[0-9a-f]{64}$/);
-  expect(report.evidence.find((item) => item.kind === 'signature')?.attestation?.signatureHex).toMatch(
-    /^[0-9a-f]+$/,
+  expect(report.evidence.find((item) => item.kind === 'photo')?.assetHash).toMatch(
+    /^[0-9a-f]{64}$/,
   );
+  expect(
+    report.evidence.find((item) => item.kind === 'signature')?.attestation?.signatureHex,
+  ).toMatch(/^[0-9a-f]+$/);
   expect(report.evidence.find((item) => item.kind === 'note')?.value).toBe(
     'Pressure recorded locally.',
   );

@@ -34,15 +34,30 @@
   "$defs": {
     "StepAttempt": {
       "type": "object",
-      "required": ["attemptId", "stepId", "startedAtIso", "updatedAtIso", "status", "evidenceIds", "verificationEvidence"],
+      "required": [
+        "attemptId",
+        "stepId",
+        "startedAtIso",
+        "updatedAtIso",
+        "status",
+        "evidenceIds",
+        "verificationEvidence"
+      ],
       "properties": {
         "attemptId": { "type": "string", "minLength": 1 },
         "stepId": { "type": "string", "minLength": 1 },
         "startedAtIso": { "type": "string", "format": "date-time" },
         "updatedAtIso": { "type": "string", "format": "date-time" },
         "status": { "enum": ["in-progress", "completed"] },
-        "evidenceIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-        "verificationEvidence": { "type": "array", "items": { "$ref": "#/$defs/VerificationEvidence" } }
+        "evidenceIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "verificationEvidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/VerificationEvidence" }
+        }
       },
       "additionalProperties": false
     },
@@ -51,7 +66,11 @@
       "required": ["verificationId", "evidenceIds"],
       "properties": {
         "verificationId": { "type": "string", "minLength": 1 },
-        "evidenceIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+        "evidenceIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
       },
       "additionalProperties": false
     },
@@ -71,7 +90,11 @@
           "items": { "enum": ["photo", "note", "signature", "measurement"] }
         },
         "verificationCount": { "type": "integer", "minimum": 0 },
-        "verificationIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "verificationIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
         "requiresExplicitAction": { "const": true }
       },
       "additionalProperties": false
@@ -93,8 +116,15 @@
         "stepId": { "type": "string", "minLength": 1 },
         "completedAtIso": { "type": "string", "format": "date-time" },
         "completedBy": { "type": "string", "minLength": 1 },
-        "evidenceIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-        "verificationEvidence": { "type": "array", "items": { "$ref": "#/$defs/VerificationEvidence" } },
+        "evidenceIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "verificationEvidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/VerificationEvidence" }
+        },
         "rule": { "$ref": "#/$defs/CompletionRule" }
       },
       "additionalProperties": false

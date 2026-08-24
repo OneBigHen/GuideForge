@@ -28,15 +28,15 @@ typed scene commands without using LLM-produced final transforms.
 
 ## Evidence
 
-| Check | Result |
-| --- | --- |
-| Spatial compiler tests | 3 passed: micropipette scene, deterministic seed/critic, missing-asset fail-closed path |
-| Spatial compiler typecheck/lint/format | Passed |
-| Web typecheck/lint | Passed |
-| Review follow-up | Corrected asset metadata adapter, validation gate, typed command application, consumed constraints, and deterministic camera ranking |
-| Scene browser acceptance | 6/6 desktop, iPad, and iPhone emulated projects passed |
-| Forced repository gate | `pnpm check --force`: 125/125 successful, 0 cached |
-| Canonical command application | Commands materialize nodes, cameras, attachments, annotations, and step state in scene-core tests |
+| Check                                  | Result                                                                                                                               |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Spatial compiler tests                 | 3 passed: micropipette scene, deterministic seed/critic, missing-asset fail-closed path                                              |
+| Spatial compiler typecheck/lint/format | Passed                                                                                                                               |
+| Web typecheck/lint                     | Passed                                                                                                                               |
+| Review follow-up                       | Corrected asset metadata adapter, validation gate, typed command application, consumed constraints, and deterministic camera ranking |
+| Scene browser acceptance               | 6/6 desktop, iPad, and iPhone emulated projects passed                                                                               |
+| Forced repository gate                 | `pnpm check --force`: 125/125 successful, 0 cached                                                                                   |
+| Canonical command application          | Commands materialize nodes, cameras, attachments, annotations, and step state in scene-core tests                                    |
 
 ## Known boundary
 

@@ -74,19 +74,39 @@
       },
       "additionalProperties": false
     },
-    "reviewState": { "enum": ["proxy", "generated-draft", "visually-reviewed", "dimension-checked", "controls-mapped", "source-cad", "manufacturer-verified"] },
+    "reviewState": {
+      "enum": [
+        "proxy",
+        "generated-draft",
+        "visually-reviewed",
+        "dimension-checked",
+        "controls-mapped",
+        "source-cad",
+        "manufacturer-verified"
+      ]
+    },
     "geometryHealth": {
       "anyOf": [
         { "type": "null" },
         {
           "type": "object",
-          "required": ["triangleCount", "vertexCount", "materialCount", "textureCount", "nonManifoldEdges", "boundsMeters", "issues"],
+          "required": [
+            "triangleCount",
+            "vertexCount",
+            "materialCount",
+            "textureCount",
+            "nonManifoldEdges",
+            "boundsMeters",
+            "issues"
+          ],
           "properties": {
             "triangleCount": { "type": "integer", "minimum": 0 },
             "vertexCount": { "type": "integer", "minimum": 0 },
             "materialCount": { "type": "integer", "minimum": 0 },
             "textureCount": { "type": "integer", "minimum": 0 },
-            "nonManifoldEdges": { "anyOf": [{ "type": "null" }, { "type": "integer", "minimum": 0 }] },
+            "nonManifoldEdges": {
+              "anyOf": [{ "type": "null" }, { "type": "integer", "minimum": 0 }]
+            },
             "boundsMeters": { "type": ["object", "null"] },
             "issues": { "type": "array", "items": { "type": "string" } }
           },

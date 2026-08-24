@@ -35,19 +35,19 @@ live provider/GPU behavior.
 
 ## Security/reliability evidence
 
-| Area | Current evidence |
-| --- | --- |
-| Owner auth, CSRF/origin, cookies, sessions, recovery, secret custody | Companion 12/12 tests; prior controls re-read on current tree |
-| Archive, active metadata, signing/tamper, fuzzing, rollback | package-gforge 38/38 |
-| GLB/glTF safety and license fail-closed policy | assets 19/19 |
-| Prompt-injection and schema/citation gates | ai-contracts 17/17; model-gateway 17/17 |
-| Provider SSRF regression guard | model-gateway and worker-documents tests pass; remote allowlist and loopback seams covered |
-| Document/media converter safety | worker-documents 20/20; Docling/ffprobe/Whisper/Blender boundaries use argv-separated `execFile` calls with bounded output/timeouts |
-| Storage corruption/quota/recovery | storage-web 14/14; full-backup/import and release recovery drills remain passing |
-| Job interruption/GPU failure | assets 19/19; failure is persisted and cancellation is explicit |
-| Offline/update path | service-worker unit path passes; offline Chromium E2E passes |
-| Cold shell performance | desktop Playwright benchmark p95 1.047s < 5s |
-| Supply-chain policy | audit and policy tests pass; secret scan remains fallback mode because gitleaks is unavailable |
+| Area                                                                 | Current evidence                                                                                                                    |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Owner auth, CSRF/origin, cookies, sessions, recovery, secret custody | Companion 12/12 tests; prior controls re-read on current tree                                                                       |
+| Archive, active metadata, signing/tamper, fuzzing, rollback          | package-gforge 38/38                                                                                                                |
+| GLB/glTF safety and license fail-closed policy                       | assets 19/19                                                                                                                        |
+| Prompt-injection and schema/citation gates                           | ai-contracts 17/17; model-gateway 17/17                                                                                             |
+| Provider SSRF regression guard                                       | model-gateway and worker-documents tests pass; remote allowlist and loopback seams covered                                          |
+| Document/media converter safety                                      | worker-documents 20/20; Docling/ffprobe/Whisper/Blender boundaries use argv-separated `execFile` calls with bounded output/timeouts |
+| Storage corruption/quota/recovery                                    | storage-web 14/14; full-backup/import and release recovery drills remain passing                                                    |
+| Job interruption/GPU failure                                         | assets 19/19; failure is persisted and cancellation is explicit                                                                     |
+| Offline/update path                                                  | service-worker unit path passes; offline Chromium E2E passes                                                                        |
+| Cold shell performance                                               | desktop Playwright benchmark p95 1.047s < 5s                                                                                        |
+| Supply-chain policy                                                  | audit and policy tests pass; secret scan remains fallback mode because gitleaks is unavailable                                      |
 
 ## Final repository gate
 

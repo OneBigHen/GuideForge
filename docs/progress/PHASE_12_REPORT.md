@@ -26,17 +26,17 @@ progress, offline reload/resume, and a JSON completion report export.
 
 ## Evidence
 
-| Check                       | Result                                                                                                                                                                                                                    |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Runtime state-machine tests | `pnpm --filter @guideforge/guide-schema test`: 21 passed across 3 files; active-attempt, authored-check mapping, v1 migration, and deep-state rejection covered |
-| Guide store runtime test    | `pnpm --filter @guideforge/web exec vitest run src/services/guideStore.test.ts`: 5 passed; persistence, typed evidence, signature round-trip, backup/import, tamper rejection                                             |
-| Storage/schema tests        | `pnpm --filter @guideforge/storage-web test`: 11 passed; Dexie v11 persistence/conformance, Ajv validation, and checked-in schema rejection cases |
+| Check                       | Result                                                                                                                                                                                                               |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime state-machine tests | `pnpm --filter @guideforge/guide-schema test`: 21 passed across 3 files; active-attempt, authored-check mapping, v1 migration, and deep-state rejection covered                                                      |
+| Guide store runtime test    | `pnpm --filter @guideforge/web exec vitest run src/services/guideStore.test.ts`: 5 passed; persistence, typed evidence, signature round-trip, backup/import, tamper rejection                                        |
+| Storage/schema tests        | `pnpm --filter @guideforge/storage-web test`: 11 passed; Dexie v11 persistence/conformance, Ajv validation, and checked-in schema rejection cases                                                                    |
 | Browser runtime acceptance  | `pnpm --filter @guideforge/web exec playwright test e2e/run12.spec.ts`: 3 passed in 1.1m; multi-step photo/attestation/note completion, offline UI, and downloaded report JSON inspection across desktop/iPad/iPhone |
-| Accessibility acceptance    | `pnpm --filter @guideforge/web exec playwright test e2e/a11y.spec.ts`: 12 passed in 1.0m; critical/serious Axe violations absent, including procedure player                                                              |
-| Existing vertical slice     | Existing native photo/file capture path retained; `pnpm --filter @guideforge/web exec playwright test e2e/vertical-slice.spec.ts --workers=1`: 3 passed in 2.1m across desktop/iPad/iPhone |
-| Security policy             | `bash scripts/secret-scan.sh`: fallback scan passed; tampered attestation backup rejected by guide-store test; gitleaks unavailable on host                                                                               |
-| Performance                 | Web build passes, but the existing 1.795 MB minified main chunk remains above the 500 kB warning threshold; performance budget is open for Phase 13                                                                       |
-| Forced repository gate      | `pnpm exec turbo run check --force --concurrency=1`: 125/125 tasks passed in 13m6.444s; the unconstrained host run hit Vitest worker contention, then the serial web suite passed 25/25 |
+| Accessibility acceptance    | `pnpm --filter @guideforge/web exec playwright test e2e/a11y.spec.ts`: 12 passed in 1.0m; critical/serious Axe violations absent, including procedure player                                                         |
+| Existing vertical slice     | Existing native photo/file capture path retained; `pnpm --filter @guideforge/web exec playwright test e2e/vertical-slice.spec.ts --workers=1`: 3 passed in 2.1m across desktop/iPad/iPhone                           |
+| Security policy             | `bash scripts/secret-scan.sh`: fallback scan passed; tampered attestation backup rejected by guide-store test; gitleaks unavailable on host                                                                          |
+| Performance                 | Web build passes, but the existing 1.795 MB minified main chunk remains above the 500 kB warning threshold; performance budget is open for Phase 13                                                                  |
+| Forced repository gate      | `pnpm exec turbo run check --force --concurrency=1`: 125/125 tasks passed in 13m6.444s; the unconstrained host run hit Vitest worker contention, then the serial web suite passed 25/25                              |
 
 ## Known boundary
 

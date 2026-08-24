@@ -56,7 +56,10 @@
         "startedAtIso": { "type": "string", "format": "date-time" },
         "submittedAtIso": { "type": "string", "format": "date-time" },
         "itemResults": { "type": "array", "items": { "$ref": "#/$defs/TrainingItemResult" } },
-        "objectiveOutcomes": { "type": "array", "items": { "$ref": "#/$defs/TrainingObjectiveOutcome" } },
+        "objectiveOutcomes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/TrainingObjectiveOutcome" }
+        },
         "score": { "type": "number", "minimum": 0, "maximum": 1 },
         "passed": { "type": "boolean" },
         "criticalItemsPassed": { "type": "integer", "minimum": 0 },
@@ -67,7 +70,14 @@
     },
     "TrainingItemResult": {
       "type": "object",
-      "required": ["itemId", "objectiveId", "response", "correct", "score", "remediationActivityIds"],
+      "required": [
+        "itemId",
+        "objectiveId",
+        "response",
+        "correct",
+        "score",
+        "remediationActivityIds"
+      ],
       "properties": {
         "itemId": { "type": "string", "minLength": 1 },
         "objectiveId": { "type": "string", "minLength": 1 },

@@ -41,3 +41,6 @@ GuideForge_Production_Readiness_Pack_abefa747.zip
 
 # Local release candidates and native build outputs
 release-artifacts/
+
+# Universal V2 build pack (planning artifact, local-only)
+GuideForge_Universal_V2_Build_Pack.zip
