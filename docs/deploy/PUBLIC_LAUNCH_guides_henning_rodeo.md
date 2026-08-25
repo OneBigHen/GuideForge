@@ -140,3 +140,63 @@ this session):
   still exists, unfixed, for claims/citations/generation-runs provenance.
 - Physical device testing (iPad/iPhone/Pencil/camera) has never been done —
   only Playwright-emulated viewports in CI.
+
+---
+
+## Production profile (demo pack Phase 6, added 2026-08-25)
+
+The development compose file stays as-is for local work. The public launch
+uses a hardened production contract instead:
+
+```text
+infra/docker/docker-compose.prod.yml   # prod services; secrets REQUIRED
+infra/docker/nginx.prod.conf           # same-origin seam + security headers
+docs/progress/demo-pack-2026-08-24/production.env.example   # env contract
+```
+
+Key differences from dev compose:
+
+1. **No backend host publishing.** Only `web` binds out, on loopback only
+   (`127.0.0.1:8787->80`) as the tunnel origin. postgres/api/collab are
+   Docker-network-only.
+2. **Secrets required, not defaulted.** `${VAR:?}` interpolation refuses to
+   start without real values. Copy `production.env.example` to an IGNORED
+   `infra/docker/.env.production` and fill it from your secret store.
+3. **Owner credential is mandatory in network mode.** Since commit
+   `fix(auth): enforce real owner credential at public boundary`, the API
+   refuses to boot with `GUIDEFORGE_OWNER_ID` but no
+   `GUIDEFORGE_OWNER_PASSWORD`; sessions additionally require that password
+   (timing-safe compare). This supersedes step 1/8 above: record BOTH values.
+4. **Secure cookies by default.** HTTPS-only CORS origins flip the session
+   cookie's `Secure` flag automatically; `SESSION_COOKIE_SECURE=true` pins it.
+
+### Deployment order (unchanged tunnel, validated first)
+
+1. Fill `.env.production` (never commit it).
+2. `docker compose -f infra/docker/docker-compose.prod.yml --env-file .env.production up -d --build`
+3. Local origin check: `curl http://127.0.0.1:8787/` and
+   `curl http://127.0.0.1:8787/api/health`.
+4. Atlas tunnel ingress (validate before restart):
+   ```yaml
+   - hostname: guides.henning.rodeo
+     service: http://127.0.0.1:8787
+   ```
+5. Cloudflare dashboard, zone `henning.rodeo`:
+   - **Access** (self-hosted app) protecting owner paths ONLY:
+     `/library`, `/assets`, `/edit/*`, `/sources/*`, `/scene/*`,
+     `/settings`, `/jobs`, `/photo-to-3d` — leave `/demo`, `/run/*`,
+     `/training/*` and all static assets public.
+   - **Turnstile**: create widget for guides.henning.rodeo; site key +
+     secret go into `.env.production` (`AI_PUBLIC_DEMO_ENABLED=true`).
+   - **WAF rate rules**: challenge unknown user agents on `/api/demo/*`;
+     block non-Cloudflare IPs from reaching the origin if not already.
+   - **AI Gateway**: create gateway `guideforge`; set logging to
+     metadata-only (payload collection disabled); point spend limits at the
+     same $2/day cap as `AI_PUBLIC_DAILY_BUDGET_USD`.
+6. External smoke per `12_ACCEPTANCE_MATRIX.md`.
+
+### Rollback
+
+`docker compose -f infra/docker/docker-compose.prod.yml down` removes only
+GuideForge containers/volumes named `guideforge-*`; the atlas ingress line
+is additive and can be deleted alone. No shared host state is modified.

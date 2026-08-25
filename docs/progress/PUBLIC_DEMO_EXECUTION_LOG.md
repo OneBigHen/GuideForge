@@ -68,8 +68,30 @@ checkpoint commit.
 | 3 — Real AI is honest | Code complete (2026-08-25); live provider smoke deferred to Phase 7 (requires secrets not present in this environment) | model-gateway 22/22, web 17 files / 63 tests incl. new aiProposals suite, api capability tests 6/6; typecheck + lint clean on touched packages |
 | 4 — Anonymous demo AI seam | Code complete (2026-08-25); real-widget + quota E2E on deployed infra tracked for Phase 7 | api focused suites: demo-ai 13 + turnstile 8 + capability 6 = all passing; web suite 15 files / 63 tests |
 | 5 — Owner trust boundary | Code complete (2026-08-25); DB-backed session integration tests deferred to Phase 7 (Postgres unavailable here) | bind-guard suite extended; api DB-free suites 32/32; typecheck + lint clean |
-| 6 — Production compose + Cloudflare | pending | — |
+| 6 — Production compose + Cloudflare | Config/docs complete (2026-08-25); actual deploy + external verification deferred to Phase 7 (live infra + credentials out of scope here) | `docker-compose.prod.yml` (no backend publishing, required secrets, healthchecks), `nginx.prod.conf` (CSP/HSTS, route body limits, WS upgrade), runbook production section |
 | 7 — Release verification | pending | — |
+
+### Phase 6 notes (2026-08-25)
+
+- Added `infra/docker/docker-compose.prod.yml`: only `web` reaches the host
+  (loopback :8787 as the atlas tunnel origin); api/collab/postgres are
+  network-internal; `${VAR:?}` makes secrets mandatory; restart policies,
+  persistent Postgres volume, API healthcheck; full Phase 3–5 env wiring
+  (AI Gateway routing, Turnstile, kill switch, budgets, owner credential).
+- Added `infra/docker/nginx.prod.conf`: HSTS/nosniff/referrer/
+  permissions-policy/CSP headers tuned to the app's real needs (Turnstile
+  frames/scripts, blob workers, GLB media), per-route body limits, WebSocket
+  upgrade for `/collab/`, X-Forwarded-Proto https.
+- Appended a production section to the existing `atlas` tunnel runbook:
+  deployment order, Access path list (owner paths protected, `/demo` +
+  static assets public), Turnstile/WAF/AI-Gateway steps, rollback. The
+  deprecated legacy tunnel warning from the original runbook stands.
+- Honest limitation: nothing was deployed and no Cloudflare/tunnel state was
+  touched from this session — that requires live shared infrastructure
+  access and credentials which are deliberately out of scope here. The
+  Phase gate "external HTTPS works" is exercised in Phase 7's verification
+  pass on the host.
+
 
 ### Phase 5 notes (2026-08-25)
 
