@@ -30,7 +30,8 @@ interface ContextHarness {
 }
 
 function makeContext(limitOverrides: Partial<PublicDemoAiLimits> = {}): ContextHarness {
-  const runModel = vi.fn(async () => ({
+  const runModel = vi.fn(() =>
+    Promise.resolve({
     proposals: [{ kind: 'warning' as const, stepId: STEP.stepId, message: 'Careful.' }],
     citations: [
       { regionId: 'heading:1', pageIndex: 0, excerptHash: 'a'.repeat(64), claimRef: STEP.stepId },
@@ -41,10 +42,11 @@ function makeContext(limitOverrides: Partial<PublicDemoAiLimits> = {}): ContextH
       inputTokens: 20,
       outputTokens: 10,
       providerCostUsd: 0.0001,
-      requestId: 'req-1',
-    },
-  }));
-  const verifyTurnstile = vi.fn(async () => ({ ok: true }));
+        requestId: 'req-1',
+      },
+    }),
+  );
+  const verifyTurnstile = vi.fn(() => Promise.resolve({ ok: true }));
   const quotaStore = new InMemoryQuotaStore(limitOverrides.dailyBudgetUsd ?? 2);
   return {
     context: {

@@ -29,14 +29,13 @@ import {
 import { eq } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { Pool } from 'pg';
 import { PermissionDeniedError, requirePermission, type Role } from './auth/rbac.js';
 import { RoomTicketService } from './auth/room-ticket.js';
 import * as schema from './db/schema.js';
 import {
   defaultPublicDemoAiLimits,
-  hashClientIdentifier,
   InMemoryQuotaStore,
   runPublicDemoAi,
   type DemoAiQuotaStore,
@@ -55,6 +54,18 @@ export interface ApiConfig {
   /** The single owner identity (network mode). When set, only this user can
    * establish a session; roles are never accepted from the request body. */
   ownerId?: string;
+  /**
+   * The owner's actual credential for network mode. REQUIRED whenever
+   * `ownerId` is set: knowing the owner's UUID alone must never be enough to
+   * mint an owner session at a public boundary. Compared timing-safely.
+   */
+  ownerPassword?: string;
+  /**
+   * Session cookie Secure flag. Defaults to true when every configured CORS
+   * origin is HTTPS (i.e. any production deployment); dev HTTP origins keep
+   * it off so loopback testing still works.
+   */
+  sessionCookieSecure?: boolean;
   /** Server-side DeepSeek API key (never exposed to the browser). */
   deepSeekApiKey?: string;
   deepSeekModel?: string;
@@ -89,6 +100,18 @@ export interface ServerDeps {
 }
 
 type SemanticProvider = 'deepseek' | 'openrouter';
+
+/** Length-normalized timing-safe secret comparison. */
+function timingSafeEqualSha256(a: string, b: string): boolean {
+  const digestA = createHash('sha256').update(a).digest();
+  const digestB = createHash('sha256').update(b).digest();
+  return timingSafeEqual(digestA, digestB);
+}
+
+/** Production deployments are HTTPS-only; cookies follow the origins. */
+function corsOriginsAreHttpsOnly(origins: readonly string[]): boolean {
+  return origins.length > 0 && origins.every((origin) => origin.startsWith('https://'));
+}
 
 function configuredSemanticProvider(config: ApiConfig): SemanticProvider {
   return config.modelProvider ?? (config.openRouterApiKey ? 'openrouter' : 'deepseek');
@@ -143,6 +166,17 @@ export async function buildServer(
   config: ApiConfig,
   deps: ServerDeps = {},
 ): Promise<FastifyInstance> {
+  // Public-boundary invariant: a configured owner identity MUST come with a
+  // real credential. Otherwise anyone who learns (or guesses) the owner UUID
+  // — it is an identifier, not a secret — could mint themselves the
+  // organization-owner role.
+  if (config.ownerId && !config.ownerPassword) {
+    throw new Error(
+      'refusing to start: GUIDEFORGE_OWNER_ID requires GUIDEFORGE_OWNER_PASSWORD. ' +
+        'An owner id is an identifier, not a credential; network mode needs both.',
+    );
+  }
+
   const app = Fastify({ logger: { level: config.logLevel ?? 'info' } });
 
   const pool = new Pool({ connectionString: config.databaseUrl });
@@ -239,6 +273,8 @@ export async function buildServer(
 
   // Identity: single-owner BFF session. Roles are NEVER accepted from the
   // request body; the server derives the owner role from configuration.
+  // In network mode the caller must also prove the owner credential — the
+  // user id alone is an identifier, not a secret.
   app.post('/api/session', async (req, reply) => {
     // Rate-limit identity attempts (login brute-force protection).
     const ip = req.ip ?? 'unknown';
@@ -249,14 +285,23 @@ export async function buildServer(
       userId: string;
       displayName: string;
       email: string;
+      password?: unknown;
     };
     if (!body?.userId) {
       return reply.code(401).send({ error: 'missing identity' });
     }
-    // Network mode: only the configured owner may establish a session.
-    // Loopback/dev mode (no ownerId) treats the caller as the single owner.
-    if (config.ownerId && body.userId !== config.ownerId) {
-      return reply.code(403).send({ error: 'not the owner' });
+    // Network mode: only the configured owner may establish a session, and
+    // only with the configured credential (timing-safe comparison).
+    if (config.ownerId) {
+      const password = typeof body.password === 'string' ? body.password : '';
+      const validPassword =
+        config.ownerPassword !== undefined &&
+        timingSafeEqualSha256(password, config.ownerPassword);
+      const userIdMatches = body.userId === config.ownerId;
+      // Check both before answering so probing cannot learn which half failed.
+      if (!userIdMatches || !validPassword) {
+        return reply.code(403).send({ error: 'not the owner' });
+      }
     }
     const token = app.jwt.sign({
       sub: body.userId,
@@ -265,7 +310,7 @@ export async function buildServer(
     });
     reply.setCookie('gf_session', token, {
       httpOnly: true,
-      secure: false,
+      secure: config.sessionCookieSecure ?? corsOriginsAreHttpsOnly(allowedOrigins),
       sameSite: 'lax',
       path: '/',
       maxAge: 60 * 60 * 8,

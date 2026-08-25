@@ -202,9 +202,24 @@ describe('control plane API', () => {
     expect(session.roles).not.toContain('operator');
   });
 
-  it('network mode denies sessions for non-owner identities (ownerId enforced)', async () => {
+  it('network mode denies sessions for non-owner identities and requires the owner credential', async () => {
     // A companion exposed beyond loopback must not be usable anonymously or by
-    // arbitrary identities: only the configured owner can open a session.
+    // arbitrary identities: only the configured owner, PROVING the configured
+    // credential, can open a session. Knowing the owner UUID is not enough.
+    const build = () =>
+      buildServer(
+        {
+          databaseUrl: DATABASE_URL,
+          sessionSecret: 'owner-test-secret',
+          roomTicketSecret: 'owner-test-secret',
+          logLevel: 'silent',
+          ownerId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        },
+        { db: drizzle(pool, { schema }), roomTickets: tickets },
+      );
+    // ownerId without its credential refuses to boot at all.
+    expect(build).toThrow(/GUIDEFORGE_OWNER_PASSWORD/);
+
     const ownerApp = await buildServer(
       {
         databaseUrl: DATABASE_URL,
@@ -212,12 +227,13 @@ describe('control plane API', () => {
         roomTicketSecret: 'owner-test-secret',
         logLevel: 'silent',
         ownerId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        ownerPassword: 'correct-horse-battery-staple',
       },
       { db: drizzle(pool, { schema }), roomTickets: tickets },
     );
     await ownerApp.listen({ port: 18789 });
     try {
-      const res = await ownerApp.inject({
+      const nonOwner = await ownerApp.inject({
         method: 'POST',
         url: '/api/session',
         payload: {
@@ -226,9 +242,10 @@ describe('control plane API', () => {
           email: 'x@y.io',
         },
       });
-      expect(res.statusCode).toBe(403);
+      expect(nonOwner.statusCode).toBe(403);
 
-      const ownerRes = await ownerApp.inject({
+      // Owner UUID WITHOUT the credential must fail even though it matches.
+      const uuidOnly = await ownerApp.inject({
         method: 'POST',
         url: '/api/session',
         payload: {
@@ -237,9 +254,60 @@ describe('control plane API', () => {
           email: 'owner@y.io',
         },
       });
+      expect(uuidOnly.statusCode).toBe(403);
+
+      // Wrong credential on the owner id also fails.
+      const wrongPassword = await ownerApp.inject({
+        method: 'POST',
+        url: '/api/session',
+        payload: {
+          userId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          displayName: 'Owner',
+          email: 'owner@y.io',
+          password: 'wrong-password',
+        },
+      });
+      expect(wrongPassword.statusCode).toBe(403);
+
+      const ownerRes = await ownerApp.inject({
+        method: 'POST',
+        url: '/api/session',
+        payload: {
+          userId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          displayName: 'Owner',
+          email: 'owner@y.io',
+          password: 'correct-horse-battery-staple',
+        },
+      });
       expect(ownerRes.statusCode).toBe(200);
     } finally {
       await ownerApp.close();
+    }
+  });
+
+  it('HTTPS-only CORS origins force Secure session cookies', async () => {
+    const httpsApp = await buildServer(
+      {
+        databaseUrl: DATABASE_URL,
+        sessionSecret: 'secure-cookie-secret',
+        roomTicketSecret: 'secure-cookie-secret',
+        logLevel: 'silent',
+        corsOrigin: ['https://guides.henning.rodeo'],
+      },
+      { db: drizzle(pool, { schema }), roomTickets: tickets },
+    );
+    try {
+      const res = await httpsApp.inject({
+        method: 'POST',
+        url: '/api/session',
+        payload: { userId: 'dev-user', displayName: 'D', email: 'd@y.io' },
+      });
+      expect(res.statusCode).toBe(200);
+      const cookie = res.cookies.find((c) => c.name === 'gf_session');
+      expect(cookie?.secure).toBe(true);
+      expect(cookie?.httpOnly).toBe(true);
+    } finally {
+      await httpsApp.close();
     }
   });
 

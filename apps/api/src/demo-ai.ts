@@ -165,12 +165,21 @@ export class InMemoryQuotaStore implements DemoAiQuotaStore {
 
   constructor(private readonly globalDailyBudgetUsd: number) {}
 
-  async reserve(input: {
+  reserve(input: {
     clientHash: string;
     estimatedCostUsd: number;
     limits: PublicDemoAiLimits;
     nowMs: number;
   }): Promise<QuotaDecision> {
+    return Promise.resolve(this.reserveSync(input));
+  }
+
+  private reserveSync(input: {
+    clientHash: string;
+    estimatedCostUsd: number;
+    limits: PublicDemoAiLimits;
+    nowMs: number;
+  }): QuotaDecision {
     const dayKey = new Date(input.nowMs).toISOString().slice(0, 10);
     if (dayKey !== this.dayKey) {
       this.dayKey = dayKey;

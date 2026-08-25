@@ -67,9 +67,33 @@ checkpoint commit.
 | 2 — Demo guide from zero state | Complete (2026-08-25) | Focused suites: commands 11/11, storage-web 15/15, web 14 files / 56 tests; typecheck + lint clean on all touched packages |
 | 3 — Real AI is honest | Code complete (2026-08-25); live provider smoke deferred to Phase 7 (requires secrets not present in this environment) | model-gateway 22/22, web 17 files / 63 tests incl. new aiProposals suite, api capability tests 6/6; typecheck + lint clean on touched packages |
 | 4 — Anonymous demo AI seam | Code complete (2026-08-25); real-widget + quota E2E on deployed infra tracked for Phase 7 | api focused suites: demo-ai 13 + turnstile 8 + capability 6 = all passing; web suite 15 files / 63 tests |
-| 5 — Owner trust boundary | pending | — |
+| 5 — Owner trust boundary | Code complete (2026-08-25); DB-backed session integration tests deferred to Phase 7 (Postgres unavailable here) | bind-guard suite extended; api DB-free suites 32/32; typecheck + lint clean |
 | 6 — Production compose + Cloudflare | pending | — |
 | 7 — Release verification | pending | — |
+
+### Phase 5 notes (2026-08-25)
+
+- **Closed the critical Phase 5 gap:** previously, knowing the owner UUID was
+  sufficient to mint an owner session (`POST /api/session` checked only
+  `userId`). Now network mode requires `GUIDEFORGE_OWNER_PASSWORD`, compared
+  timing-safely (SHA-256 digests + `timingSafeEqual`), and both halves are
+  checked before answering so probing cannot learn which half failed.
+- `buildServer` refuses to boot when `ownerId` is set without
+  `ownerPassword`; `assertSafeBindConfig` likewise refuses non-loopback
+  binding without BOTH identity and credential. Loopback dev mode unchanged.
+- Session cookie: `Secure` now defaults ON when every configured CORS origin
+  is HTTPS (production contract `https://guides.henning.rodeo`), overridable
+  via `SESSION_COOKIE_SECURE`. HttpOnly/SameSite=lax unchanged.
+- Verified unchanged invariants: roles never accepted from request bodies;
+  owner routes fail anonymous (401/403 paths pre-existing and covered);
+  Companion TrustedKeyStore/signing untouched.
+- production.env.example updated with `GUIDEFORGE_OWNER_PASSWORD` +
+  `SESSION_COOKIE_SECURE`.
+- Honest limitation: the credential and Secure-cookie tests live in
+  `index.test.ts`, which needs PostgreSQL (not running here, live infra
+  untouchable). They execute in Phase 7 against deployment infra. All
+  DB-free suites pass now.
+
 
 ### Phase 4 notes (2026-08-25)
 
