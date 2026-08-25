@@ -213,7 +213,7 @@ describe('Phase 16 golden certification', () => {
       expect(trainingAttempt.attempt.passed).toBe(true);
       expect(trainingAttempt.session.status).toBe('mastered');
 
-      let runtime = await loadRuntimeSession(working);
+      let runtime = (await loadRuntimeSession(working)).runtime;
       for (const [index, stepId] of stepIds.entries()) {
         const withNote = await recordRuntimeNote(
           working,

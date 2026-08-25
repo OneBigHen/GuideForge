@@ -1,12 +1,15 @@
 /**
  * API service entrypoint (container/local).
  */
+import { assertSafeBindConfig } from './bind-guard.js';
 import { buildServer, type ApiConfig } from './index.js';
 
 const port = Number(process.env.PORT ?? 8080);
 // Loopback by default (single-owner companion). Network mode requires an
-// explicit HOST + HTTPS proxy + ownerId (see docs/security/).
+// explicit HOST + HTTPS proxy + ownerId — enforced by assertSafeBindConfig.
 const host = process.env.GUIDEFORGE_HOST ?? '127.0.0.1';
+const ownerId = process.env.GUIDEFORGE_OWNER_ID;
+assertSafeBindConfig(host, ownerId);
 function configuredModelProvider(value: string | undefined): ApiConfig['modelProvider'] {
   if (value === undefined) return undefined;
   if (value === 'deepseek' || value === 'openrouter') return value;
@@ -23,7 +26,7 @@ async function main() {
     roomTicketSecret: process.env.ROOM_TICKET_SECRET ?? 'dev-change-me-tickets',
     corsOrigin: (process.env.CORS_ORIGIN ?? 'http://localhost:1420').split(','),
     logLevel: process.env.LOG_LEVEL ?? 'info',
-    ...(process.env.GUIDEFORGE_OWNER_ID ? { ownerId: process.env.GUIDEFORGE_OWNER_ID } : {}),
+    ...(ownerId ? { ownerId } : {}),
     ...(process.env.DEEPSEEK_API_KEY ? { deepSeekApiKey: process.env.DEEPSEEK_API_KEY } : {}),
     ...(process.env.DEEPSEEK_MODEL ? { deepSeekModel: process.env.DEEPSEEK_MODEL } : {}),
     ...(modelProvider ? { modelProvider } : {}),

@@ -181,7 +181,9 @@ function materializeSources(working: WorkingGuide): GuideSource[] {
     try {
       sources.push(JSON.parse(raw) as GuideSource);
     } catch {
-      // A malformed source is ignored; the canonical snapshot remains valid.
+      // Omitted from the typed snapshot (can't render invalid data), but
+      // `setCanonicalSources` below preserves the raw Y.Map entry on the next
+      // write-back instead of deleting it — see that function's comment.
     }
   }
   return sources;
@@ -369,14 +371,56 @@ export function applyCommandToWorkingGuide(working: WorkingGuide, command: Guide
   }, txOrigin);
 }
 
+/**
+ * Sync the Y.Map of sources to the given canonical list. `sources` is derived
+ * from `materializeSources`, which silently omits any entry whose
+ * `sourceJson` fails to parse (it cannot produce a typed `GuideSource` from
+ * garbage). A naive clear-and-rewrite here would therefore permanently
+ * destroy any unparseable-but-still-present source on the very next command,
+ * even one unrelated to sources. Instead, entries that don't parse are left
+ * untouched rather than deleted, so corruption stays recoverable instead of
+ * becoming silent, permanent data loss.
+ */
 function setCanonicalSources(working: WorkingGuide, sources: GuideSource[]): void {
-  working.sourceOrder.delete(0, working.sourceOrder.length);
-  working.sources.clear();
+  const nextIds = new Set<string>(sources.map((source) => source.sourceId));
+  const preserveIds = new Set<string>();
+  for (const [sourceId, ySource] of working.sources) {
+    if (nextIds.has(sourceId)) continue;
+    const raw = ySource.get('sourceJson');
+    if (typeof raw !== 'string' || !isParseableJson(raw)) {
+      preserveIds.add(sourceId);
+    }
+  }
+  for (const [sourceId] of working.sources) {
+    if (!nextIds.has(sourceId) && !preserveIds.has(sourceId)) {
+      working.sources.delete(sourceId);
+    }
+  }
+  const order: string[] = [];
   for (const source of sources) {
     const ySource = new Y.Map<unknown>();
     ySource.set('sourceJson', JSON.stringify(source));
     working.sources.set(source.sourceId, ySource);
-    working.sourceOrder.push([source.sourceId]);
+    order.push(source.sourceId);
+  }
+  for (const sourceId of working.sourceOrder.toArray()) {
+    if (preserveIds.has(sourceId) && !order.includes(sourceId)) {
+      order.push(sourceId);
+    }
+  }
+  for (const sourceId of preserveIds) {
+    if (!order.includes(sourceId)) order.push(sourceId);
+  }
+  working.sourceOrder.delete(0, working.sourceOrder.length);
+  working.sourceOrder.insert(0, order);
+}
+
+function isParseableJson(raw: string): boolean {
+  try {
+    JSON.parse(raw);
+    return true;
+  } catch {
+    return false;
   }
 }
 

@@ -125,7 +125,7 @@ describe('guide store local-first workflow', () => {
     const session = await createGuide('Restorable project');
     const taskId = await addTask(session, 'Restore task');
     const stepId = await addStep(session, taskId, 'Restore evidence step');
-    const runtimeBeforeBackup = await loadRuntimeSession(session);
+    const { runtime: runtimeBeforeBackup } = await loadRuntimeSession(session);
     await recordRuntimeNote(session, runtimeBeforeBackup, stepId, 'Restored note');
     await session.db.runtimeBlobs.put({
       id: `${session.guideId}:capture-1`,
@@ -163,11 +163,58 @@ describe('guide store local-first workflow', () => {
     );
   });
 
+  it('surfaces a superseded runtime session instead of silently discarding progress', async () => {
+    const session = await createGuide('Steps change mid-run');
+    const taskId = await addTask(session, 'Task');
+    const stepId = await addStep(session, taskId, 'Step one');
+
+    const first = await loadRuntimeSession(session);
+    expect(first.supersededSession).toBeNull();
+    const withNote = await recordRuntimeNote(session, first.runtime, stepId, 'In progress note');
+    expect(withNote.runtime.attempts.length).toBeGreaterThan(0);
+
+    // Guide content changes (a new step added), so stepIds no longer match
+    // the stored session — this must not silently vanish the old progress.
+    await addStep(session, taskId, 'Step two');
+
+    const second = await loadRuntimeSession(session);
+    expect(second.runtime.sessionId).not.toBe(first.runtime.sessionId);
+    expect(second.supersededSession?.sessionId).toBe(first.runtime.sessionId);
+    expect(second.supersededSession?.attempts.length).toBeGreaterThan(0);
+
+    // The old session is preserved in storage, not deleted.
+    const stillStored = await session.db.runtimeSessions.get(first.runtime.sessionId);
+    expect(stillStored).toBeDefined();
+    await closeGuide(session);
+  });
+
+  it('does not resume a schema-valid but internally inconsistent stored runtime session', async () => {
+    const session = await createGuide('Corrupted runtime record');
+    const taskId = await addTask(session, 'Task');
+    await addStep(session, taskId, 'Only step');
+    const { runtime } = await loadRuntimeSession(session);
+
+    // Directly corrupt the stored record: status claims "completed" but no
+    // step actually has a completion. This satisfies the Ajv shape schema
+    // (every field has the right type) but is semantically impossible, and
+    // must not be trusted by the UI's `status === 'completed'` render path.
+    await session.db.runtimeSessions.put({
+      ...runtime,
+      status: 'completed',
+      completedAtIso: new Date().toISOString(),
+    });
+
+    await expect(loadRuntimeSession(session)).rejects.toThrow(
+      /does not match the checked-in schema/,
+    );
+    await closeGuide(session);
+  });
+
   it('persists procedure runtime progress, typed evidence, attestation, and report export', async () => {
     const session = await createGuide('Procedure runtime');
     const taskId = await addTask(session, 'Run procedure');
     const stepId = await addStep(session, taskId, 'Verify the seal.');
-    const runtime = await loadRuntimeSession(session);
+    const { runtime } = await loadRuntimeSession(session);
     const withNote = await recordRuntimeNote(session, runtime, stepId, 'Seal is seated.');
     const withMeasurement = await recordRuntimeMeasurement(session, withNote.runtime, {
       stepId,

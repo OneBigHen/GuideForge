@@ -7,6 +7,15 @@ name: guideforge
 # Secrets are injected via environment; never commit real values. For local
 # dev these defaults are fine; for production override ROOM_TICKET_SECRET and
 # SESSION_SECRET with strong random values.
+#
+# The api container's own bind host defaults to 127.0.0.1 (see
+# apps/api/src/server.ts), so the published 8080:8080 port below is inert
+# until you opt in: set GUIDEFORGE_HOST=0.0.0.0 to actually listen on the
+# container's external interface. Doing so REQUIRES GUIDEFORGE_OWNER_ID to
+# also be set (apps/api refuses to boot otherwise) — without a configured
+# owner, whichever identity connects first would be minted the
+# organization-owner role, which is only safe when only same-machine
+# processes can reach the port.
 
 services:
   postgres:
@@ -35,6 +44,10 @@ services:
       ROOM_TICKET_SECRET: ${ROOM_TICKET_SECRET:-change-me-tickets}
       CORS_ORIGIN: http://localhost:1420
       PORT: 8080
+      # See the file header: 127.0.0.1 (default) leaves the published port
+      # inert; 0.0.0.0 requires GUIDEFORGE_OWNER_ID to also be set.
+      GUIDEFORGE_HOST: ${GUIDEFORGE_HOST:-127.0.0.1}
+      GUIDEFORGE_OWNER_ID: ${GUIDEFORGE_OWNER_ID:-}
       # Real AI provider (server-side only; never exposed to the browser).
       GUIDEFORGE_MODEL_PROVIDER: ${GUIDEFORGE_MODEL_PROVIDER:-openrouter}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
