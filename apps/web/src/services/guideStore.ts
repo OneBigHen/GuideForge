@@ -75,6 +75,7 @@ import {
 } from '@guideforge/storage-web';
 import { strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import { companionRequest } from './companionClient';
+import type { AiProposalResult, GenerateOptions } from './aiProposals';
 
 export interface OpenGuideSession {
   guideId: string;
@@ -1297,6 +1298,9 @@ export interface NewProposal {
     schemaVersion: string;
     requestId: string;
     createdAtIso: string;
+    /** Optional provider-reported usage/cost metadata. */
+    cacheTokens?: number;
+    providerCostUsd?: number;
   };
 }
 
@@ -1352,12 +1356,18 @@ export async function rejectProposal(proposalId: string): Promise<void> {
   await db().proposals.update(proposalId, { status: 'rejected' });
 }
 
-/** Generate AI proposals for a guide (reviewable, never auto-applied). */
-export async function generateFakeProposals(session: OpenGuideSession): Promise<number> {
+/**
+ * Generate AI proposals for a guide (reviewable, never auto-applied).
+ * The mode is explicit; `real` failures are surfaced, never silently
+ * substituted with the offline adapter.
+ */
+export async function generateProposals(
+  session: OpenGuideSession,
+  options: GenerateOptions,
+): Promise<AiProposalResult> {
   const snap = materializeSnapshot(session.working);
   const { generateGatewayProposals } = await import('./aiProposals');
-  const result = await generateGatewayProposals(snap);
-  return result.created;
+  return generateGatewayProposals(snap, options);
 }
 
 export async function closeGuide(session: OpenGuideSession): Promise<void> {

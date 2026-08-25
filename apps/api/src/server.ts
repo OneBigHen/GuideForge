@@ -38,6 +38,12 @@ async function main() {
     ...(process.env.OPENROUTER_APP_NAME
       ? { openRouterAppName: process.env.OPENROUTER_APP_NAME }
       : {}),
+    ...(process.env.CLOUDFLARE_AI_GATEWAY_ACCOUNT_ID
+      ? { cloudflareAiGatewayAccountId: process.env.CLOUDFLARE_AI_GATEWAY_ACCOUNT_ID }
+      : {}),
+    ...(process.env.CLOUDFLARE_AI_GATEWAY_ID
+      ? { cloudflareAiGatewayId: process.env.CLOUDFLARE_AI_GATEWAY_ID }
+      : {}),
   });
   await app.listen({ port, host });
   // eslint-disable-next-line no-console

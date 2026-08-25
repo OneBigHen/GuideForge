@@ -80,14 +80,17 @@ export function ProposalsPanel({
                 {' · provider '}
                 <span
                   className={
-                    p.receipt?.provider === 'deepseek'
+                    p.receipt.provider === 'deepseek' || p.receipt.provider === 'openrouter'
                       ? 'provider-badge provider-badge--live'
                       : 'provider-badge'
                   }
                 >
-                  {providerLabel(p.receipt?.provider)}
+                  {providerLabel(p.receipt.provider)}
                 </span>
               </p>
+              {receiptLine(p.receipt) && (
+                <p className="proposal-card__detail">{receiptLine(p.receipt)}</p>
+              )}
               {proposalDetail(p).length > 0 && (
                 <p className="proposal-card__detail">{proposalDetail(p)}</p>
               )}
@@ -126,6 +129,8 @@ function providerLabel(provider: string | undefined): string {
   switch (provider) {
     case 'deepseek':
       return 'DeepSeek (live)';
+    case 'openrouter':
+      return 'OpenRouter (live)';
     case 'fake':
       return 'offline deterministic';
     case 'synthesis-local':
@@ -135,6 +140,24 @@ function providerLabel(provider: string | undefined): string {
     default:
       return provider && provider.length > 0 ? provider : 'unknown';
   }
+}
+
+/**
+ * Visible generation receipt: what ran, what it cost, and which request it
+ * was. Provider billing metadata is shown only when the server reported it;
+ * it is never invented client-side.
+ */
+function receiptLine(receipt: AiProposalRecord['receipt']): string {
+  const parts = [
+    `AI: ${providerLabel(receipt.provider)}`,
+    receipt.model ? `· ${receipt.model}` : null,
+    `· in ${receipt.inputTokens} tok · out ${receipt.outputTokens} tok`,
+    typeof receipt.providerCostUsd === 'number'
+      ? `· cost $${receipt.providerCostUsd.toFixed(4)}`
+      : null,
+    receipt.requestId ? `· req ${receipt.requestId.slice(0, 8)}` : null,
+  ];
+  return parts.filter((part): part is string => part !== null).join(' ');
 }
 
 const COMMAND_LABELS: Record<string, string> = {

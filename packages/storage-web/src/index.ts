@@ -132,6 +132,9 @@ export interface AiProposalRecord {
     schemaVersion: string;
     requestId: string;
     createdAtIso: string;
+    /** Optional provider-reported usage/cost metadata (absent on old rows). */
+    cacheTokens?: number;
+    providerCostUsd?: number;
   };
   createdAtIso: string;
   status: 'pending' | 'accepted' | 'rejected';

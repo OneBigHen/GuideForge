@@ -1,10 +1,15 @@
 /**
  * AI proposal generation for apps/web.
  *
- * Prefers the server-side control plane (`/api/guides/:id/ai-proposals`),
- * which runs the real DeepSeek adapter with the API key server-side (never in
- * the browser). Falls back to the deterministic local gateway only when the
- * API is unreachable, so authoring remains useful offline.
+ * Modes are explicit — behavior is never derived from fetch success:
+ *  - `real`: only the server-side provider path (`/api/guides/:id/ai-proposals`)
+ *    runs, with the API key server-side. Any server failure is surfaced to the
+ *    user and NEVER substituted with the offline adapter.
+ *  - `offline`: deterministic rules adapter runs locally and every receipt it
+ *    produces is visibly labeled as offline/deterministic.
+ *
+ * Capability state comes from `/api/ai/capability` (no secrets); the browser
+ * never learns a key, concrete model id, or provider URL.
  */
 import { structuralChunking, type SourceRegion } from '@guideforge/ai-contracts';
 import { GUIDE_COMMAND_TYPES } from '@guideforge/commands';
@@ -15,10 +20,26 @@ import { createProposal, type NewProposal } from './guideStore';
 
 const gateway = new ModelGateway([new FakeModelAdapter()]);
 
+/** Explicit AI operating mode. There is intentionally no silent `auto`. */
+export type AiMode = 'real' | 'offline';
+
+export interface GenerateOptions {
+  mode: AiMode;
+}
+
+export interface AiCapability {
+  mode: 'real' | 'offline';
+  /** Provider name when real; null in offline mode. */
+  provider: string | null;
+  model: 'server-selected' | null;
+  available: boolean;
+}
+
 export interface AiProposalResult {
   created: number;
   citations: number;
   receiptProvider: string;
+  mode: AiMode;
 }
 
 interface ServerProposal {
@@ -57,18 +78,47 @@ interface ServerAiResponse {
   receipt: ServerReceipt;
 }
 
-export async function generateGatewayProposals(snapshot: GuideSnapshot): Promise<AiProposalResult> {
-  // Try the real server (DeepSeek) first.
-  const server = await tryServerProposals(snapshot);
-  if (server) return server;
-
-  // Offline fallback: deterministic local gateway.
-  return generateLocalProposals(snapshot);
+/**
+ * Fetch server AI capability. Returns `reachable: false` when the API cannot
+ * be contacted so callers can label offline generation honestly.
+ */
+export async function getAiCapability(): Promise<AiCapability & { reachable: boolean }> {
+  try {
+    const res = await fetch('/api/ai/capability', { credentials: 'include' });
+    if (!res.ok) return { mode: 'offline', provider: null, model: null, available: false, reachable: false };
+    const body = (await res.json()) as AiCapability;
+    return { ...body, reachable: true };
+  } catch {
+    return { mode: 'offline', provider: null, model: null, available: false, reachable: false };
+  }
 }
 
-async function tryServerProposals(snapshot: GuideSnapshot): Promise<AiProposalResult | null> {
+/**
+ * Generate proposals with an explicit mode. In `real` mode a server failure
+ * throws — the fake adapter is never consulted (no silent fallback).
+ */
+export async function generateGatewayProposals(
+  snapshot: GuideSnapshot,
+  options: GenerateOptions,
+): Promise<AiProposalResult> {
+  if (options.mode === 'real') {
+    // Real mode: the server path is the ONLY path.
+    const server = await tryServerProposals(snapshot);
+    if (server) return { ...server, mode: 'real' };
+    throw new Error(
+      'Real AI request failed. The server-side provider could not complete this request ' +
+        '(it may be unreachable, unconfigured, rate-limited, or erroring). No offline output was substituted.',
+    );
+  }
+  // Offline mode: deterministic local gateway, visibly labeled.
+  const local = await generateLocalProposals(snapshot);
+  return { ...local, mode: 'offline' };
+}
+
+async function tryServerProposals(snapshot: GuideSnapshot): Promise<Omit<AiProposalResult, 'mode'> | null> {
+  let res: Response;
   try {
-    const res = await fetch(`/api/guides/${snapshot.guideId}/ai-proposals`, {
+    res = await fetch(`/api/guides/${snapshot.guideId}/ai-proposals`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       credentials: 'include',
@@ -79,64 +129,74 @@ async function tryServerProposals(snapshot: GuideSnapshot): Promise<AiProposalRe
         })),
       }),
     });
-    if (!res.ok) return null;
-    const body = (await res.json()) as ServerAiResponse;
-
-    let created = 0;
-    const receipt = {
-      provider: body.receipt.provider,
-      model: body.receipt.model,
-      inputTokens: body.receipt.inputTokens,
-      outputTokens: body.receipt.outputTokens,
-      latencyMs: body.receipt.latencyMs,
-      promptVersion: body.receipt.promptVersion,
-      schemaVersion: body.receipt.schemaVersion,
-      requestId: body.receipt.requestId,
-      createdAtIso: body.receipt.createdAtIso,
-    };
-    for (const p of body.proposals) {
-      const step = snapshot.steps.find((s) => s.stepId === p.stepId);
-      if (!step) continue;
-      const base = {
-        guideId: snapshot.guideId,
-        confidence: body.confidence ?? 0.7,
-        sourceHash: body.sourceHash,
-        citations: body.citations,
-        receipt,
-      };
-      if (p.kind === 'tool' && p.name) {
-        await createProposal({
-          ...base,
-          commandType: GUIDE_COMMAND_TYPES.addTool,
-          payload: { stepId: step.stepId, toolId: crypto.randomUUID(), name: p.name },
-          summary: `Add tool: ${p.name}`,
-        });
-        created += 1;
-      } else if (p.message) {
-        await createProposal({
-          ...base,
-          commandType: GUIDE_COMMAND_TYPES.addWarning,
-          payload: {
-            stepId: step.stepId,
-            warningId: crypto.randomUUID(),
-            severity: p.kind === 'verification' ? 'info' : 'warning',
-            message: p.kind === 'verification' ? `Verification: ${p.message}` : p.message,
-          },
-          summary:
-            p.kind === 'verification'
-              ? `Add verification note: ${p.message}`
-              : `Add safety warning: ${p.message}`,
-        });
-        created += 1;
-      }
-    }
-    return { created, citations: body.citations.length, receiptProvider: body.receipt.provider };
-  } catch {
-    return null;
+  } catch (err) {
+    throw new Error(
+      `Real AI request failed before reaching the server: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
+    );
   }
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(
+      `Real AI request failed: HTTP ${res.status}${detail ? ` — ${detail.slice(0, 300)}` : ''}`,
+    );
+  }
+  const body = (await res.json()) as ServerAiResponse;
+
+  let created = 0;
+  const receipt = {
+    provider: body.receipt.provider,
+    model: body.receipt.model,
+    inputTokens: body.receipt.inputTokens,
+    outputTokens: body.receipt.outputTokens,
+    latencyMs: body.receipt.latencyMs,
+    promptVersion: body.receipt.promptVersion,
+    schemaVersion: body.receipt.schemaVersion,
+    requestId: body.receipt.requestId,
+    createdAtIso: body.receipt.createdAtIso,
+    cacheTokens: body.receipt.cacheTokens,
+    providerCostUsd: body.receipt.providerCostUsd,
+  };
+  for (const p of body.proposals) {
+    const step = snapshot.steps.find((s) => s.stepId === p.stepId);
+    if (!step) continue;
+    const base = {
+      guideId: snapshot.guideId,
+      confidence: body.confidence ?? 0.7,
+      sourceHash: body.sourceHash,
+      citations: body.citations,
+      receipt,
+    };
+    if (p.kind === 'tool' && p.name) {
+      await createProposal({
+        ...base,
+        commandType: GUIDE_COMMAND_TYPES.addTool,
+        payload: { stepId: step.stepId, toolId: crypto.randomUUID(), name: p.name },
+        summary: `Add tool: ${p.name}`,
+      });
+      created += 1;
+    } else if (p.message) {
+      await createProposal({
+        ...base,
+        commandType: GUIDE_COMMAND_TYPES.addWarning,
+        payload: {
+          stepId: step.stepId,
+          warningId: crypto.randomUUID(),
+          severity: p.kind === 'verification' ? 'info' : 'warning',
+          message: p.kind === 'verification' ? `Verification: ${p.message}` : p.message,
+        },
+        summary:
+          p.kind === 'verification'
+            ? `Add verification note: ${p.message}`
+            : `Add safety warning: ${p.message}`,
+      });
+      created += 1;
+    }
+  }
+  return { created, citations: body.citations.length, receiptProvider: body.receipt.provider };
 }
 
-async function generateLocalProposals(snapshot: GuideSnapshot): Promise<AiProposalResult> {
+async function generateLocalProposals(snapshot: GuideSnapshot): Promise<Omit<AiProposalResult, 'mode'>> {
   const sourceHash = sha256Hex(
     new TextEncoder().encode(JSON.stringify({ title: snapshot.title, tasks: snapshot.tasks })),
   ) as ContentHash;
@@ -165,7 +225,6 @@ async function generateLocalProposals(snapshot: GuideSnapshot): Promise<AiPropos
   if (!response.ok || !response.output) {
     return { created: 0, citations: 0, receiptProvider: 'none' };
   }
-
   const proposals: NewProposal[] = [];
   const localReceipt = {
     provider: response.receipt.provider,

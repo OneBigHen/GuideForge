@@ -55,6 +55,9 @@ export interface ApiConfig {
   openRouterModel?: string;
   openRouterReferer?: string;
   openRouterAppName?: string;
+  /** Cloudflare AI Gateway routing for OpenRouter (server-side only). */
+  cloudflareAiGatewayAccountId?: string;
+  cloudflareAiGatewayId?: string;
 }
 
 export interface ServerDeps {
@@ -77,14 +80,33 @@ function configuredSemanticProfile(config: ApiConfig): DeepSeekModelProfile {
   return getDeepSeekModelProfile(config.deepSeekModel);
 }
 
+/** Resolved provider transport endpoint (deployment config only). */
+export function configuredProviderEndpoint(config: ApiConfig): string | null {
+  if (configuredSemanticProvider(config) !== 'openrouter') return null;
+  if (!config.openRouterApiKey) return null;
+  if (config.cloudflareAiGatewayAccountId && config.cloudflareAiGatewayId) {
+    return `https://gateway.ai.cloudflare.com/v1/${config.cloudflareAiGatewayAccountId}/${config.cloudflareAiGatewayId}/openrouter`;
+  }
+  return 'https://openrouter.ai/api/v1';
+}
+
 function configuredModelAdapter(config: ApiConfig): ModelAdapter | undefined {
   if (configuredSemanticProvider(config) === 'openrouter') {
     if (!config.openRouterApiKey) return undefined;
+    // Route through the Cloudflare AI Gateway when configured. The gateway
+    // base URL is deployment configuration, never client-provided.
+    const viaGateway = Boolean(config.cloudflareAiGatewayAccountId && config.cloudflareAiGatewayId);
     return new OpenRouterAdapter({
       apiKey: config.openRouterApiKey,
       model: config.openRouterModel ?? DEFAULT_OPENROUTER_DEEPSEEK_MODEL,
       ...(config.openRouterReferer ? { referer: config.openRouterReferer } : {}),
       ...(config.openRouterAppName ? { appName: config.openRouterAppName } : {}),
+      ...(viaGateway
+        ? {
+            baseUrl: configuredProviderEndpoint(config)!,
+            extraAllowedHosts: ['gateway.ai.cloudflare.com'],
+          }
+        : {}),
     });
   }
   if (!config.deepSeekApiKey) return undefined;
@@ -171,6 +193,19 @@ export async function buildServer(
   }
 
   app.get('/health', () => ({ status: 'ok', time: new Date().toISOString() }));
+
+  // Explicit AI capability state. The browser learns only whether the server
+  // runs a real provider or offline mode — never a key, model id, or URL.
+  app.get('/api/ai/capability', () => {
+    const adapterConfigured = configuredModelAdapter(config) !== undefined;
+    return {
+      mode: adapterConfigured ? 'real' : 'offline',
+      provider: adapterConfigured ? configuredSemanticProvider(config) : null,
+      // The concrete model stays a server decision; clients cannot pick one.
+      model: 'server-selected',
+      available: adapterConfigured,
+    };
+  });
 
   app.get('/openapi.json', () => app.swagger());
 

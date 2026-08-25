@@ -308,6 +308,13 @@ export interface OpenRouterAdapterConfig {
   referer?: string;
   appName?: string;
   maxOutputTokens?: number;
+  /**
+   * Additional HTTPS host suffixes allowed for `baseUrl` beyond
+   * `openrouter.ai` — e.g. `gateway.ai.cloudflare.com` when requests are
+   * routed through a Cloudflare AI Gateway endpoint. Deployment config only;
+   * never derived from request data.
+   */
+  extraAllowedHosts?: readonly string[];
 }
 
 const EXTRACTION_JSON_SCHEMA = {
@@ -413,7 +420,7 @@ export class OpenRouterAdapter implements ModelAdapter {
     this.appName = config.appName;
     this.maxOutputTokens = config.maxOutputTokens ?? 4096;
     this.baseUrl = validateProviderBaseUrl(config.baseUrl ?? 'https://openrouter.ai/api/v1', {
-      allowedHosts: ['openrouter.ai'],
+      allowedHosts: ['openrouter.ai', ...(config.extraAllowedHosts ?? [])],
     });
   }
 

@@ -65,11 +65,41 @@ checkpoint commit.
 | --- | --- | --- |
 | 1 — Asset library / secure context | Code complete; HTTPS E2E deferred to Phase 7 gate | Unit suites above + LAN-HTTP repro screenshot; Task 1.6 requires the deployed HTTPS origin, which does not exist until Phase 5–6 |
 | 2 — Demo guide from zero state | Complete (2026-08-25) | Focused suites: commands 11/11, storage-web 15/15, web 14 files / 56 tests; typecheck + lint clean on all touched packages |
-| 3 — Real AI is honest | pending | — |
+| 3 — Real AI is honest | Code complete (2026-08-25); live provider smoke deferred to Phase 7 (requires secrets not present in this environment) | model-gateway 22/22, web 17 files / 63 tests incl. new aiProposals suite, api capability tests 6/6; typecheck + lint clean on touched packages |
 | 4 — Anonymous demo AI seam | pending | — |
 | 5 — Owner trust boundary | pending | — |
 | 6 — Production compose + Cloudflare | pending | — |
 | 7 — Release verification | pending | — |
+
+### Phase 3 notes (2026-08-25)
+
+- Explicit AI modes: `generateGatewayProposals(snapshot, { mode })` now
+  requires `'real' | 'offline'`. In `real` mode any server failure (network,
+  HTTP error status, provider/schema failure) throws an actionable error and
+  the offline adapter is never consulted. The old silent fake fallback is
+  gone.
+- New `GET /api/ai/capability` returns `{ mode, provider, model:
+  'server-selected', available }` — capability state only; no key, URL, or
+  concrete model id reaches the browser (asserted by test).
+- Editor UI fetches capability once, labels the generate button
+  `· real` / `· offline` with an explanatory tooltip, and surfaces real-mode
+  failures as visible errors instead of unhandled rejections.
+- Proposal receipts now persist and display optional provider-reported usage
+  (`cacheTokens`, `providerCostUsd`) plus a visible receipt line
+  (`AI: <provider> · <model> · in/out tokens · cost $ · request id`). Cost is
+  shown only when the server actually reported it — never invented.
+- OpenRouter can now route through Cloudflare AI Gateway: server-side config
+  (`CLOUDFLARE_AI_GATEWAY_ACCOUNT_ID/_ID`) resolves the gateway base URL;
+  `OpenRouterAdapter` accepts audited extra host allowlist entries
+  (`gateway.ai.cloudflare.com`), SSRF guard still rejects everything else.
+- Honest limitation: the API integration suites that need PostgreSQL
+  (`index.test.ts`, port 15432) could not run in this environment — the
+  database is not running and live infra must not be touched under the
+  mission rules. New Phase 3 coverage lives in a DB-free focused file
+  (`ai-capability.test.ts`, Fastify inject only). A real OpenRouter smoke
+  needs credentials that are not present here; it is tracked for Phase 7
+  where the plan already requires it.
+
 
 ### Phase 2 notes (2026-08-25)
 
