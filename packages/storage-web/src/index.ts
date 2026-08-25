@@ -374,7 +374,38 @@ export interface StorageHealth {
   quotaWarning: 'none' | 'near-limit' | 'unknown';
 }
 
+/**
+ * Raised when content hashing is requested on a browser origin where
+ * Web Crypto (SubtleCrypto) is unavailable — i.e. an insecure context such as
+ * a plain-LAN HTTP origin. The fix is deployment-level: serve GuideForge over
+ * HTTPS (or use localhost for development).
+ */
+export class SecureContextRequiredError extends Error {
+  readonly code = 'SECURE_CONTEXT_REQUIRED';
+
+  constructor(origin?: string) {
+    const where = origin ? ` Current origin: ${origin}.` : '';
+    super(
+      `Asset storage requires a secure browser context with Web Crypto available. ` +
+        `Open GuideForge over HTTPS (or localhost for development).${where}`,
+    );
+    this.name = 'SecureContextRequiredError';
+  }
+}
+
+/** True when SubtleCrypto digests can run in the current global context. */
+export function isWebCryptoAvailable(): boolean {
+  return typeof crypto !== 'undefined' && typeof crypto.subtle?.digest === 'function';
+}
+
 function sha256Hex(bytes: Uint8Array): Promise<string> {
+  if (!isWebCryptoAvailable()) {
+    const origin =
+      typeof location !== 'undefined' && typeof location.origin === 'string'
+        ? location.origin
+        : undefined;
+    throw new SecureContextRequiredError(origin);
+  }
   return crypto.subtle.digest('SHA-256', bytes as BufferSource).then((buf) =>
     Array.from(new Uint8Array(buf))
       .map((b) => b.toString(16).padStart(2, '0'))

@@ -2,11 +2,23 @@ import { ASSET_PROVIDERS, type AssetProviderId } from '@guideforge/assets';
 import { openDb, OpfsAssetStore } from '@guideforge/storage-web';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useState } from 'react';
-import { AssetLibrary, type AssetLibraryEntry } from '../services/assetLibrary';
+import {
+  AssetLibrary,
+  ensureSeedCatalog,
+  SEED_CATALOG,
+  type AssetLibraryEntry,
+} from '../services/assetLibrary';
+import {
+  assertAssetStorageSupported,
+  getBrowserCapabilities,
+  type BrowserCapabilities,
+} from '../services/browserCapabilities';
 
 export const Route = createFileRoute('/assets')({
   component: AssetsPage,
 });
+
+const SEED_COUNT = SEED_CATALOG.length;
 
 function AssetsPage() {
   const [library] = useState(() => {
@@ -20,6 +32,17 @@ function AssetsPage() {
   const [query, setQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [capabilities] = useState<BrowserCapabilities>(() => getBrowserCapabilities());
+  const [storageError] = useState<string | null>(() => {
+    try {
+      assertAssetStorageSupported();
+      return null;
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
+  });
+  const [seeding, setSeeding] = useState(false);
+  const storageUnsupported = !capabilities.webCrypto;
 
   async function refresh(nextQuery = query): Promise<void> {
     setEntries(await library.list());
@@ -35,6 +58,7 @@ function AssetsPage() {
     setError(null);
     setNotice(null);
     try {
+      assertAssetStorageSupported();
       const extension = file.name.split('.').pop() ?? '';
       await library.importBytes(
         new Uint8Array(await file.arrayBuffer()),
@@ -56,12 +80,35 @@ function AssetsPage() {
   async function addProcedural(
     template: Parameters<AssetLibrary['addProcedural']>[0],
   ): Promise<void> {
+    setError(null);
+    setNotice(null);
     try {
+      assertAssetStorageSupported();
       await library.addProcedural(template);
       await refresh();
       setNotice('Local CC0 procedural asset added.');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function loadSeedCatalog(): Promise<void> {
+    setError(null);
+    setNotice(null);
+    setSeeding(true);
+    try {
+      assertAssetStorageSupported();
+      const result = await ensureSeedCatalog(library);
+      await refresh();
+      setNotice(
+        result.created > 0
+          ? `Demo asset catalog loaded: ${result.created} added, ${result.existing} already present.`
+          : `Demo asset catalog already present (${result.existing} assets).`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSeeding(false);
     }
   }
 
@@ -80,7 +127,10 @@ function AssetsPage() {
             Local-first search, license gates, safe import, and provenance.
           </p>
         </div>
-        <label className="button">
+        <label
+          className="button"
+          style={storageUnsupported ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
+        >
           Import model
           <input
             type="file"
@@ -95,9 +145,9 @@ function AssetsPage() {
         </label>
       </header>
 
-      {error && (
+      {(error ?? storageError) && (
         <p role="alert" className="error-text">
-          {error}
+          {error ?? storageError}
         </p>
       )}
       {notice && (
@@ -105,6 +155,19 @@ function AssetsPage() {
           {notice}
         </p>
       )}
+
+      <section className="asset-manager__panel" aria-labelledby="storage-status-title">
+        <h2 id="storage-status-title">Storage status</h2>
+        <ul className="asset-card__meta">
+          <li>Secure context (HTTPS): {capabilities.secureContext ? 'yes' : 'no'}</li>
+          <li>Web Crypto (SHA-256): {capabilities.webCrypto ? 'available' : 'unavailable'}</li>
+          <li>OPFS: {capabilities.opfs ? 'available' : 'unavailable (IndexedDB fallback)'}</li>
+          <li>
+            Asset storage:{' '}
+            <strong>{storageUnsupported ? 'blocked on this origin' : 'ready'}</strong>
+          </li>
+        </ul>
+      </section>
 
       <section className="asset-manager__panel" aria-label="Local asset search">
         <form
@@ -149,6 +212,7 @@ function AssetsPage() {
               type="button"
               className="button button--ghost"
               key={template}
+              disabled={storageUnsupported || seeding}
               onClick={() => void addProcedural(template)}
             >
               {template}
@@ -176,16 +240,30 @@ function AssetsPage() {
       <section className="asset-manager__panel" aria-labelledby="inventory-title">
         <div className="asset-manager__section-header">
           <h2 id="inventory-title">Local inventory</h2>
-          <button
-            type="button"
-            className="button button--ghost button--small"
-            onClick={() => void refresh()}
-          >
-            Refresh
-          </button>
+          <div className="asset-manager__section-actions">
+            {entries.length < SEED_COUNT && (
+              <button
+                type="button"
+                className="button"
+                disabled={storageUnsupported || seeding}
+                onClick={() => void loadSeedCatalog()}
+              >
+                {seeding ? 'Loading demo catalog…' : 'Load demo asset catalog'}
+              </button>
+            )}
+            <button
+              type="button"
+              className="button button--ghost button--small"
+              onClick={() => void refresh()}
+            >
+              Refresh
+            </button>
+          </div>
         </div>
         {entries.length === 0 ? (
-          <p className="empty-hint">No local assets yet.</p>
+          <p className="empty-hint">
+            No local assets yet. Load the demo asset catalog to get started.
+          </p>
         ) : (
           <div className="asset-manager__grid">
             {entries.map((entry) => (
@@ -195,6 +273,14 @@ function AssetsPage() {
                   {entry.metadata?.format ?? entry.meta.extension} · {entry.meta.sizeBytes} bytes ·{' '}
                   {entry.metadata?.reviewState ?? 'unreviewed'}
                 </p>
+                {entry.metadata?.origin && (
+                  <p className="asset-card__meta">
+                    Origin: {entry.metadata.origin.kind} · License:{' '}
+                    {entry.metadata.origin.kind === 'procedural'
+                      ? entry.metadata.origin.licenseId
+                      : 'see record'}
+                  </p>
+                )}
                 <p className="asset-card__meta">SHA-256: {entry.hash}</p>
                 {entry.metadata?.geometryHealth && (
                   <p className="asset-card__meta">
