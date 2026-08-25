@@ -206,7 +206,9 @@ describe('control plane API', () => {
     // A companion exposed beyond loopback must not be usable anonymously or by
     // arbitrary identities: only the configured owner, PROVING the configured
     // credential, can open a session. Knowing the owner UUID is not enough.
-    const build = () =>
+    // ownerId without its credential refuses to boot at all. `buildServer` is
+    // async, so its config guard rejects rather than throws synchronously.
+    await expect(
       buildServer(
         {
           databaseUrl: DATABASE_URL,
@@ -216,9 +218,8 @@ describe('control plane API', () => {
           ownerId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         },
         { db: drizzle(pool, { schema }), roomTickets: tickets },
-      );
-    // ownerId without its credential refuses to boot at all.
-    expect(build).toThrow(/GUIDEFORGE_OWNER_PASSWORD/);
+      ),
+    ).rejects.toThrow(/GUIDEFORGE_OWNER_PASSWORD/);
 
     const ownerApp = await buildServer(
       {
