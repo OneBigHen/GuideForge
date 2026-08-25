@@ -15,10 +15,10 @@ https://guides.henning.rodeo/assets   # once staging route exists
 Capture:
 
 ```js
-window.isSecureContext
-typeof globalThis.crypto
-typeof globalThis.crypto?.subtle
-typeof globalThis.crypto?.randomUUID
+window.isSecureContext;
+typeof globalThis.crypto;
+typeof globalThis.crypto?.subtle;
+typeof globalThis.crypto?.randomUUID;
 ```
 
 Then click one procedural asset and record the exact stack trace.

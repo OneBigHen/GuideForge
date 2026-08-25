@@ -23,6 +23,7 @@ Suggested fictional framing:
 The demo must exercise product primitives, not just show text.
 
 ### Guide
+
 - title + short description;
 - 3 tasks;
 - 2–4 steps per task;
@@ -51,17 +52,21 @@ Example tasks:
    - a passing threshold.
 
 ### Sources/citations
+
 Include one synthetic bundled source, e.g. `demo/andrew-profile.md`, with explicit demo provenance.
 
 AI-generated content must cite source regions where the existing system supports it.
 
 ### Assets
+
 Use deterministic procedural assets from `SEED_CATALOG`.
 
 ### Runtime
+
 The public visitor must be able to start the guide, complete steps, and finish using only browser-local state.
 
 ### Training
+
 The public visitor must be able to enter the training player, answer items, submit, and see result/remediation.
 
 ## Fixture format

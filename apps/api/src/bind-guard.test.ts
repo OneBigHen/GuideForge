@@ -10,9 +10,7 @@ describe('assertSafeBindConfig', () => {
 
   it('allows non-loopback binding when an owner identity AND credential are configured', () => {
     expect(() => assertSafeBindConfig('0.0.0.0', 'owner-id', 'correct-horse')).not.toThrow();
-    expect(() =>
-      assertSafeBindConfig('10.0.0.5', 'owner-id', 'battery-staple'),
-    ).not.toThrow();
+    expect(() => assertSafeBindConfig('10.0.0.5', 'owner-id', 'battery-staple')).not.toThrow();
   });
 
   it('refuses non-loopback binding without a configured owner', () => {

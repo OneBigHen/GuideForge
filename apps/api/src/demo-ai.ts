@@ -11,15 +11,13 @@
  *    the in-memory implementation exists only for tests/dev;
  *  - the route never writes owner canonical data and never mutates guides.
  */
-import { createHash } from 'node:crypto';
 import { DEFAULT_OPENROUTER_DEEPSEEK_MODEL } from '@guideforge/model-gateway';
+import { createHash } from 'node:crypto';
 
 export const PUBLIC_DEMO_AI_VERSION = 1;
 
 /** Server-owned model allowlist for anonymous calls. Clients never pick. */
-export const PUBLIC_DEMO_MODELS: ReadonlySet<string> = new Set([
-  DEFAULT_OPENROUTER_DEEPSEEK_MODEL,
-]);
+export const PUBLIC_DEMO_MODELS: ReadonlySet<string> = new Set([DEFAULT_OPENROUTER_DEEPSEEK_MODEL]);
 
 export interface TurnstileDecision {
   ok: boolean;
@@ -35,8 +33,7 @@ export interface PublicDemoAiRequest {
 }
 
 export type PublicDemoAiValidation =
-  | { ok: true; request: PublicDemoAiRequest }
-  | { ok: false; reason: string };
+  { ok: true; request: PublicDemoAiRequest } | { ok: false; reason: string };
 
 export interface PublicDemoAiLimits {
   /** Hard kill switch (`AI_PUBLIC_DEMO_ENABLED`). */
@@ -54,7 +51,9 @@ export interface PublicDemoAiLimits {
   model: string;
 }
 
-export function defaultPublicDemoAiLimits(overrides: Partial<PublicDemoAiLimits> = {}): PublicDemoAiLimits {
+export function defaultPublicDemoAiLimits(
+  overrides: Partial<PublicDemoAiLimits> = {},
+): PublicDemoAiLimits {
   return {
     enabled: false,
     maxSteps: 12,
@@ -86,8 +85,15 @@ export function validatePublicDemoRequest(value: unknown): PublicDemoAiValidatio
   if (body.turnstileToken.length > 4096) {
     return { ok: false, reason: 'turnstile token too long' };
   }
-  if (typeof body.demoClientId !== 'string' || body.demoClientId.length < 8 || body.demoClientId.length > 128) {
-    return { ok: false, reason: 'demoClientId must be an 8-128 character browser-local identifier' };
+  if (
+    typeof body.demoClientId !== 'string' ||
+    body.demoClientId.length < 8 ||
+    body.demoClientId.length > 128
+  ) {
+    return {
+      ok: false,
+      reason: 'demoClientId must be an 8-128 character browser-local identifier',
+    };
   }
   if (body.demoVersion !== PUBLIC_DEMO_AI_VERSION) {
     return { ok: false, reason: `unsupported demoVersion (expected ${PUBLIC_DEMO_AI_VERSION})` };
@@ -102,7 +108,8 @@ export function validatePublicDemoRequest(value: unknown): PublicDemoAiValidatio
   let totalChars = 0;
   const steps = [];
   for (const raw of body.steps) {
-    if (!raw || typeof raw !== 'object') return { ok: false, reason: 'each step must be an object' };
+    if (!raw || typeof raw !== 'object')
+      return { ok: false, reason: 'each step must be an object' };
     const step = raw as Record<string, unknown>;
     if (typeof step.stepId !== 'string' || step.stepId.length === 0 || step.stepId.length > 128) {
       return { ok: false, reason: 'invalid stepId' };
@@ -133,7 +140,9 @@ export function validatePublicDemoRequest(value: unknown): PublicDemoAiValidatio
 
 /** Hash a client identifier for quota correlation. Never reversible storage. */
 export function hashClientIdentifier(demoId: string, coarseIp: string | undefined): string {
-  return createHash('sha256').update(`${demoId}|${coarseIp ?? ''}`).digest('hex');
+  return createHash('sha256')
+    .update(`${demoId}|${coarseIp ?? ''}`)
+    .digest('hex');
 }
 
 export interface QuotaDecision {
@@ -225,10 +234,7 @@ export class InMemoryQuotaStore implements DemoAiQuotaStore {
     return {
       allowed: true,
       remainingWindow: Math.max(0, input.limits.windowCalls - fresh.count),
-      remainingTodayUsd: Math.max(
-        0,
-        this.globalDailyBudgetUsd - this.spentTodayUsd,
-      ),
+      remainingTodayUsd: Math.max(0, this.globalDailyBudgetUsd - this.spentTodayUsd),
     };
   }
 }
@@ -296,7 +302,9 @@ export class PostgresQuotaStore implements DemoAiQuotaStore {
           : { start: input.nowMs, count: 0, spent: 0 };
 
       const rolled =
-        !row || dayKey !== String(row.day_key) || input.nowMs - current.start >= input.limits.windowMs;
+        !row ||
+        dayKey !== String(row.day_key) ||
+        input.nowMs - current.start >= input.limits.windowMs;
 
       let decision: QuotaDecision;
       if (!input.limits.enabled) {
@@ -356,7 +364,12 @@ export class PostgresQuotaStore implements DemoAiQuotaStore {
 }
 
 export interface PublicDemoProviderResult {
-  proposals: { kind: 'warning' | 'tool' | 'verification'; stepId: string; message?: string; name?: string }[];
+  proposals: {
+    kind: 'warning' | 'tool' | 'verification';
+    stepId: string;
+    message?: string;
+    name?: string;
+  }[];
   citations: { regionId: string; pageIndex: number; excerptHash: string; claimRef: string }[];
   receipt: {
     provider: string;
@@ -377,7 +390,10 @@ export interface PublicDemoAiContext {
    * Implemented by the API with the real adapter; injected here so every
    * guard can be proven to fire before any provider work happens.
    */
-  runModel: (request: PublicDemoAiRequest, limits: PublicDemoAiLimits) => Promise<PublicDemoProviderResult>;
+  runModel: (
+    request: PublicDemoAiRequest,
+    limits: PublicDemoAiLimits,
+  ) => Promise<PublicDemoProviderResult>;
 }
 
 export type PublicDemoAiOutcome =
@@ -403,15 +419,24 @@ export async function runPublicDemoAi(
   // 2. Server-verified Turnstile — no LLM budget may be touched otherwise.
   const decision = await context.verifyTurnstile(validation.request.turnstileToken, remoteIp);
   if (!decision.ok) {
-    return { status: 'rejected', httpStatus: 403, reason: `turnstile rejected: ${decision.reason ?? 'unknown'}` };
+    return {
+      status: 'rejected',
+      httpStatus: 403,
+      reason: `turnstile rejected: ${decision.reason ?? 'unknown'}`,
+    };
   }
 
   // 3. Pre-flight cost estimate must fit under the per-request ceiling.
   const estimatedInputTokens = Math.ceil(
-    validation.request.steps.reduce((n, s) => n + s.instructionText.length + s.stepId.length, 0) / 4,
+    validation.request.steps.reduce((n, s) => n + s.instructionText.length + s.stepId.length, 0) /
+      4,
   );
   if (estimatedInputTokens > context.limits.maxInputTokens) {
-    return { status: 'rejected', httpStatus: 413, reason: 'estimated input tokens exceed the demo cap' };
+    return {
+      status: 'rejected',
+      httpStatus: 413,
+      reason: 'estimated input tokens exceed the demo cap',
+    };
   }
   if (!context.limits.enabled) {
     // Kill switch checked before reservation AND before the provider.
@@ -452,7 +477,11 @@ export async function runPublicDemoAi(
     );
   }
   if (result.receipt.model !== context.limits.model) {
-    return { status: 'rejected', httpStatus: 502, reason: 'provider returned a non-allowlisted model' };
+    return {
+      status: 'rejected',
+      httpStatus: 502,
+      reason: 'provider returned a non-allowlisted model',
+    };
   }
 
   return {

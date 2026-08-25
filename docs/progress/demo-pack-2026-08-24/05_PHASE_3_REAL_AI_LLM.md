@@ -37,7 +37,7 @@ Current `apps/web/src/services/aiProposals.ts` falls back to `FakeModelAdapter` 
 Change semantics:
 
 ```ts
-generateGatewayProposals(snapshot, { mode: 'real' })
+generateGatewayProposals(snapshot, { mode: 'real' });
 ```
 
 - `real`: a 401/403/429/5xx/provider/schema failure is visible to user and does not become fake.
@@ -137,9 +137,7 @@ Public clients must never provide arbitrary model IDs.
 Server configuration owns:
 
 ```ts
-const PUBLIC_DEMO_MODELS = new Set([
-  '<one inexpensive structured-output-capable model>',
-]);
+const PUBLIC_DEMO_MODELS = new Set(['<one inexpensive structured-output-capable model>']);
 ```
 
 Owner model selection may be broader but still server allowlisted.

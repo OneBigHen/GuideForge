@@ -1,23 +1,31 @@
 import { generateProceduralGlb } from '@guideforge/assets';
-import { canonicalJson } from '@guideforge/package-gforge';
+import { materializeSnapshot } from '@guideforge/collaboration';
+import { applyCommands, freshGuideState } from '@guideforge/commands';
+import { sha256Hex } from '@guideforge/domain';
 import {
-  isGuideSnapshot,
-  startTrainingSession,
-  submitTrainingAttempt,
   answerTrainingItem,
-  createRuntimeSession,
   beginRuntimeStep,
   completeRuntimeStep,
   createRuntimeCompletionRule,
+  createRuntimeSession,
+  isGuideSnapshot,
   recordRuntimeEvidence,
   runtimeProgress,
+  startTrainingSession,
+  submitTrainingAttempt,
 } from '@guideforge/guide-schema';
-import { sha256Hex } from '@guideforge/domain';
-import { applyCommands, freshGuideState } from '@guideforge/commands';
+import { canonicalJson } from '@guideforge/package-gforge';
 import Dexie from 'dexie';
 import 'fake-indexeddb/auto';
 import { webcrypto } from 'node:crypto';
 import { beforeEach, describe, expect, it } from 'vitest';
+import {
+  closeGuide,
+  dispatchCommand,
+  getGuideMeta,
+  listGuides,
+  openGuide,
+} from '../services/guideStore';
 import {
   DEMO_GUIDE_ID,
   DEMO_GUIDE_TITLE,
@@ -28,8 +36,6 @@ import {
   ensureDemoGuide,
   resetDemoGuide,
 } from './get-to-know-andrew';
-import { getGuideMeta, listGuides, openGuide, dispatchCommand, closeGuide } from '../services/guideStore';
-import { materializeSnapshot } from '@guideforge/collaboration';
 
 Object.defineProperty(globalThis, 'crypto', { value: webcrypto });
 
@@ -97,7 +103,13 @@ describe('demo fixture (pure command model)', () => {
     for (const stepId of stepIds) {
       const step = snapshot.steps.find((candidate) => candidate.stepId === stepId)!;
       const verificationIds = step.verification.map((v) => v.verificationId);
-      const active = beginRuntimeStep(runtime, stepId, `attempt-${stepId}`, '2026-01-01T00:01:00.000Z', verificationIds);
+      const active = beginRuntimeStep(
+        runtime,
+        stepId,
+        `attempt-${stepId}`,
+        '2026-01-01T00:01:00.000Z',
+        verificationIds,
+      );
       // One note evidence per verification check (or one for an unchecked
       // step) — mirrors what the run UI requires before completion.
       const evidence = verificationIds.map((verificationId, index) => ({
@@ -115,7 +127,12 @@ describe('demo fixture (pure command model)', () => {
         );
       }
       if (evidence.length === 0) {
-        withEvidence = recordRuntimeEvidence(withEvidence, stepId, `ev-${stepId}-0`, '2026-01-01T00:01:30.000Z');
+        withEvidence = recordRuntimeEvidence(
+          withEvidence,
+          stepId,
+          `ev-${stepId}-0`,
+          '2026-01-01T00:01:30.000Z',
+        );
         evidence.push({ evidenceId: `ev-${stepId}-0`, kind: 'note' });
       }
       runtime = completeRuntimeStep({
@@ -134,11 +151,18 @@ describe('demo fixture (pure command model)', () => {
 
   it('passes training when all items are answered correctly (pure)', () => {
     const snapshot = buildPristineDemoSnapshot(SOURCE_HASH as never);
-    const session = startTrainingSession(snapshot.training, DEMO_GUIDE_ID, 'visitor', '2026-01-01T00:00:00.000Z');
+    const session = startTrainingSession(
+      snapshot.training,
+      DEMO_GUIDE_ID,
+      'visitor',
+      '2026-01-01T00:00:00.000Z',
+    );
     expect(session.itemIds).toHaveLength(3);
     let next = session;
     for (const itemId of session.itemIds) {
-      const item = snapshot.training.assessmentItems.find((candidate) => candidate.itemId === itemId)!;
+      const item = snapshot.training.assessmentItems.find(
+        (candidate) => candidate.itemId === itemId,
+      )!;
       const correctId = (item.scoringRule as { correctOptionIds: string[] }).correctOptionIds[0]!;
       next = answerTrainingItem(next, itemId, correctId, '2026-01-01T00:03:00.000Z');
     }

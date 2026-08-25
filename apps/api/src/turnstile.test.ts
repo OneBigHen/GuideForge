@@ -13,8 +13,8 @@ function jsonResponse(value: unknown, status = 200): Response {
 
 describe('server-side Turnstile verification', () => {
   it('accepts a successful verification', async () => {
-    const fetcher = vi.fn(
-      (_url: unknown, _init?: { body?: string }) => Promise.resolve(jsonResponse(OK_BODY)),
+    const fetcher = vi.fn((_url: unknown, _init?: { body?: string }) =>
+      Promise.resolve(jsonResponse(OK_BODY)),
     );
     const decision = await verifyTurnstile('tok', '203.0.113.9', {
       secretKey: 'secret',
@@ -30,9 +30,7 @@ describe('server-side Turnstile verification', () => {
   it('rejects an unsuccessful verification and reports error codes', async () => {
     const providerCalled = vi.fn();
     const fetcher = vi.fn(() =>
-      Promise.resolve(
-        jsonResponse({ success: false, 'error-codes': ['invalid-input-response'] }),
-      ),
+      Promise.resolve(jsonResponse({ success: false, 'error-codes': ['invalid-input-response'] })),
     );
     const decision = await verifyTurnstile('used-token', undefined, {
       secretKey: 'secret',
@@ -44,7 +42,9 @@ describe('server-side Turnstile verification', () => {
   });
 
   it('rejects hostname mismatch where configured', async () => {
-    const fetcher = vi.fn((_url: unknown, _init?: unknown) => Promise.resolve(jsonResponse(OK_BODY)));
+    const fetcher = vi.fn((_url: unknown, _init?: unknown) =>
+      Promise.resolve(jsonResponse(OK_BODY)),
+    );
     const decision = await verifyTurnstile('tok', undefined, {
       secretKey: 'secret',
       fetcher,
@@ -55,14 +55,14 @@ describe('server-side Turnstile verification', () => {
 
   it('rejects empty or oversized tokens before any network call', async () => {
     const fetcher = vi.fn();
+    expect((await verifyTurnstile('', undefined, { secretKey: 's', fetcher })).ok).toBe(false);
     expect(
-      (await verifyTurnstile('', undefined, { secretKey: 's', fetcher })).ok,
-    ).toBe(false);
-    expect(
-      (await verifyTurnstile('x'.repeat(5000), undefined, {
-        secretKey: 's',
-        fetcher,
-      })).ok,
+      (
+        await verifyTurnstile('x'.repeat(5000), undefined, {
+          secretKey: 's',
+          fetcher,
+        })
+      ).ok,
     ).toBe(false);
     expect(fetcher).not.toHaveBeenCalled();
   });

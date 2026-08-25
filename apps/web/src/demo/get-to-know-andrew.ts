@@ -13,22 +13,26 @@
  * canonical state.
  */
 import { generateProceduralGlb } from '@guideforge/assets';
+import type { GuideCommand } from '@guideforge/commands';
+import { applyCommands, freshGuideState, GUIDE_COMMAND_TYPES } from '@guideforge/commands';
 import type { ContentHash, EntityId } from '@guideforge/domain';
 import { sha256Hex } from '@guideforge/domain';
-import type { GuideCommand } from '@guideforge/commands';
-import { GUIDE_COMMAND_TYPES, applyCommands, freshGuideState } from '@guideforge/commands';
 import type { GuideSnapshot, TrainingState } from '@guideforge/guide-schema';
-import { createGuideWithId, closeGuide, dispatchCommand, getGuideMeta, deleteGuideLocalData } from '../services/guideStore';
-import { ensureSeedCatalog } from '../services/assetLibrary';
-import { AssetLibrary } from '../services/assetLibrary';
-import { addSource } from '../services/sourceStudio';
 import { openDb, OpfsAssetStore } from '@guideforge/storage-web';
+import { AssetLibrary, ensureSeedCatalog } from '../services/assetLibrary';
+import {
+  closeGuide,
+  createGuideWithId,
+  deleteGuideLocalData,
+  dispatchCommand,
+  getGuideMeta,
+} from '../services/guideStore';
+import { addSource } from '../services/sourceStudio';
 
 export const DEMO_GUIDE_VERSION = 1;
 
 /** Stable, well-known demo guide id (UUID-shaped per EntityId contract). */
-export const DEMO_GUIDE_ID =
-  'a0000000-0000-4000-8000-000000000001' as EntityId;
+export const DEMO_GUIDE_ID = 'a0000000-0000-4000-8000-000000000001' as EntityId;
 
 export const DEMO_GUIDE_TITLE = 'Get to Know Andrew (Demo)';
 
@@ -118,16 +122,14 @@ export function buildDemoCommands(
   const commsRegion = resolveRegion(/communication preferences/i);
   const safetyRegion = resolveRegion(/safety basics/i);
 
-  const citationFor = (regionId: string | null) =>
-    regionId ? [{ sourceHash, regionId }] : [];
+  const citationFor = (regionId: string | null) => (regionId ? [{ sourceHash, regionId }] : []);
 
   const training: TrainingState = {
     competencies: [
       {
         competencyId: fixedId(),
         title: 'Collaborate effectively with a fictional engineer',
-        description:
-          'Demo competency covering communication preferences and safe workbench setup.',
+        description: 'Demo competency covering communication preferences and safe workbench setup.',
         objectiveIds: [objectiveId],
         citations: [],
         criticality: 'core',
@@ -360,8 +362,7 @@ export function buildDemoCommands(
       stepId: stepInstrument,
       warningId: fixedId(),
       severity: 'warning',
-      message:
-        'Demo warning: keep liquids at least 10 cm from powered equipment (synthetic rule).',
+      message: 'Demo warning: keep liquids at least 10 cm from powered equipment (synthetic rule).',
     }),
     command(GUIDE_COMMAND_TYPES.addStep, {
       taskId: taskBench,
@@ -488,5 +489,8 @@ export async function resetDemoGuide(): Promise<EnsureDemoGuideResult> {
 
 /** Build the pristine demo snapshot purely (no storage) — test/validation seam. */
 export function buildPristineDemoSnapshot(sourceHash: ContentHash): GuideSnapshot {
-  return applyCommands(freshGuideState(DEMO_GUIDE_ID, ''), buildDemoCommands(sourceHash, () => null));
+  return applyCommands(
+    freshGuideState(DEMO_GUIDE_ID, ''),
+    buildDemoCommands(sourceHash, () => null),
+  );
 }

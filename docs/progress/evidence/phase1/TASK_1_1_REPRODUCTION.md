@@ -7,10 +7,10 @@ Screenshot: `docs/progress/evidence/phase1/repro-lan-http-assets.png`
 
 ## Origin comparison
 
-| Origin | isSecureContext | typeof crypto | typeof crypto.subtle | typeof crypto.randomUUID | OPFS (`navigator.storage.getDirectory`) |
-|---|---|---|---|---|---|
-| `http://192.168.1.40:1420` | **false** | object | **undefined** | **undefined** | **false** |
-| `http://localhost:1420` | true | object | object | function | true |
+| Origin                     | isSecureContext | typeof crypto | typeof crypto.subtle | typeof crypto.randomUUID | OPFS (`navigator.storage.getDirectory`) |
+| -------------------------- | --------------- | ------------- | -------------------- | ------------------------ | --------------------------------------- |
+| `http://192.168.1.40:1420` | **false**       | object        | **undefined**        | **undefined**            | **false**                               |
+| `http://localhost:1420`    | true            | object        | object               | function                 | true                                    |
 
 ## Failure mode 1 — UI click path (LAN HTTP)
 

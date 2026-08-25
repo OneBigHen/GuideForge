@@ -87,7 +87,8 @@ interface ServerAiResponse {
 export async function getAiCapability(): Promise<AiCapability & { reachable: boolean }> {
   try {
     const res = await fetch('/api/ai/capability', { credentials: 'include' });
-    if (!res.ok) return { mode: 'offline', provider: null, model: null, available: false, reachable: false };
+    if (!res.ok)
+      return { mode: 'offline', provider: null, model: null, available: false, reachable: false };
     const body = (await res.json()) as AiCapability;
     return { ...body, reachable: true };
   } catch {
@@ -117,7 +118,9 @@ export async function generateGatewayProposals(
   return { ...local, mode: 'offline' };
 }
 
-async function tryServerProposals(snapshot: GuideSnapshot): Promise<Omit<AiProposalResult, 'mode'> | null> {
+async function tryServerProposals(
+  snapshot: GuideSnapshot,
+): Promise<Omit<AiProposalResult, 'mode'> | null> {
   let res: Response;
   try {
     res = await fetch(`/api/guides/${snapshot.guideId}/ai-proposals`, {
@@ -198,7 +201,9 @@ async function tryServerProposals(snapshot: GuideSnapshot): Promise<Omit<AiPropo
   return { created, citations: body.citations.length, receiptProvider: body.receipt.provider };
 }
 
-async function generateLocalProposals(snapshot: GuideSnapshot): Promise<Omit<AiProposalResult, 'mode'>> {
+async function generateLocalProposals(
+  snapshot: GuideSnapshot,
+): Promise<Omit<AiProposalResult, 'mode'>> {
   const sourceHash = sha256Hex(
     new TextEncoder().encode(JSON.stringify({ title: snapshot.title, tasks: snapshot.tasks })),
   ) as ContentHash;

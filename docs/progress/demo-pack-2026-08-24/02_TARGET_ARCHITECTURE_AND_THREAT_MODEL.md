@@ -155,22 +155,22 @@ The response returns proposals/citations/receipt metadata. The browser may apply
 
 ## Threats and controls
 
-| Threat | Primary controls |
-|---|---|
-| Bot drains LLM credits | Turnstile, Cloudflare rate limit, app quota, AI Gateway spend limit, provider cap, global kill switch |
-| Bot bypasses UI and POSTs endpoint | Server-side Turnstile Siteverify, origin validation, request schema/size limits |
-| Credential stuffing owner login | Cloudflare Access, Argon2id owner auth, edge + app failed-login limits |
-| UUID guessed/reused as owner | Do not treat owner UUID as credential |
-| Prompt injection | No tools, no secret context, fixed system prompt, schema validation, bounded demo input |
-| SSRF through model/provider config | Existing model-gateway provider URL allowlist; no public provider URL inputs |
-| Canonical owner data mutation | public API has no mutation path to owner storage; browser-local demo clone |
-| Secret leakage | server-only provider keys, encrypted Companion storage, AI Gateway payload logging disabled |
-| Unexpected cost spike | per-call budget + per-client budget + global daily budget + AI Gateway spend limits |
-| Crypto APIs missing | HTTPS-only supported deployment + explicit secure-context feature check |
-| Direct origin exposure | Cloudflare Tunnel + firewall + no public backend ports |
-| Service restart resets limiter | persistent quota/accounting or edge limits remain authoritative |
-| Malicious package/file | owner-only imports; existing package/model inspection; size/type gates |
-| Signing key theft | Companion owner-only, encrypted at rest, no anonymous route, file permissions |
-| XSS steals session | CSP, HttpOnly cookies, dependency hygiene, no secret values in DOM |
-| CSRF | SameSite cookie + allowed Origin check + Access/owner auth |
-| Logs capture personal/prompts | metadata-only AI Gateway logging; redact application logs |
+| Threat                             | Primary controls                                                                                      |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Bot drains LLM credits             | Turnstile, Cloudflare rate limit, app quota, AI Gateway spend limit, provider cap, global kill switch |
+| Bot bypasses UI and POSTs endpoint | Server-side Turnstile Siteverify, origin validation, request schema/size limits                       |
+| Credential stuffing owner login    | Cloudflare Access, Argon2id owner auth, edge + app failed-login limits                                |
+| UUID guessed/reused as owner       | Do not treat owner UUID as credential                                                                 |
+| Prompt injection                   | No tools, no secret context, fixed system prompt, schema validation, bounded demo input               |
+| SSRF through model/provider config | Existing model-gateway provider URL allowlist; no public provider URL inputs                          |
+| Canonical owner data mutation      | public API has no mutation path to owner storage; browser-local demo clone                            |
+| Secret leakage                     | server-only provider keys, encrypted Companion storage, AI Gateway payload logging disabled           |
+| Unexpected cost spike              | per-call budget + per-client budget + global daily budget + AI Gateway spend limits                   |
+| Crypto APIs missing                | HTTPS-only supported deployment + explicit secure-context feature check                               |
+| Direct origin exposure             | Cloudflare Tunnel + firewall + no public backend ports                                                |
+| Service restart resets limiter     | persistent quota/accounting or edge limits remain authoritative                                       |
+| Malicious package/file             | owner-only imports; existing package/model inspection; size/type gates                                |
+| Signing key theft                  | Companion owner-only, encrypted at rest, no anonymous route, file permissions                         |
+| XSS steals session                 | CSP, HttpOnly cookies, dependency hygiene, no secret values in DOM                                    |
+| CSRF                               | SameSite cookie + allowed Origin check + Access/owner auth                                            |
+| Logs capture personal/prompts      | metadata-only AI Gateway logging; redact application logs                                             |

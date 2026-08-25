@@ -1,9 +1,9 @@
+import { GUIDE_COMMAND_TYPES, applyCommands, freshGuideState } from '@guideforge/commands';
+import type { EntityId } from '@guideforge/domain';
+import type { GuideSnapshot } from '@guideforge/guide-schema';
 import 'fake-indexeddb/auto';
 import { webcrypto } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { EntityId } from '@guideforge/domain';
-import { GUIDE_COMMAND_TYPES, applyCommands, freshGuideState } from '@guideforge/commands';
-import type { GuideSnapshot } from '@guideforge/guide-schema';
 import { generateGatewayProposals, getAiCapability } from './aiProposals';
 import { createProposal } from './guideStore';
 
@@ -43,21 +43,23 @@ afterEach(() => {
 
 describe('real mode never falls back to the offline adapter', () => {
   it('server 502 surfaces as a thrown error with no fake proposals created', async () => {
-    const fetchMock = vi.fn(() => new Response(JSON.stringify({ error: 'model failed' }), { status: 502 }));
+    const fetchMock = vi.fn(
+      () => new Response(JSON.stringify({ error: 'model failed' }), { status: 502 }),
+    );
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(
-      generateGatewayProposals(snapshotWithSteps(), { mode: 'real' }),
-    ).rejects.toThrow(/Real AI request failed.*502/s);
+    await expect(generateGatewayProposals(snapshotWithSteps(), { mode: 'real' })).rejects.toThrow(
+      /Real AI request failed.*502/s,
+    );
   });
 
   it('a network failure in real mode throws instead of running fake rules', async () => {
     const fetchMock = vi.fn((): Promise<Response> => Promise.reject(new TypeError('fetch failed')));
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(
-      generateGatewayProposals(snapshotWithSteps(), { mode: 'real' }),
-    ).rejects.toThrow(/before reaching the server/);
+    await expect(generateGatewayProposals(snapshotWithSteps(), { mode: 'real' })).rejects.toThrow(
+      /before reaching the server/,
+    );
   });
 
   it('real-mode success stores the server receipt verbatim', async () => {
@@ -81,7 +83,13 @@ describe('real mode never falls back to the offline adapter', () => {
       }
       const body = new TextEncoder().encode(
         JSON.stringify({
-          proposals: [{ kind: 'warning', stepId: '323e4567-e89b-42d3-a456-426614174000', message: 'Check the breaker.' }],
+          proposals: [
+            {
+              kind: 'warning',
+              stepId: '323e4567-e89b-42d3-a456-426614174000',
+              message: 'Check the breaker.',
+            },
+          ],
           citations: [],
           sourceHash: 'a'.repeat(64),
           confidence: 0.8,
@@ -100,7 +108,10 @@ describe('real mode never falls back to the offline adapter', () => {
 
   it('offline mode labels its receipts as deterministic fake output', async () => {
     // No server stub at all: even with fetch broken, offline mode works.
-    vi.stubGlobal('fetch', vi.fn((): Promise<Response> => Promise.reject(new TypeError('fetch failed'))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((): Promise<Response> => Promise.reject(new TypeError('fetch failed'))),
+    );
     const result = await generateGatewayProposals(snapshotWithSteps(), { mode: 'offline' });
     expect(result.mode).toBe('offline');
     expect(result.created).toBeGreaterThan(0);
@@ -110,7 +121,10 @@ describe('real mode never falls back to the offline adapter', () => {
 
 describe('capability state', () => {
   it('reports unreachable honestly when the API is down', async () => {
-    vi.stubGlobal('fetch', vi.fn((): Promise<Response> => Promise.reject(new TypeError('fetch failed'))));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((): Promise<Response> => Promise.reject(new TypeError('fetch failed'))),
+    );
     const capability = await getAiCapability();
     expect(capability.reachable).toBe(false);
     expect(capability.available).toBe(false);
@@ -122,7 +136,12 @@ describe('capability state', () => {
       vi.fn(() =>
         Promise.resolve(
           new Response(
-            JSON.stringify({ mode: 'real', provider: 'openrouter', model: 'server-selected', available: true }),
+            JSON.stringify({
+              mode: 'real',
+              provider: 'openrouter',
+              model: 'server-selected',
+              available: true,
+            }),
             { status: 200 },
           ),
         ),
@@ -139,7 +158,11 @@ describe('capability state', () => {
     const id = await createProposal({
       guideId: '123e4567-e89b-42d3-a456-426614174000',
       commandType: 'guide/add-tool',
-      payload: { stepId: '323e4567-e89b-42d3-a456-426614174000', toolId: '423e4567-e89b-42d3-a456-426614174000', name: 'Wrench' },
+      payload: {
+        stepId: '323e4567-e89b-42d3-a456-426614174000',
+        toolId: '423e4567-e89b-42d3-a456-426614174000',
+        name: 'Wrench',
+      },
       summary: 'Add wrench',
       confidence: 0.5,
       sourceHash: null,

@@ -24,7 +24,12 @@ describe('AI capability endpoint', () => {
     try {
       const res = await app.inject({ method: 'GET', url: '/api/ai/capability' });
       expect(res.statusCode).toBe(200);
-      const body = res.json<{ mode: string; provider: string | null; model: string; available: boolean }>();
+      const body = res.json<{
+        mode: string;
+        provider: string | null;
+        model: string;
+        available: boolean;
+      }>();
       expect(body.mode).toBe('offline');
       expect(body.provider).toBeNull();
       expect(body.model).toBe('server-selected');
@@ -39,7 +44,12 @@ describe('AI capability endpoint', () => {
     try {
       const res = await app.inject({ method: 'GET', url: '/api/ai/capability' });
       expect(res.statusCode).toBe(200);
-      const body = res.json<{ mode: string; provider: string | null; model: string; available: boolean }>();
+      const body = res.json<{
+        mode: string;
+        provider: string | null;
+        model: string;
+        available: boolean;
+      }>();
       expect(body.mode).toBe('real');
       expect(body.provider).toBe('openrouter');
       expect(body.available).toBe(true);
@@ -56,7 +66,12 @@ describe('AI capability endpoint', () => {
     const app = await buildServer({ ...baseConfig(), deepSeekApiKey: 'sk-ds-test' });
     try {
       const res = await app.inject({ method: 'GET', url: '/api/ai/capability' });
-      const body = res.json<{ mode: string; provider: string | null; model: string; available: boolean }>();
+      const body = res.json<{
+        mode: string;
+        provider: string | null;
+        model: string;
+        available: boolean;
+      }>();
       expect(body.mode).toBe('real');
       expect(body.provider).toBe('deepseek');
       expect(res.body).not.toContain('sk-ds-test');
@@ -68,9 +83,9 @@ describe('AI capability endpoint', () => {
 
 describe('provider endpoint configuration', () => {
   it('defaults to the OpenRouter API host when no gateway is configured', () => {
-    expect(
-      configuredProviderEndpoint({ ...baseConfig(), openRouterApiKey: 'sk-test' }),
-    ).toBe('https://openrouter.ai/api/v1');
+    expect(configuredProviderEndpoint({ ...baseConfig(), openRouterApiKey: 'sk-test' })).toBe(
+      'https://openrouter.ai/api/v1',
+    );
   });
 
   it('routes through the Cloudflare AI Gateway when account + gateway ids are set', () => {

@@ -32,16 +32,16 @@ interface ContextHarness {
 function makeContext(limitOverrides: Partial<PublicDemoAiLimits> = {}): ContextHarness {
   const runModel = vi.fn(() =>
     Promise.resolve({
-    proposals: [{ kind: 'warning' as const, stepId: STEP.stepId, message: 'Careful.' }],
-    citations: [
-      { regionId: 'heading:1', pageIndex: 0, excerptHash: 'a'.repeat(64), claimRef: STEP.stepId },
-    ],
-    receipt: {
-      provider: 'openrouter',
-      model: 'deepseek/deepseek-v4-flash-0731',
-      inputTokens: 20,
-      outputTokens: 10,
-      providerCostUsd: 0.0001,
+      proposals: [{ kind: 'warning' as const, stepId: STEP.stepId, message: 'Careful.' }],
+      citations: [
+        { regionId: 'heading:1', pageIndex: 0, excerptHash: 'a'.repeat(64), claimRef: STEP.stepId },
+      ],
+      receipt: {
+        provider: 'openrouter',
+        model: 'deepseek/deepseek-v4-flash-0731',
+        inputTokens: 20,
+        outputTokens: 10,
+        providerCostUsd: 0.0001,
         requestId: 'req-1',
       },
     }),
@@ -65,7 +65,9 @@ function expectRejected(outcome: PublicDemoAiOutcome): { httpStatus: number; rea
   return { httpStatus: outcome.httpStatus, reason: outcome.reason ?? '' };
 }
 
-function expectOk(outcome: PublicDemoAiOutcome): PublicDemoAiOutcome extends { status: 'ok' }
+function expectOk(
+  outcome: PublicDemoAiOutcome,
+): PublicDemoAiOutcome extends { status: 'ok' }
   ? never
   : Extract<PublicDemoAiOutcome, { status: 'ok' }>['response'] {
   if (outcome.status !== 'ok') throw new Error('expected success');
@@ -79,7 +81,10 @@ describe('request validation', () => {
     );
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.request.steps[0]).toEqual({ stepId: STEP.stepId, instructionText: STEP.instructionText });
+      expect(result.request.steps[0]).toEqual({
+        stepId: STEP.stepId,
+        instructionText: STEP.instructionText,
+      });
       expect(JSON.stringify(result.request)).not.toContain('evil-model');
     }
   });
@@ -104,8 +109,12 @@ describe('request validation', () => {
   });
 
   it('rejects non-string ids and text', () => {
-    expect(validatePublicDemoRequest(validBody({ steps: [{ stepId: 5, instructionText: 'x' }] })).ok).toBe(false);
-    expect(validatePublicDemoRequest(validBody({ steps: [{ stepId: 'a', instructionText: 42 }] })).ok).toBe(false);
+    expect(
+      validatePublicDemoRequest(validBody({ steps: [{ stepId: 5, instructionText: 'x' }] })).ok,
+    ).toBe(false);
+    expect(
+      validatePublicDemoRequest(validBody({ steps: [{ stepId: 'a', instructionText: 42 }] })).ok,
+    ).toBe(false);
   });
 });
 

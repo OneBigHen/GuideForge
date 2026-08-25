@@ -295,8 +295,7 @@ export async function buildServer(
     if (config.ownerId) {
       const password = typeof body.password === 'string' ? body.password : '';
       const validPassword =
-        config.ownerPassword !== undefined &&
-        timingSafeEqualSha256(password, config.ownerPassword);
+        config.ownerPassword !== undefined && timingSafeEqualSha256(password, config.ownerPassword);
       const userIdMatches = body.userId === config.ownerId;
       // Check both before answering so probing cannot learn which half failed.
       if (!userIdMatches || !validPassword) {
@@ -615,11 +614,11 @@ export async function buildServer(
         verifyTurnstile: (token, ip) =>
           verifyTurnstile(token, ip, {
             secretKey: publicDemo.turnstileSecretKey,
-            ...(publicDemo.expectedHostname ? { expectedHostname: publicDemo.expectedHostname } : {}),
+            ...(publicDemo.expectedHostname
+              ? { expectedHostname: publicDemo.expectedHostname }
+              : {}),
           }),
-        quotaStore:
-          deps.demoAiQuotaStore ??
-          new InMemoryQuotaStore(limits.dailyBudgetUsd),
+        quotaStore: deps.demoAiQuotaStore ?? new InMemoryQuotaStore(limits.dailyBudgetUsd),
         runModel: async (request, modelLimits) => {
           // Same deterministic chunking as the owner route; the fixed,
           // server-allowlisted model comes from configuration only.

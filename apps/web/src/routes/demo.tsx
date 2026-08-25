@@ -1,10 +1,10 @@
+import { materializeSnapshot } from '@guideforge/collaboration';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import { DEMO_GUIDE_ID, ensureDemoGuide, resetDemoGuide } from '../demo/get-to-know-andrew';
 import { getAiCapability } from '../services/aiProposals';
 import { requestDemoAi, storeDemoProposalsLocally } from '../services/demoAi';
-import { openGuide, closeGuide } from '../services/guideStore';
-import { materializeSnapshot } from '@guideforge/collaboration';
+import { closeGuide, openGuide } from '../services/guideStore';
 
 export const Route = createFileRoute('/demo')({
   component: DemoPage,
@@ -51,7 +51,11 @@ function DemoAiPanel() {
         setState('unreachable');
         return;
       }
-      if (!capability.available || !capability.publicDemo?.enabled || !capability.publicDemo.siteKey) {
+      if (
+        !capability.available ||
+        !capability.publicDemo?.enabled ||
+        !capability.publicDemo.siteKey
+      ) {
         setState('disabled');
         return;
       }
@@ -91,7 +95,11 @@ function DemoAiPanel() {
       } finally {
         await closeGuide(session);
       }
-      const response = await requestDemoAi({ guideId: DEMO_GUIDE_ID, steps, turnstileToken: token });
+      const response = await requestDemoAi({
+        guideId: DEMO_GUIDE_ID,
+        steps,
+        turnstileToken: token,
+      });
       const created = await storeDemoProposalsLocally(response, {
         guideId: DEMO_GUIDE_ID,
         sourceHash,
@@ -119,16 +127,11 @@ function DemoAiPanel() {
   return (
     <div className="demo-ai-panel">
       <p>
-        One bounded, REAL provider call — rate-limited, budget-capped, and verified with a
-        Turnstile challenge. Suggestions land as reviewable proposals on your local copy.
+        One bounded, REAL provider call — rate-limited, budget-capped, and verified with a Turnstile
+        challenge. Suggestions land as reviewable proposals on your local copy.
       </p>
       <div id="demo-turnstile" aria-label="Bot verification" />
-      <button
-        type="button"
-        className="button"
-        disabled={!token || busy}
-        onClick={() => void run()}
-      >
+      <button type="button" className="button" disabled={!token || busy} onClick={() => void run()}>
         {busy ? 'Asking the model…' : 'Request AI suggestions'}
       </button>
       {result && (
@@ -139,7 +142,9 @@ function DemoAiPanel() {
           <button
             type="button"
             className="button button--ghost"
-            onClick={() => void navigate({ to: '/edit/$guideId', params: { guideId: DEMO_GUIDE_ID } })}
+            onClick={() =>
+              void navigate({ to: '/edit/$guideId', params: { guideId: DEMO_GUIDE_ID } })
+            }
           >
             Review proposals
           </button>
@@ -188,7 +193,9 @@ function DemoPage() {
     <section className="demo-landing" aria-labelledby="demo-title">
       <header>
         <p className="empty-hint">Public demo · everything below runs locally in your browser</p>
-        <h1 id="demo-title">GuideForge turns source documents into verifiable, runnable procedures.</h1>
+        <h1 id="demo-title">
+          GuideForge turns source documents into verifiable, runnable procedures.
+        </h1>
         <p>
           Author once from cited sources, then run the guide anywhere — with interactive assets,
           execution evidence, and offline training.

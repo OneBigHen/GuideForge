@@ -39,6 +39,7 @@ https://guides.henning.rodeo
 Not only localhost.
 
 ### Anonymous
+
 - home loads;
 - `/demo` loads;
 - demo seed works in clean browser context;
@@ -52,6 +53,7 @@ Not only localhost.
 - direct owner API blocked.
 
 ### Owner
+
 - Access/owner authentication succeeds;
 - library opens;
 - asset manager works;
@@ -65,6 +67,7 @@ Not only localhost.
 - logout/revoke works.
 
 ### Restart
+
 Restart production services.
 
 Then verify:

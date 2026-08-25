@@ -316,8 +316,14 @@ describe('step media command (Phase 2 demo asset attachment)', () => {
 
   function stepState() {
     let state = freshGuideState(GUIDE_ID, 'g');
-    state = applyGuideCommand(state, cmd(GUIDE_COMMAND_TYPES.addTask, { taskId: TASK_ID, title: 't' }));
-    return applyGuideCommand(state, cmd(GUIDE_COMMAND_TYPES.addStep, { taskId: TASK_ID, stepId: STEP_ID, title: 's' }));
+    state = applyGuideCommand(
+      state,
+      cmd(GUIDE_COMMAND_TYPES.addTask, { taskId: TASK_ID, title: 't' }),
+    );
+    return applyGuideCommand(
+      state,
+      cmd(GUIDE_COMMAND_TYPES.addStep, { taskId: TASK_ID, stepId: STEP_ID, title: 's' }),
+    );
   }
 
   it('attaches a media reference with provenance fields intact', () => {
@@ -333,7 +339,13 @@ describe('step media command (Phase 2 demo asset attachment)', () => {
       }),
     );
     expect(next.steps.find((s) => s.stepId === STEP_ID)!.media).toEqual([
-      { referenceId: REF_ID, assetHash: HASH, mimeType: 'model/gltf-binary', kind: 'model', caption: 'workbench' },
+      {
+        referenceId: REF_ID,
+        assetHash: HASH,
+        mimeType: 'model/gltf-binary',
+        kind: 'model',
+        caption: 'workbench',
+      },
     ]);
     // Previous state is never aliased.
     expect(stepState().steps.find((s) => s.stepId === STEP_ID)!.media).toEqual([]);
@@ -366,7 +378,13 @@ describe('step media command (Phase 2 demo asset attachment)', () => {
     expect(twice.steps.find((s) => s.stepId === STEP_ID)!.media).toHaveLength(1);
     const base = stepState();
     expect(
-      applyGuideCommand(base, cmd(GUIDE_COMMAND_TYPES.addStepMedia, { ...media, stepId: '523e4567-e89b-42d3-a456-426614174000' as EntityId })),
+      applyGuideCommand(
+        base,
+        cmd(GUIDE_COMMAND_TYPES.addStepMedia, {
+          ...media,
+          stepId: '523e4567-e89b-42d3-a456-426614174000' as EntityId,
+        }),
+      ),
     ).toBe(base);
   });
 });

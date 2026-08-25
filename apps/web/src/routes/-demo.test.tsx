@@ -7,10 +7,10 @@ import {
   createRouter,
 } from '@tanstack/react-router';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
 import Dexie from 'dexie';
 import 'fake-indexeddb/auto';
 import { webcrypto } from 'node:crypto';
+import { afterEach, describe, expect, it } from 'vitest';
 import { DEMO_GUIDE_ID } from '../demo/get-to-know-andrew';
 import { Route as DemoRoute } from './demo';
 
@@ -48,7 +48,9 @@ afterEach(() => {
 describe('public demo landing page', () => {
   it('shows proof points and no admin/settings controls', async () => {
     renderDemo();
-    expect(await screen.findByRole('heading', { name: /GuideForge turns source documents/i })).toBeTruthy();
+    expect(
+      await screen.findByRole('heading', { name: /GuideForge turns source documents/i }),
+    ).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Launch demo' })).toBeTruthy();
     expect(screen.queryByText(/settings/i)).toBeNull();
     expect(screen.queryByRole('link', { name: /library/i })).toBeNull();

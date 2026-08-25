@@ -74,8 +74,8 @@ import {
   type YjsPersistenceHandle,
 } from '@guideforge/storage-web';
 import { strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
-import { companionRequest } from './companionClient';
 import type { AiProposalResult, GenerateOptions } from './aiProposals';
+import { companionRequest } from './companionClient';
 
 export interface OpenGuideSession {
   guideId: string;
@@ -186,7 +186,10 @@ export async function deleteGuideLocalData(guideId: string): Promise<void> {
   await clearPersistedDoc(guideId);
 }
 
-export async function createGuideWithId(guideId: EntityId, title: string): Promise<OpenGuideSession> {
+export async function createGuideWithId(
+  guideId: EntityId,
+  title: string,
+): Promise<OpenGuideSession> {
   const working = createWorkingGuide(guideId, title);
   const persistence = persistWorkingDoc(working.doc, guideId);
   await persistence.synced;

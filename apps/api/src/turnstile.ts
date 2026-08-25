@@ -72,9 +72,9 @@ export async function verifyTurnstile(
     }
     if (parsed.success !== true) {
       return {
-      ok: false,
-      reason: parsed['error-codes']?.join(',') ?? 'verification-failed',
-    };
+        ok: false,
+        reason: parsed['error-codes']?.join(',') ?? 'verification-failed',
+      };
     }
     if (options.expectedHostname && parsed.hostname !== options.expectedHostname) {
       return { ok: false, reason: 'hostname-mismatch' };

@@ -55,12 +55,14 @@ Seed it idempotently on `/demo`.
 Make real-vs-offline mode explicit.
 
 When configured as real:
+
 - failures are visible;
 - fake adapter never masquerades as success;
 - UI shows provider/model/receipt class;
 - owner AI proposals and source synthesis work end-to-end.
 
 For anonymous demo AI:
+
 - Turnstile Siteverify required;
 - stateless/bounded request;
 - no arbitrary model/provider/system prompt/URL;
@@ -89,6 +91,7 @@ Set production cookies Secure/HttpOnly and exact production CORS/Origin.
 Use small PRs/commits by phase.
 
 For each phase:
+
 1. write failing tests;
 2. prove failure;
 3. implement minimal coherent change;

@@ -61,15 +61,15 @@ checkpoint commit.
 
 ## Phase status
 
-| Phase | Status | Evidence |
-| --- | --- | --- |
-| 1 — Asset library / secure context | Code complete; HTTPS E2E deferred to Phase 7 gate | Unit suites above + LAN-HTTP repro screenshot; Task 1.6 requires the deployed HTTPS origin, which does not exist until Phase 5–6 |
-| 2 — Demo guide from zero state | Complete (2026-08-25) | Focused suites: commands 11/11, storage-web 15/15, web 14 files / 56 tests; typecheck + lint clean on all touched packages |
-| 3 — Real AI is honest | Code complete (2026-08-25); live provider smoke deferred to Phase 7 (requires secrets not present in this environment) | model-gateway 22/22, web 17 files / 63 tests incl. new aiProposals suite, api capability tests 6/6; typecheck + lint clean on touched packages |
-| 4 — Anonymous demo AI seam | Code complete (2026-08-25); real-widget + quota E2E on deployed infra tracked for Phase 7 | api focused suites: demo-ai 13 + turnstile 8 + capability 6 = all passing; web suite 15 files / 63 tests |
-| 5 — Owner trust boundary | Code complete (2026-08-25); DB-backed session integration tests deferred to Phase 7 (Postgres unavailable here) | bind-guard suite extended; api DB-free suites 32/32; typecheck + lint clean |
+| Phase                               | Status                                                                                                                                    | Evidence                                                                                                                                                                   |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 — Asset library / secure context  | Code complete; HTTPS E2E deferred to Phase 7 gate                                                                                         | Unit suites above + LAN-HTTP repro screenshot; Task 1.6 requires the deployed HTTPS origin, which does not exist until Phase 5–6                                           |
+| 2 — Demo guide from zero state      | Complete (2026-08-25)                                                                                                                     | Focused suites: commands 11/11, storage-web 15/15, web 14 files / 56 tests; typecheck + lint clean on all touched packages                                                 |
+| 3 — Real AI is honest               | Code complete (2026-08-25); live provider smoke deferred to Phase 7 (requires secrets not present in this environment)                    | model-gateway 22/22, web 17 files / 63 tests incl. new aiProposals suite, api capability tests 6/6; typecheck + lint clean on touched packages                             |
+| 4 — Anonymous demo AI seam          | Code complete (2026-08-25); real-widget + quota E2E on deployed infra tracked for Phase 7                                                 | api focused suites: demo-ai 13 + turnstile 8 + capability 6 = all passing; web suite 15 files / 63 tests                                                                   |
+| 5 — Owner trust boundary            | Code complete (2026-08-25); DB-backed session integration tests deferred to Phase 7 (Postgres unavailable here)                           | bind-guard suite extended; api DB-free suites 32/32; typecheck + lint clean                                                                                                |
 | 6 — Production compose + Cloudflare | Config/docs complete (2026-08-25); actual deploy + external verification deferred to Phase 7 (live infra + credentials out of scope here) | `docker-compose.prod.yml` (no backend publishing, required secrets, healthchecks), `nginx.prod.conf` (CSP/HSTS, route body limits, WS upgrade), runbook production section |
-| 7 — Release verification | pending | — |
+| 7 — Release verification            | pending                                                                                                                                   | —                                                                                                                                                                          |
 
 ### Phase 6 notes (2026-08-25)
 
@@ -91,7 +91,6 @@ checkpoint commit.
   access and credentials which are deliberately out of scope here. The
   Phase gate "external HTTPS works" is exercised in Phase 7's verification
   pass on the host.
-
 
 ### Phase 5 notes (2026-08-25)
 
@@ -116,7 +115,6 @@ checkpoint commit.
   untouchable). They execute in Phase 7 against deployment infra. All
   DB-free suites pass now.
 
-
 ### Phase 4 notes (2026-08-25)
 
 - Dedicated anonymous endpoint `POST /api/demo/ai-proposals`: strict request
@@ -137,7 +135,7 @@ checkpoint commit.
   enforced atomically BEFORE provider work; reservations count even if the
   provider then fails (documented anti-overspend trade-off). Durable
   `PostgresQuotaStore` (same DB as control plane, `CREATE TABLE IF NOT
-  EXISTS`, restart-survivable) plus an in-memory store used only in tests/dev.
+EXISTS`, restart-survivable) plus an in-memory store used only in tests/dev.
   Raw ids, IPs, tokens, and prompts are never stored for quota purposes.
 - Model allowlist: anonymous responses must match the single server-configured
   model; a mismatching receipt is a 502. Clients cannot name models.
@@ -148,7 +146,6 @@ checkpoint commit.
 - Capability payload extended with `publicDemo { enabled, siteKey }` (site key
   is public by design; secret stays server-side).
 
-
 ### Phase 3 notes (2026-08-25)
 
 - Explicit AI modes: `generateGatewayProposals(snapshot, { mode })` now
@@ -157,7 +154,7 @@ checkpoint commit.
   the offline adapter is never consulted. The old silent fake fallback is
   gone.
 - New `GET /api/ai/capability` returns `{ mode, provider, model:
-  'server-selected', available }` — capability state only; no key, URL, or
+'server-selected', available }` — capability state only; no key, URL, or
   concrete model id reaches the browser (asserted by test).
 - Editor UI fetches capability once, labels the generate button
   `· real` / `· offline` with an explanatory tooltip, and surfaces real-mode
@@ -177,7 +174,6 @@ checkpoint commit.
   (`ai-capability.test.ts`, Fastify inject only). A real OpenRouter smoke
   needs credentials that are not present here; it is tracked for Phase 7
   where the plan already requires it.
-
 
 ### Phase 2 notes (2026-08-25)
 
@@ -204,4 +200,3 @@ checkpoint commit.
   (`src/routes/-demo.test.tsx` asserts navigation to `/run/<demo-id>` after
   seeding). Per standing resource rules, live-browser capture is deferred to
   Phase 7's external verification instead of running headless Chrome here.
-

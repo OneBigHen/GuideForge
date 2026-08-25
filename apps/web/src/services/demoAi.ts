@@ -30,7 +30,12 @@ export function rotateDemoClientId(): string {
 }
 
 interface DemoAiServerResult {
-  proposals: { kind: 'warning' | 'tool' | 'verification'; stepId: string; message?: string; name?: string }[];
+  proposals: {
+    kind: 'warning' | 'tool' | 'verification';
+    stepId: string;
+    message?: string;
+    name?: string;
+  }[];
   citations: {
     regionId: string;
     pageIndex: number;
@@ -106,14 +111,21 @@ export async function storeDemoProposalsLocally(
         createdAtIso: new Date().toISOString(),
         providerCostUsd: result.receipt.providerCostUsd,
       },
-    } satisfies Pick<NewProposal, 'guideId' | 'confidence' | 'sourceHash' | 'citations' | 'receipt'>;
+    } satisfies Pick<
+      NewProposal,
+      'guideId' | 'confidence' | 'sourceHash' | 'citations' | 'receipt'
+    >;
 
     const payload =
       proposal.kind === 'tool'
         ? {
             commandType: 'guide/add-tool',
             summaryText: `Add tool: ${proposal.name ?? ''}`,
-            commandPayload: { stepId: proposal.stepId, toolId: crypto.randomUUID(), name: proposal.name ?? '' },
+            commandPayload: {
+              stepId: proposal.stepId,
+              toolId: crypto.randomUUID(),
+              name: proposal.name ?? '',
+            },
           }
         : proposal.kind === 'verification'
           ? {
