@@ -18,12 +18,12 @@ docs). Branch: `fix/data-integrity-security-hygiene` off `main`.
 
 ## In scope this session
 
-| # | Item | Status |
-|---|------|--------|
-| 1 | Sources provenance-drop seam (`packages/collaboration/src/index.ts`) | **fixed** |
-| 2 | Silent runtime-session reset + fake-complete guard (`guideStore.ts` / `execution-runtime.ts`) | **fixed** |
-| 3 | `apps/api` organization-owner default + compose dead port | **fixed** |
-| 4 | `verifyReleasePackage` signature pinning | **fixed** |
+| #   | Item                                                                                          | Status    |
+| --- | --------------------------------------------------------------------------------------------- | --------- |
+| 1   | Sources provenance-drop seam (`packages/collaboration/src/index.ts`)                          | **fixed** |
+| 2   | Silent runtime-session reset + fake-complete guard (`guideStore.ts` / `execution-runtime.ts`) | **fixed** |
+| 3   | `apps/api` organization-owner default + compose dead port                                     | **fixed** |
+| 4   | `verifyReleasePackage` signature pinning                                                      | **fixed** |
 
 ### 1. Sources provenance-drop seam
 
@@ -63,13 +63,13 @@ Two related fixes in `apps/web/src/services/guideStore.ts`:
   anywhere. A schema-valid-but-inconsistent record (e.g. `status: 'completed'`
   with no matching completions) would previously be trusted and rendered by
   the UI's `runtime.status === 'completed'` check. Now both checks run.
-Tests: `apps/web/src/services/guideStore.test.ts` — "surfaces a superseded
-runtime session instead of silently discarding progress", "does not resume a
-schema-valid but internally inconsistent stored runtime session".
+  Tests: `apps/web/src/services/guideStore.test.ts` — "surfaces a superseded
+  runtime session instead of silently discarding progress", "does not resume a
+  schema-valid but internally inconsistent stored runtime session".
 
 ### 3. apps/api organization-owner default + compose dead port
 
-`POST /api/session` minted the `organization-owner` role for *any* caller
+`POST /api/session` minted the `organization-owner` role for _any_ caller
 whenever `GUIDEFORGE_OWNER_ID` wasn't configured (documented as "loopback/dev
 mode" but never actually enforced as loopback-only in code). Added
 `apps/api/src/bind-guard.ts` (`assertSafeBindConfig`), called from
@@ -77,7 +77,7 @@ mode" but never actually enforced as loopback-only in code). Added
 `GUIDEFORGE_OWNER_ID` is also set, turning the comment's stated intent into
 an enforced invariant. Separately, `infra/docker/docker-compose.yml` published
 `8080:8080` for the api service without ever setting `GUIDEFORGE_HOST`, so
-the app bound to `127.0.0.1` *inside* the container and the published port
+the app bound to `127.0.0.1` _inside_ the container and the published port
 was actually unreachable ("dead", per GF4) — documented this and wired
 `GUIDEFORGE_HOST`/`GUIDEFORGE_OWNER_ID` through as configurable env passthroughs
 so an operator can deliberately enable network mode, with the new guard as
