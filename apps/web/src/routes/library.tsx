@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
+import { ensureDemoGuide } from '../demo/get-to-know-andrew';
 import {
   createGuide,
   exportGuideBackup,
@@ -20,6 +21,20 @@ function LibraryPage() {
   const [error, setError] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState('');
   const [backupGuideId, setBackupGuideId] = useState<string | null>(null);
+  const [installingDemo, setInstallingDemo] = useState(false);
+
+  async function handleInstallDemo(): Promise<void> {
+    setInstallingDemo(true);
+    setError(null);
+    try {
+      await ensureDemoGuide();
+      setGuides(await listGuides());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setInstallingDemo(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -148,7 +163,17 @@ function LibraryPage() {
       {loading ? (
         <p>Loading library…</p>
       ) : guides.length === 0 ? (
-        <p className="empty-hint">No guides yet. Create or import one to get started.</p>
+        <div className="empty-hint">
+          <p>No guides yet. Create or import one to get started.</p>
+          <button
+            type="button"
+            className="button"
+            disabled={installingDemo}
+            onClick={() => void handleInstallDemo()}
+          >
+            {installingDemo ? 'Installing demo guide…' : 'Install demo guide'}
+          </button>
+        </div>
       ) : (
         <ul className="guide-list">
           {guides.map((g) => (

@@ -22,7 +22,7 @@ import {
   type TrainingSession,
 } from '@guideforge/guide-schema';
 import Dexie, { type Table } from 'dexie';
-import { IndexeddbPersistence } from 'y-indexeddb';
+import { clearDocument, IndexeddbPersistence } from 'y-indexeddb';
 import type * as Y from 'yjs';
 
 export {
@@ -348,6 +348,16 @@ export function persistWorkingDoc(doc: Y.Doc, docName: string): YjsPersistenceHa
     );
   });
   return { provider, doc, synced };
+}
+
+/**
+ * Delete the persisted Yjs document state for `docName`. Used by explicit
+ * local resets (e.g. recreating a pristine demo fixture); never called
+ * implicitly. The corresponding IndexedDB database is removed only after
+ * open connections have been closed by their owners.
+ */
+export async function clearPersistedDoc(docName: string): Promise<void> {
+  await clearDocument(docName);
 }
 
 // ---------------------------------------------------------------------------

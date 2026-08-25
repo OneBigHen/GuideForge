@@ -57,6 +57,7 @@ import {
   type PackageBinary,
 } from '@guideforge/package-gforge';
 import {
+  clearPersistedDoc,
   loadSourceBytes,
   migrateDexieSourcesToCanonical,
   openDb,
@@ -145,8 +146,46 @@ export async function listGuides(): Promise<LibraryEntry[]> {
   }));
 }
 
-export async function createGuide(title: string): Promise<OpenGuideSession> {
-  const guideId = uuidv4();
+/** Metadata row for one guide, or undefined when absent locally. */
+export async function getGuideMeta(guideId: string) {
+  return db().guides.get(guideId);
+}
+
+/**
+ * Delete every local record belonging to one guide (metadata, Yjs doc,
+ * sources, evidence, runtime/training sessions, proposals, reports).
+ * Content-addressed assets are kept — they may be shared by other guides.
+ * Used only by explicit local resets such as the demo fixture reset.
+ */
+export async function deleteGuideLocalData(guideId: string): Promise<void> {
+  const database = db();
+  await database.transaction(
+    'rw',
+    [
+      database.guides,
+      database.evidence,
+      database.proposals,
+      database.sources,
+      database.reports,
+      database.runtimeBlobs,
+      database.runtimeSessions,
+      database.trainingSessions,
+    ],
+    async () => {
+      await database.guides.delete(guideId);
+      await database.evidence.where('guideId').equals(guideId).delete();
+      await database.proposals.where('guideId').equals(guideId).delete();
+      await database.sources.where('guideId').equals(guideId).delete();
+      await database.reports.where('guideId').equals(guideId).delete();
+      await database.runtimeBlobs.where('guideId').equals(guideId).delete();
+      await database.runtimeSessions.where('guideId').equals(guideId).delete();
+      await database.trainingSessions.where('guideId').equals(guideId).delete();
+    },
+  );
+  await clearPersistedDoc(guideId);
+}
+
+export async function createGuideWithId(guideId: EntityId, title: string): Promise<OpenGuideSession> {
   const working = createWorkingGuide(guideId, title);
   const persistence = persistWorkingDoc(working.doc, guideId);
   await persistence.synced;
@@ -163,6 +202,10 @@ export async function createGuide(title: string): Promise<OpenGuideSession> {
     docName: guideId,
   });
   return { guideId, working, persistence, db: db(), assets, title };
+}
+
+export async function createGuide(title: string): Promise<OpenGuideSession> {
+  return createGuideWithId(uuidv4(), title);
 }
 
 export async function openGuide(guideId: string): Promise<OpenGuideSession> {

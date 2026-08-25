@@ -94,6 +94,7 @@ export type {
   AddAssessmentItemPayload,
   AddConditionPayload,
   AddObjectivePayload,
+  AddStepMediaPayload,
   AddStepPayload,
   AddTaskPayload,
   AddValuePayload,
