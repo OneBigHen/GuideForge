@@ -43,9 +43,10 @@ describe('AI capability endpoint', () => {
       expect(body.mode).toBe('real');
       expect(body.provider).toBe('openrouter');
       expect(body.available).toBe(true);
-      // No credential material may appear in the capability payload.
+      // No credential material may appear in the capability payload. The
+      // public Turnstile *site* key is safe by design; secrets are not.
       expect(res.body).not.toContain('sk-test');
-      expect(res.body.toLowerCase()).not.toContain('key');
+      expect(res.body.toLowerCase()).not.toContain('secret');
     } finally {
       await app.close();
     }

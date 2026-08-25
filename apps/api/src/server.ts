@@ -44,6 +44,29 @@ async function main() {
     ...(process.env.CLOUDFLARE_AI_GATEWAY_ID
       ? { cloudflareAiGatewayId: process.env.CLOUDFLARE_AI_GATEWAY_ID }
       : {}),
+    ...(process.env.TURNSTILE_SECRET_KEY
+      ? {
+          publicDemoAi: {
+            // Kill switch: absent/false keeps the anonymous route closed.
+            enabled: process.env.AI_PUBLIC_DEMO_ENABLED === 'true',
+            turnstileSecretKey: process.env.TURNSTILE_SECRET_KEY,
+            ...(process.env.TURNSTILE_SITE_KEY
+              ? { turnstileSiteKey: process.env.TURNSTILE_SITE_KEY }
+              : {}),
+            ...(process.env.TURNSTILE_EXPECTED_HOSTNAME
+              ? { expectedHostname: process.env.TURNSTILE_EXPECTED_HOSTNAME }
+              : {}),
+            ...(process.env.AI_PUBLIC_DAILY_BUDGET_USD
+              ? { dailyBudgetUsd: Number(process.env.AI_PUBLIC_DAILY_BUDGET_USD) }
+              : {}),
+            ...(process.env.AI_PUBLIC_MAX_COST_PER_REQUEST_USD
+              ? {
+                  maxCostPerRequestUsd: Number(process.env.AI_PUBLIC_MAX_COST_PER_REQUEST_USD),
+                }
+              : {}),
+          },
+        }
+      : {}),
   });
   await app.listen({ port, host });
   // eslint-disable-next-line no-console

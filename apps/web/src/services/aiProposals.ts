@@ -33,6 +33,8 @@ export interface AiCapability {
   provider: string | null;
   model: 'server-selected' | null;
   available: boolean;
+  /** Bounded anonymous demo surface state (site key is public by design). */
+  publicDemo?: { enabled: boolean; siteKey: string | null };
 }
 
 export interface AiProposalResult {

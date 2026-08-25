@@ -1,10 +1,153 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useState } from 'react';
-import { ensureDemoGuide, resetDemoGuide } from '../demo/get-to-know-andrew';
+import { useEffect, useState } from 'react';
+import { DEMO_GUIDE_ID, ensureDemoGuide, resetDemoGuide } from '../demo/get-to-know-andrew';
+import { getAiCapability } from '../services/aiProposals';
+import { requestDemoAi, storeDemoProposalsLocally } from '../services/demoAi';
+import { openGuide, closeGuide } from '../services/guideStore';
+import { materializeSnapshot } from '@guideforge/collaboration';
 
 export const Route = createFileRoute('/demo')({
   component: DemoPage,
 });
+
+interface TurnstileApi {
+  render: (
+    container: string,
+    options: { sitekey: string; callback: (token: string) => void },
+  ) => unknown;
+  reset: () => void;
+}
+
+function loadTurnstile(): Promise<TurnstileApi | null> {
+  return new Promise((resolve) => {
+    const existing = (globalThis as { turnstile?: TurnstileApi }).turnstile;
+    if (existing) {
+      resolve(existing);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+    script.async = true;
+    script.onload = () => resolve((globalThis as { turnstile?: TurnstileApi }).turnstile ?? null);
+    script.onerror = () => resolve(null);
+    document.head.appendChild(script);
+  });
+}
+
+/** Anonymous, bounded real-AI proof. Visible only when the server enables it. */
+function DemoAiPanel() {
+  const navigate = useNavigate();
+  const [state, setState] = useState<'loading' | 'disabled' | 'ready' | 'unreachable'>('loading');
+  const [token, setToken] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const capability = await getAiCapability();
+      if (cancelled) return;
+      if (!capability.reachable) {
+        setState('unreachable');
+        return;
+      }
+      if (!capability.available || !capability.publicDemo?.enabled || !capability.publicDemo.siteKey) {
+        setState('disabled');
+        return;
+      }
+      void capability.publicDemo.siteKey;
+      const api = await loadTurnstile();
+      if (cancelled) return;
+      if (!api) {
+        setState('unreachable');
+        return;
+      }
+      api.render('#demo-turnstile', {
+        sitekey: capability.publicDemo.siteKey,
+        callback: (nextToken) => setToken(nextToken),
+      });
+      setState('ready');
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function run(): Promise<void> {
+    if (!token || busy) return;
+    setBusy(true);
+    setResult(null);
+    try {
+      // Cap the request client-side too; the server re-validates everything.
+      const session = await openGuide(DEMO_GUIDE_ID);
+      let steps: { stepId: string; instructionText: string }[];
+      let sourceHash: string;
+      try {
+        const snap = materializeSnapshot(session.working);
+        sourceHash = snap.sources[0]?.sha256 ?? '';
+        steps = snap.steps
+          .slice(0, 12)
+          .map((s) => ({ stepId: s.stepId, instructionText: s.instructionText.slice(0, 1500) }));
+      } finally {
+        await closeGuide(session);
+      }
+      const response = await requestDemoAi({ guideId: DEMO_GUIDE_ID, steps, turnstileToken: token });
+      const created = await storeDemoProposalsLocally(response, {
+        guideId: DEMO_GUIDE_ID,
+        sourceHash,
+      });
+      setResult(
+        `${created} suggestion(s) received (${response.receipt.provider}, ${response.receipt.inputTokens}+${response.receipt.outputTokens} tokens). Review and accept them on your local copy.`,
+      );
+    } catch (err) {
+      // Visible, actionable failure — never a silent no-op.
+      setResult(`Request failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (state === 'loading') return <p role="status">Checking AI availability…</p>;
+  if (state === 'unreachable' || state === 'disabled') {
+    return (
+      <p className="empty-hint">
+        Real AI is not part of this demo right now. Everything else still runs fully offline.
+      </p>
+    );
+  }
+
+  return (
+    <div className="demo-ai-panel">
+      <p>
+        One bounded, REAL provider call — rate-limited, budget-capped, and verified with a
+        Turnstile challenge. Suggestions land as reviewable proposals on your local copy.
+      </p>
+      <div id="demo-turnstile" aria-label="Bot verification" />
+      <button
+        type="button"
+        className="button"
+        disabled={!token || busy}
+        onClick={() => void run()}
+      >
+        {busy ? 'Asking the model…' : 'Request AI suggestions'}
+      </button>
+      {result && (
+        <>
+          <p role="status" className="release-note">
+            {result}
+          </p>
+          <button
+            type="button"
+            className="button button--ghost"
+            onClick={() => void navigate({ to: '/edit/$guideId', params: { guideId: DEMO_GUIDE_ID } })}
+          >
+            Review proposals
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
 
 function DemoPage() {
   const navigate = useNavigate();
@@ -112,6 +255,11 @@ function DemoPage() {
             Cancel
           </button>
         )}
+      </section>
+
+      <section aria-labelledby="demo-ai-title">
+        <h2 id="demo-ai-title">Try real AI (bounded)</h2>
+        <DemoAiPanel />
       </section>
     </section>
   );

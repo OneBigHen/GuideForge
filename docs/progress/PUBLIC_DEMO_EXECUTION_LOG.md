@@ -66,10 +66,42 @@ checkpoint commit.
 | 1 — Asset library / secure context | Code complete; HTTPS E2E deferred to Phase 7 gate | Unit suites above + LAN-HTTP repro screenshot; Task 1.6 requires the deployed HTTPS origin, which does not exist until Phase 5–6 |
 | 2 — Demo guide from zero state | Complete (2026-08-25) | Focused suites: commands 11/11, storage-web 15/15, web 14 files / 56 tests; typecheck + lint clean on all touched packages |
 | 3 — Real AI is honest | Code complete (2026-08-25); live provider smoke deferred to Phase 7 (requires secrets not present in this environment) | model-gateway 22/22, web 17 files / 63 tests incl. new aiProposals suite, api capability tests 6/6; typecheck + lint clean on touched packages |
-| 4 — Anonymous demo AI seam | pending | — |
+| 4 — Anonymous demo AI seam | Code complete (2026-08-25); real-widget + quota E2E on deployed infra tracked for Phase 7 | api focused suites: demo-ai 13 + turnstile 8 + capability 6 = all passing; web suite 15 files / 63 tests |
 | 5 — Owner trust boundary | pending | — |
 | 6 — Production compose + Cloudflare | pending | — |
 | 7 — Release verification | pending | — |
+
+### Phase 4 notes (2026-08-25)
+
+- Dedicated anonymous endpoint `POST /api/demo/ai-proposals`: strict request
+  shape (fixed `demoVersion`, ≤12 steps × ≤1500 chars, payload caps,
+  non-string fields rejected); unknown fields such as `model`, system prompts,
+  or source URLs are dropped/rejected before anything runs. No canonical
+  write exists anywhere on this path.
+- Server-side Turnstile Siteverify (`apps/api/src/turnstile.ts`): hostname/
+  action checks where configured, safe timeout, fails CLOSED on timeout,
+  network error, malformed response, or unconfigured secret; malformed tokens
+  are rejected before any network call. Cloudflare test-secret support
+  documented for automated runs.
+- Guard order proven by tests: validation → Turnstile → kill switch →
+  per-request input-token cap → quota/budget reservation → provider call.
+  Every rejection path asserts the provider mock was never invoked.
+- Quota: hashed client correlation (`sha256(browser id|coarse IP)`), rolling
+  fixed window (default 3 calls / 10 min), global daily budget (default $2)
+  enforced atomically BEFORE provider work; reservations count even if the
+  provider then fails (documented anti-overspend trade-off). Durable
+  `PostgresQuotaStore` (same DB as control plane, `CREATE TABLE IF NOT
+  EXISTS`, restart-survivable) plus an in-memory store used only in tests/dev.
+  Raw ids, IPs, tokens, and prompts are never stored for quota purposes.
+- Model allowlist: anonymous responses must match the single server-configured
+  model; a mismatching receipt is a 502. Clients cannot name models.
+- Browser side (`services/demoAi.ts`): resettable non-secret local identity;
+  `/demo` shows the bounded-AI section ONLY when the server reports it enabled
+  (honest offline message otherwise); results become reviewable local
+  proposals applied through the normal command bus after explicit acceptance.
+- Capability payload extended with `publicDemo { enabled, siteKey }` (site key
+  is public by design; secret stays server-side).
+
 
 ### Phase 3 notes (2026-08-25)
 
