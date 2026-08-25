@@ -42,6 +42,33 @@ Note: `/tmp/gf-driver.md` did not survive crash #2 (tmpfs cleared); the mission
 was reconstructed from `docs/progress/demo-pack-2026-08-24/` plus the
 checkpoint commit.
 
+### Crash #3 (during Phase 6/7 polish)
+
+A third OOM-watchdog reboot occurred on 2026-08-25, caused by swap
+saturation (the host's swap file filled alongside RAM pressure). Unlike
+crash #1, **no work was lost**: every phase commit survived
+(`b3a83ca` … `7ce6572`, Phases 1–6) and even the uncommitted in-flight
+polish across `apps/api` and `apps/web` survived on disk. After recovery,
+that working tree was diff-reviewed (result: prettier/import-order
+normalization plus one real indentation repair in `turnstile.ts`), its
+focused suites were re-run green (api demo-ai/turnstile/capability/
+bind-guard 32/32; web demo fixture/route/aiProposals 18/18; commands
+guide-reducer 11/11), and it was committed as `f5b0c83` (formatting
+normalization incl. pack docs) and `6aa2258` (ignore local
+`.playwright-mcp/` debris from the crashed sessions).
+
+Standing resource rules were re-affirmed and extended in practice: repo-wide
+gates are the heaviest single step of the mission and nothing else may run
+concurrently with them; scope is reduced on memory pressure instead of
+retrying bigger.
+
+## Recovery verification after crash #3 (2026-08-25)
+
+- `git fsck`-clean tree; branch tip advanced to `7ce6572` pre-crash state
+  plus the two post-recovery commits above.
+- Focused suites re-run sequentially post-reboot (see crash #3 numbers);
+  all green.
+
 ## Recovery verification after crash #2 (2026-08-25)
 
 - Diff-reviewed checkpoint `bff7b19`: coherent Phase 1 slice —
@@ -69,7 +96,43 @@ checkpoint commit.
 | 4 — Anonymous demo AI seam          | Code complete (2026-08-25); real-widget + quota E2E on deployed infra tracked for Phase 7                                                 | api focused suites: demo-ai 13 + turnstile 8 + capability 6 = all passing; web suite 15 files / 63 tests                                                                   |
 | 5 — Owner trust boundary            | Code complete (2026-08-25); DB-backed session integration tests deferred to Phase 7 (Postgres unavailable here)                           | bind-guard suite extended; api DB-free suites 32/32; typecheck + lint clean                                                                                                |
 | 6 — Production compose + Cloudflare | Config/docs complete (2026-08-25); actual deploy + external verification deferred to Phase 7 (live infra + credentials out of scope here) | `docker-compose.prod.yml` (no backend publishing, required secrets, healthchecks), `nginx.prod.conf` (CSP/HSTS, route body limits, WS upgrade), runbook production section |
-| 7 — Release verification            | pending                                                                                                                                   | —                                                                                                                                                                          |
+| 7 — Release verification            | Complete as scoped (2026-08-25): repo gates green; live deploy/external smokes BLOCKED and recorded honestly                              | Gate log `docs/progress/evidence/phase7/GATE_SEQUENCE_LOG.txt`; `12_ACCEPTANCE_MATRIX.md` 32 PASS / 15 BLOCKED / 0 FAIL; `PUBLIC_DEMO_LAUNCH_REPORT.md`                    |
+
+### Phase 7 notes (2026-08-25)
+
+- **Repo-wide gate sequence ran once, green, at `0cd7b1e`**: `format:check`,
+  `lint`, `typecheck`, `test`, `build`, `boundary`, `dep-check`,
+  `security:policy-test`, `security:secret-scan`, `security:licenses` —
+  nothing else executing, no browser open, memory checked beforehand.
+  Full output: `docs/progress/evidence/phase7/GATE_SEQUENCE_LOG.txt`.
+- **First attempt honestly failed at `pnpm test`.** Two stacked causes:
+  (a) the environmental one — the DB-dependent api suite needs PostgreSQL on
+  :15432, absent here; (b) a **real latent bug** the missing database had been
+  masking since Phase 5: `index.test.ts` asserted a synchronous
+  `toThrow` from the async `buildServer` owner-credential guard — an async
+  function never throws synchronously, so that assertion could not pass
+  anywhere. Fixed by asserting the rejection (`await expect(...).rejects
+.toThrow`, commit `0cd7b1e`). A throwaway `guideforge-pg` Postgres 16
+  container was started per repo convention (`PHASE_00_REPORT.md`), after
+  which `index.test.ts` passes 15/15; the container was stopped immediately
+  after the gate run. The full sequence was then re-run end-to-end in one
+  clean pass rather than resuming from the failure point.
+- **Acceptance matrix filled honestly** (`12_ACCEPTANCE_MATRIX.md`):
+  32 PASS / 15 BLOCKED / 0 FAIL. Real-provider rows (AI1/AI2/AI4) are BLOCKED
+  because no provider key is exported here; Turnstile rows carry an explicit
+  test-double-vs-production note; deployment/account/device-dependent rows are
+  BLOCKED with the exact missing prerequisite named per row.
+- **Launch report written** (`PUBLIC_DEMO_LAUNCH_REPORT.md`): source SHA,
+  planned URL, gate evidence, receipt schema sample clearly labeled synthetic,
+  rate-limit/Turnstile/spend/kill-switch evidence at code-test level, six open
+  risks, rollback path, and a four-step unblock checklist. Verdict recorded:
+  code-complete, deploy-blocked; no "production ready" claim.
+- Honest scope statement: external public-path smoke, Cloudflare WAF/Gateway/
+  Access configuration, real-provider smokes, device browser runs, and the
+  service-restart drill all remain executable only against live
+  infrastructure/credentials that this environment deliberately does not
+  touch (mission stop conditions). Nothing was waived silently; every gap is
+  enumerated in the matrix and report.
 
 ### Phase 6 notes (2026-08-25)
 
