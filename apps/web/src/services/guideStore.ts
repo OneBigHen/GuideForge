@@ -29,6 +29,7 @@ import {
   createRuntimeCompletionRule,
   createRuntimeSession,
   isGuideSnapshot,
+  isRuntimeSession,
   migrateRuntimeSession,
   migrateToCurrent,
   recordRuntimeEvidence,
@@ -805,11 +806,24 @@ async function persistRuntimeSession(
   );
 }
 
+export interface RuntimeSessionLoadResult {
+  runtime: RuntimeSession;
+  /**
+   * Set only when a previous in-progress session for this guide/learner had
+   * real recorded progress (attempts or completions) but could not be
+   * resumed because the guide's steps changed since it was created. The old
+   * session is never deleted — it stays in `runtimeSessions` under its own
+   * `sessionId` — this field exists purely so the caller can surface the
+   * fact that a fresh session replaced it instead of silently discarding it.
+   */
+  supersededSession: RuntimeSession | null;
+}
+
 /** Load the current local learner session or create it once for this guide. */
 export async function loadRuntimeSession(
   session: OpenGuideSession,
   learnerId = 'local-user',
-): Promise<RuntimeSession> {
+): Promise<RuntimeSessionLoadResult> {
   const snapshot = materializeSnapshot(session.working);
   const stepIds = flattenStepIds(snapshot);
   const existing = await session.db.runtimeSessions
@@ -819,11 +833,18 @@ export async function loadRuntimeSession(
     .sortBy('updatedAtIso');
   const current = existing[existing.length - 1];
   if (current && JSON.stringify(current.stepIds) === JSON.stringify(stepIds)) {
-    if (!validateRuntimeSessionSchema(current)) {
+    // Shape (Ajv) and semantic (cross-field: completions/currentStepIndex/
+    // status agree with each other) checks are both required — a
+    // schema-valid-but-inconsistent record must not be trusted, since the UI
+    // renders `status === 'completed'` directly (see run.$guideId.tsx).
+    if (!validateRuntimeSessionSchema(current) || !isRuntimeSession(current)) {
       throw new Error('stored runtime session does not match the checked-in schema');
     }
-    return current;
+    return { runtime: current, supersededSession: null };
   }
+  const hasUnresolvedProgress =
+    current?.status === 'in-progress' &&
+    (current.attempts.length > 0 || current.completions.length > 0);
   const runtime = createRuntimeSession({
     sessionId: uuidv4(),
     guideId: session.guideId,
@@ -832,7 +853,7 @@ export async function loadRuntimeSession(
     nowIso: new Date().toISOString(),
   });
   await persistRuntimeSession(session, runtime);
-  return runtime;
+  return { runtime, supersededSession: hasUnresolvedProgress ? current : null };
 }
 
 async function addRuntimeEvidence(
