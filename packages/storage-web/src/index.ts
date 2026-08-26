@@ -22,7 +22,7 @@ import {
   type TrainingSession,
 } from '@guideforge/guide-schema';
 import Dexie, { type Table } from 'dexie';
-import { IndexeddbPersistence } from 'y-indexeddb';
+import { clearDocument, IndexeddbPersistence } from 'y-indexeddb';
 import type * as Y from 'yjs';
 
 export {
@@ -132,6 +132,9 @@ export interface AiProposalRecord {
     schemaVersion: string;
     requestId: string;
     createdAtIso: string;
+    /** Optional provider-reported usage/cost metadata (absent on old rows). */
+    cacheTokens?: number;
+    providerCostUsd?: number;
   };
   createdAtIso: string;
   status: 'pending' | 'accepted' | 'rejected';
@@ -350,6 +353,16 @@ export function persistWorkingDoc(doc: Y.Doc, docName: string): YjsPersistenceHa
   return { provider, doc, synced };
 }
 
+/**
+ * Delete the persisted Yjs document state for `docName`. Used by explicit
+ * local resets (e.g. recreating a pristine demo fixture); never called
+ * implicitly. The corresponding IndexedDB database is removed only after
+ * open connections have been closed by their owners.
+ */
+export async function clearPersistedDoc(docName: string): Promise<void> {
+  await clearDocument(docName);
+}
+
 // ---------------------------------------------------------------------------
 // Content-addressed asset storage (OPFS with IndexedDB fallback)
 // ---------------------------------------------------------------------------
@@ -374,7 +387,38 @@ export interface StorageHealth {
   quotaWarning: 'none' | 'near-limit' | 'unknown';
 }
 
+/**
+ * Raised when content hashing is requested on a browser origin where
+ * Web Crypto (SubtleCrypto) is unavailable — i.e. an insecure context such as
+ * a plain-LAN HTTP origin. The fix is deployment-level: serve GuideForge over
+ * HTTPS (or use localhost for development).
+ */
+export class SecureContextRequiredError extends Error {
+  readonly code = 'SECURE_CONTEXT_REQUIRED';
+
+  constructor(origin?: string) {
+    const where = origin ? ` Current origin: ${origin}.` : '';
+    super(
+      `Asset storage requires a secure browser context with Web Crypto available. ` +
+        `Open GuideForge over HTTPS (or localhost for development).${where}`,
+    );
+    this.name = 'SecureContextRequiredError';
+  }
+}
+
+/** True when SubtleCrypto digests can run in the current global context. */
+export function isWebCryptoAvailable(): boolean {
+  return typeof crypto !== 'undefined' && typeof crypto.subtle?.digest === 'function';
+}
+
 function sha256Hex(bytes: Uint8Array): Promise<string> {
+  if (!isWebCryptoAvailable()) {
+    const origin =
+      typeof location !== 'undefined' && typeof location.origin === 'string'
+        ? location.origin
+        : undefined;
+    throw new SecureContextRequiredError(origin);
+  }
   return crypto.subtle.digest('SHA-256', bytes as BufferSource).then((buf) =>
     Array.from(new Uint8Array(buf))
       .map((b) => b.toString(16).padStart(2, '0'))

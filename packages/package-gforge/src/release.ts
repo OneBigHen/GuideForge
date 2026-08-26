@@ -29,6 +29,7 @@ import {
   ReleaseSignatureError,
   signReleasePayload,
   verifyReleaseSignature,
+  type TrustedKeyStore,
 } from './signing.js';
 
 export interface ReleaseInput {
@@ -173,8 +174,28 @@ export interface ReleaseVerificationResult {
   payload?: { releaseId: string; guideId: string; releaseVersion: string; keyId: string };
 }
 
+export interface VerifyReleasePackageOptions {
+  /**
+   * When provided, the embedded signature is only trusted if its `keyId`
+   * resolves to a currently-active entry in this store AND the embedded
+   * public key matches that entry's pinned `publicKeyHex`. Without this, a
+   * package's signature only proves internal self-consistency (nothing was
+   * modified after signing) — anyone can generate their own keypair, sign a
+   * package with it, and embed that same key alongside, which verifies as
+   * `ok: true` with no trust check at all. That is fine for a local-only
+   * round-trip of a release you just made yourself, but never sufficient for
+   * a package received from anywhere else. Pin to companion-published
+   * `keyId`s (see `TrustedKeyStore`) before trusting an externally-sourced
+   * `.gforge` file.
+   */
+  trustedKeys?: TrustedKeyStore;
+}
+
 /** Verify a release package offline: entry hashes + signature. */
-export function verifyReleasePackage(bytes: Uint8Array): ReleaseVerificationResult {
+export function verifyReleasePackage(
+  bytes: Uint8Array,
+  options?: VerifyReleasePackageOptions,
+): ReleaseVerificationResult {
   const issues: string[] = [];
   if (bytes.length > MAX_TOTAL_BYTES) return { ok: false, issues: ['package too large'] };
   let entries: PackageEntry[];
@@ -252,6 +273,20 @@ export function verifyReleasePackage(bytes: Uint8Array): ReleaseVerificationResu
       const payload = JSON.parse(sigManifest.payloadJson) as Record<string, unknown>;
       if (canonicalJsonRfc8785(payload) !== sigManifest.payloadJson) {
         issues.push('signature payload is not canonical');
+      }
+      // `keyId` is a self-declared label with no cryptographic binding to
+      // `signingKey` on its own — pinning must resolve `keyId` through the
+      // trusted store and compare against ITS public key, never trust
+      // whatever `signingKey` happens to be embedded in the file.
+      if (options?.trustedKeys) {
+        const pinned = options.trustedKeys.get(sigManifest.keyId);
+        if (!pinned || !options.trustedKeys.isActive(sigManifest.keyId)) {
+          issues.push(`signing key ${sigManifest.keyId} is not a trusted, active key`);
+        } else if (pinned.publicKeyHex !== sigManifest.signingKey) {
+          issues.push(
+            `embedded signing key does not match the pinned key for ${sigManifest.keyId}`,
+          );
+        }
       }
       const ok = verifyReleaseSignature(
         sigManifest.payloadJson,

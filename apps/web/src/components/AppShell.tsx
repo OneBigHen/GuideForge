@@ -62,28 +62,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             className="nav-link"
             activeProps={{ className: 'nav-link nav-link--active' }}
           >
-            Library
+            Owner library
           </Link>
           <Link
-            to="/assets"
+            to="/asset-manager"
             className="nav-link"
             activeProps={{ className: 'nav-link nav-link--active' }}
           >
-            Assets
+            Owner assets
           </Link>
           <Link
             to="/jobs"
             className="nav-link"
             activeProps={{ className: 'nav-link nav-link--active' }}
           >
-            Jobs
+            Owner jobs
           </Link>
           <Link
             to="/settings"
             className="nav-link"
             activeProps={{ className: 'nav-link nav-link--active' }}
           >
-            Settings
+            Owner settings
           </Link>
         </nav>
         <div className="app-header__actions">
@@ -105,16 +105,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             Home
           </Link>
           <Link to="/library" onClick={() => setMenuOpen(false)}>
-            Library
+            Owner library
           </Link>
-          <Link to="/assets" onClick={() => setMenuOpen(false)}>
-            Assets
+          <Link to="/asset-manager" onClick={() => setMenuOpen(false)}>
+            Owner assets
           </Link>
           <Link to="/jobs" onClick={() => setMenuOpen(false)}>
-            Jobs
+            Owner jobs
           </Link>
           <Link to="/settings" onClick={() => setMenuOpen(false)}>
-            Settings
+            Owner settings
           </Link>
         </nav>
       )}

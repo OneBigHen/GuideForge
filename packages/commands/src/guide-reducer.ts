@@ -21,6 +21,7 @@ import {
   findTask,
   type AddAssessmentItemPayload,
   type AddObjectivePayload,
+  type AddStepMediaPayload,
   type AddStepPayload,
   type AddTaskPayload,
   type RemoveStepPayload,
@@ -265,6 +266,24 @@ export function applyGuideCommand(state: GuideSnapshot, command: GuideCommand): 
       const step = next.steps.find((s) => s.stepId === p.stepId);
       if (!step) return state;
       step.verification = step.verification.filter((v) => v.verificationId !== p.verificationId);
+      return next;
+    }
+    case GUIDE_COMMAND_TYPES.addStepMedia: {
+      const p = command.payload as AddStepMediaPayload;
+      if (!isContentHash(p.assetHash)) return state;
+      if (p.kind !== 'image' && p.kind !== 'video' && p.kind !== 'model' && p.kind !== 'audio')
+        return state;
+      const next = cloneSnapshot(state);
+      const step = next.steps.find((s) => s.stepId === p.stepId);
+      if (!step) return state;
+      if (step.media.some((m) => m.referenceId === p.referenceId)) return state;
+      step.media.push({
+        referenceId: p.referenceId,
+        assetHash: p.assetHash,
+        mimeType: p.mimeType,
+        kind: p.kind,
+        ...(p.caption ? { caption: p.caption } : {}),
+      });
       return next;
     }
     case GUIDE_COMMAND_TYPES.addObjective: {

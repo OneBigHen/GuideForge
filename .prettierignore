@@ -1,3 +1,5 @@
 # Generated files
 apps/web/src/routeTree.gen.ts
+packages/storage-web/src/generated/schema-validators.js
+src/generated/schema-validators.js
 pnpm-lock.yaml

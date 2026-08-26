@@ -89,6 +89,105 @@ describe('release signing and verification', () => {
     expect(res.payload?.releaseId).toBe('rel-1');
   });
 
+  it('trusts a package signed with a pinned, active key', () => {
+    const pair = generateSigningKeyPair();
+    const bytes = createReleasePackage({
+      snapshot: snapshot('Pinned'),
+      assets: new Map(),
+      privateKeyHex: pair.privateKeyHex,
+      keyId: 'owner-key-1',
+      release: {
+        releaseId: 'rel-pin',
+        releaseVersion: '1.0.0',
+        createdAt: FIXED,
+        guideId: GUIDE_ID,
+      },
+    });
+    const trustedKeys = new TrustedKeyStore([
+      {
+        keyId: 'owner-key-1',
+        publicKeyHex: pair.publicKeyHex,
+        createdAtIso: FIXED,
+        status: 'active',
+      },
+    ]);
+    const res = verifyReleasePackage(bytes, { trustedKeys });
+    expect(res.ok).toBe(true);
+  });
+
+  it('rejects a self-consistent package signed by an untrusted key when a trust store is provided', () => {
+    // An attacker (or anyone without the real owner key) can generate their
+    // own keypair and produce a package that is perfectly self-consistent —
+    // the embedded signature genuinely matches the embedded key. Without
+    // pinning, that alone must not be treated as authentic.
+    const forgerKeyPair = generateSigningKeyPair();
+    const bytes = createReleasePackage({
+      snapshot: snapshot('Forged'),
+      assets: new Map(),
+      privateKeyHex: forgerKeyPair.privateKeyHex,
+      keyId: 'owner-key-1', // claims to be the real owner's key id
+      release: {
+        releaseId: 'rel-forge',
+        releaseVersion: '1.0.0',
+        createdAt: FIXED,
+        guideId: GUIDE_ID,
+      },
+    });
+
+    // No trust store: current self-consistency-only behavior is unchanged.
+    expect(verifyReleasePackage(bytes).ok).toBe(true);
+
+    // With a trust store pinning the real owner's key under the same keyId,
+    // the forged package (signed by a different key) must be rejected.
+    const realOwnerKeyPair = generateSigningKeyPair();
+    const trustedKeys = new TrustedKeyStore([
+      {
+        keyId: 'owner-key-1',
+        publicKeyHex: realOwnerKeyPair.publicKeyHex,
+        createdAtIso: FIXED,
+        status: 'active',
+      },
+    ]);
+    const res = verifyReleasePackage(bytes, { trustedKeys });
+    expect(res.ok).toBe(false);
+    expect(res.issues.some((issue) => issue.includes('does not match the pinned key'))).toBe(true);
+  });
+
+  it('rejects a package signed under an unknown or revoked key id', () => {
+    const pair = generateSigningKeyPair();
+    const bytes = createReleasePackage({
+      snapshot: snapshot('Unknown key'),
+      assets: new Map(),
+      privateKeyHex: pair.privateKeyHex,
+      keyId: 'not-registered',
+      release: {
+        releaseId: 'rel-unk',
+        releaseVersion: '1.0.0',
+        createdAt: FIXED,
+        guideId: GUIDE_ID,
+      },
+    });
+    const emptyStore = new TrustedKeyStore();
+    const emptyRes = verifyReleasePackage(bytes, { trustedKeys: emptyStore });
+    expect(emptyRes.ok).toBe(false);
+    expect(emptyRes.issues.some((issue) => issue.includes('not a trusted, active key'))).toBe(true);
+
+    const revokedStore = new TrustedKeyStore([
+      {
+        keyId: 'not-registered',
+        publicKeyHex: pair.publicKeyHex,
+        createdAtIso: FIXED,
+        status: 'active',
+      },
+    ]);
+    revokedStore.revoke('not-registered', 'rotated');
+    const revokedRes = verifyReleasePackage(bytes, { trustedKeys: revokedStore });
+    expect(revokedRes.ok).toBe(false);
+    expect(revokedRes.issues.some((issue) => issue.includes('not a trusted, active key'))).toBe(
+      true,
+    );
+  });
+
   it('one-byte tampering fails verification', () => {
     const pair = generateSigningKeyPair();
     const bytes = createReleasePackage({

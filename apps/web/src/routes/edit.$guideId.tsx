@@ -6,6 +6,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ProposalsPanel } from '../components/editor/ProposalsPanel';
 import { StepEditor } from '../components/editor/StepEditor';
+import { getAiCapability, type AiMode } from '../services/aiProposals';
 import {
   addStep,
   addTask,
@@ -14,7 +15,7 @@ import {
   exportDraft,
   exportFullBackup,
   exportPersonalRelease,
-  generateFakeProposals,
+  generateProposals,
   openGuide,
   renameGuide,
   type OpenGuideSession,
@@ -35,6 +36,29 @@ function EditPage() {
   const [error, setError] = useState<string | null>(null);
   const [releaseInfo, setReleaseInfo] = useState<string | null>(null);
   const [showProposals, setShowProposals] = useState(false);
+  const [aiMode, setAiMode] = useState<AiMode>('offline');
+  const [aiModeNote, setAiModeNote] = useState<string>('checking AI capability…');
+  const [generating, setGenerating] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getAiCapability().then((capability) => {
+      if (cancelled) return;
+      if (!capability.reachable) {
+        setAiMode('offline');
+        setAiModeNote('offline · API unreachable — output is labeled deterministic');
+      } else if (capability.available && capability.mode === 'real') {
+        setAiMode('real');
+        setAiModeNote(`real · ${capability.provider ?? 'server provider'}`);
+      } else {
+        setAiMode('offline');
+        setAiModeNote('offline · server has no real provider configured');
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const refresh = useCallback(
     (s: OpenGuideSession) => {
@@ -111,8 +135,19 @@ function EditPage() {
 
   async function handleGenerateProposals() {
     if (!session) return;
-    await generateFakeProposals(session);
-    setShowProposals(true);
+    setGenerating(true);
+    try {
+      const result = await generateProposals(session, { mode: aiMode });
+      setReleaseInfo(
+        `AI run (${result.mode}): provider ${result.receiptProvider} · ${result.created} proposal(s), ${result.citations} citation(s).`,
+      );
+      setShowProposals(true);
+    } catch (err) {
+      // Real-mode failures must be visible; no offline output is substituted.
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGenerating(false);
+    }
   }
 
   async function handleExportRelease() {
@@ -198,9 +233,13 @@ function EditPage() {
           <button
             type="button"
             className="button button--ghost"
+            disabled={generating}
             onClick={() => void handleGenerateProposals()}
+            title={`AI mode: ${aiModeNote}`}
           >
-            Generate AI proposals
+            {generating
+              ? 'Generating…'
+              : `Generate AI proposals · ${aiMode === 'real' ? 'real' : 'offline'}`}
           </button>
           <button
             type="button"

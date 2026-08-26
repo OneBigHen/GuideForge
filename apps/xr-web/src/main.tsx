@@ -22,6 +22,13 @@ function loadRelease(bytes: Uint8Array): {
   entries: Map<string, Uint8Array>;
   signed: boolean;
 } {
+  // No `trustedKeys` store is passed here, so this only proves the package
+  // is internally self-consistent (signature matches its own embedded key),
+  // not that it came from a trusted publisher — anyone can sign their own
+  // forged package with their own key. That's an acceptable bar for a file
+  // you produced yourself, but not for one opened from anywhere else. Pin
+  // real trust with a `TrustedKeyStore` (packages/package-gforge) once this
+  // viewer has a source of companion-published keyIds to pin against.
   const verification = verifyReleasePackage(bytes);
   if (!verification.ok) {
     throw new Error(`release verification failed: ${verification.issues.join('; ')}`);

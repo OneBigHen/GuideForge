@@ -405,3 +405,38 @@ describe('OpenRouter adapter', () => {
     expect(seen[0]!.auth).toBe('Bearer sk-or-constructor');
   });
 });
+
+describe('OpenRouter adapter AI Gateway routing (Phase 3)', () => {
+  const KEY = 'sk-or-test';
+
+  it('rejects a non-allowlisted base URL by default', () => {
+    expect(
+      () =>
+        new OpenRouterAdapter({
+          apiKey: KEY,
+          baseUrl: 'https://gateway.ai.cloudflare.com/v1/acct/gw/openrouter',
+        }),
+    ).toThrow(/allowlisted/);
+  });
+
+  it('accepts the Cloudflare AI Gateway host via extraAllowedHosts', () => {
+    const adapter = new OpenRouterAdapter({
+      apiKey: KEY,
+      baseUrl: 'https://gateway.ai.cloudflare.com/v1/acct/guideforge/openrouter',
+      extraAllowedHosts: ['gateway.ai.cloudflare.com'],
+    });
+    // The endpoint path is preserved and the host is the gateway.
+    expect(adapter.available).toBe(true);
+  });
+
+  it('still rejects private hosts even when extra hosts are configured', () => {
+    expect(
+      () =>
+        new OpenRouterAdapter({
+          apiKey: KEY,
+          baseUrl: 'https://internal.example/v1/openrouter',
+          extraAllowedHosts: ['gateway.ai.cloudflare.com'],
+        }),
+    ).toThrow(/allowlisted/);
+  });
+});

@@ -2,6 +2,7 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc ./
+COPY tsconfig.base.json ./
 COPY apps/collab/package.json apps/collab/package.json
 COPY apps/api apps/api
 COPY packages packages
@@ -14,4 +15,4 @@ COPY apps/collab apps/collab
 COPY apps/api apps/api
 COPY packages packages
 EXPOSE 1234
-CMD ["npx", "tsx", "apps/collab/src/server.ts"]
+CMD ["./apps/collab/node_modules/.bin/tsx", "apps/collab/src/server.ts"]

@@ -6,6 +6,7 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "scripts": {
+    "generate:validators": "node scripts/generate-schema-validators.mjs",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",

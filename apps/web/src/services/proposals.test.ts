@@ -8,19 +8,20 @@ import {
   closeGuide,
   createGuide,
   createProposal,
-  generateFakeProposals,
+  generateProposals,
   listProposals,
 } from './guideStore';
 
 Object.defineProperty(globalThis, 'crypto', { value: webcrypto });
 
-describe('fake AI proposals', () => {
+describe('explicit-mode AI proposals', () => {
   it('generates pending proposals and accepts them via the command bus', async () => {
     const session = await createGuide('Proposal guide');
     const taskId = await addTask(session, 'Task one');
     await addStep(session, taskId, 'Do the careful thing.');
 
-    const count = await generateFakeProposals(session);
+    const result = await generateProposals(session, { mode: 'offline' });
+    const count = result.created;
     expect(count).toBeGreaterThan(0);
     const pending = (await listProposals(session.guideId)).filter((p) => p.status === 'pending');
     expect(pending.length).toBe(count);
@@ -56,7 +57,8 @@ describe('fake AI proposals', () => {
     const taskId = await addTask(session, 'T');
     await addStep(session, taskId, 'Disconnect power before opening the housing.');
 
-    const count = await generateFakeProposals(session);
+    const result = await generateProposals(session, { mode: 'offline' });
+    const count = result.created;
     expect(count).toBeGreaterThan(0);
     const rows = await listProposals(session.guideId);
     // Every generated proposal must carry at least one citation and a receipt

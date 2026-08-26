@@ -172,4 +172,38 @@ describe('working guide collaboration', () => {
     expect(w.sources.size).toBe(1);
     expect(materializeSnapshot(w)).toEqual(snapshot);
   });
+
+  it('does not permanently destroy an unparseable source on an unrelated command', () => {
+    const w = createWorkingGuide(GUIDE_ID, 'source-corruption');
+
+    // Simulate a corrupted source entry landing directly in the Y.Map (e.g.
+    // from a bad migration or partial sync), bypassing the normal
+    // hydrate/command path that always writes valid JSON.
+    const corruptSourceId = '123e4567-e89b-42d3-a456-426614174099';
+    const yCorruptSource = new Y.Map<unknown>();
+    yCorruptSource.set('sourceJson', '{not valid json');
+    w.sources.set(corruptSourceId, yCorruptSource);
+    w.sourceOrder.push([corruptSourceId]);
+
+    // The corrupt entry is correctly omitted from the typed snapshot...
+    const before = materializeSnapshot(w);
+    expect(before.sources).toEqual([]);
+
+    // ...but an unrelated command (adding a task) must not wipe it out of
+    // the Y.Doc. Before the fix, `setCanonicalSources` cleared and rewrote
+    // the whole sources map from the already-filtered snapshot on every
+    // command, permanently losing anything that failed to parse.
+    const taskId = '11111111-1111-4111-8111-111111111111' as EntityId;
+    applyCommandToWorkingGuide(
+      w,
+      makeCommand(GUIDE_COMMAND_TYPES.addTask, { taskId, title: 'unrelated' }, 'user'),
+    );
+
+    expect(w.sources.has(corruptSourceId)).toBe(true);
+    expect(w.sources.get(corruptSourceId)?.get('sourceJson')).toBe('{not valid json');
+    expect(w.sourceOrder.toArray()).toContain(corruptSourceId);
+
+    // Still correctly excluded from the typed snapshot after the round trip.
+    expect(materializeSnapshot(w).sources).toEqual([]);
+  });
 });

@@ -1,12 +1,17 @@
 /**
  * API service entrypoint (container/local).
  */
+import { assertSafeBindConfig } from './bind-guard.js';
 import { buildServer, type ApiConfig } from './index.js';
 
 const port = Number(process.env.PORT ?? 8080);
 // Loopback by default (single-owner companion). Network mode requires an
-// explicit HOST + HTTPS proxy + ownerId (see docs/security/).
+// explicit HOST + HTTPS proxy + ownerId + ownerPassword — enforced by
+// assertSafeBindConfig.
 const host = process.env.GUIDEFORGE_HOST ?? '127.0.0.1';
+const ownerId = process.env.GUIDEFORGE_OWNER_ID;
+const ownerPassword = process.env.GUIDEFORGE_OWNER_PASSWORD;
+assertSafeBindConfig(host, ownerId, ownerPassword);
 function configuredModelProvider(value: string | undefined): ApiConfig['modelProvider'] {
   if (value === undefined) return undefined;
   if (value === 'deepseek' || value === 'openrouter') return value;
@@ -23,7 +28,11 @@ async function main() {
     roomTicketSecret: process.env.ROOM_TICKET_SECRET ?? 'dev-change-me-tickets',
     corsOrigin: (process.env.CORS_ORIGIN ?? 'http://localhost:1420').split(','),
     logLevel: process.env.LOG_LEVEL ?? 'info',
-    ...(process.env.GUIDEFORGE_OWNER_ID ? { ownerId: process.env.GUIDEFORGE_OWNER_ID } : {}),
+    ...(ownerId ? { ownerId } : {}),
+    ...(ownerPassword ? { ownerPassword } : {}),
+    ...(process.env.SESSION_COOKIE_SECURE
+      ? { sessionCookieSecure: process.env.SESSION_COOKIE_SECURE === 'true' }
+      : {}),
     ...(process.env.DEEPSEEK_API_KEY ? { deepSeekApiKey: process.env.DEEPSEEK_API_KEY } : {}),
     ...(process.env.DEEPSEEK_MODEL ? { deepSeekModel: process.env.DEEPSEEK_MODEL } : {}),
     ...(modelProvider ? { modelProvider } : {}),
@@ -34,6 +43,35 @@ async function main() {
       : {}),
     ...(process.env.OPENROUTER_APP_NAME
       ? { openRouterAppName: process.env.OPENROUTER_APP_NAME }
+      : {}),
+    ...(process.env.CLOUDFLARE_AI_GATEWAY_ACCOUNT_ID
+      ? { cloudflareAiGatewayAccountId: process.env.CLOUDFLARE_AI_GATEWAY_ACCOUNT_ID }
+      : {}),
+    ...(process.env.CLOUDFLARE_AI_GATEWAY_ID
+      ? { cloudflareAiGatewayId: process.env.CLOUDFLARE_AI_GATEWAY_ID }
+      : {}),
+    ...(process.env.TURNSTILE_SECRET_KEY
+      ? {
+          publicDemoAi: {
+            // Kill switch: absent/false keeps the anonymous route closed.
+            enabled: process.env.AI_PUBLIC_DEMO_ENABLED === 'true',
+            turnstileSecretKey: process.env.TURNSTILE_SECRET_KEY,
+            ...(process.env.TURNSTILE_SITE_KEY
+              ? { turnstileSiteKey: process.env.TURNSTILE_SITE_KEY }
+              : {}),
+            ...(process.env.TURNSTILE_EXPECTED_HOSTNAME
+              ? { expectedHostname: process.env.TURNSTILE_EXPECTED_HOSTNAME }
+              : {}),
+            ...(process.env.AI_PUBLIC_DAILY_BUDGET_USD
+              ? { dailyBudgetUsd: Number(process.env.AI_PUBLIC_DAILY_BUDGET_USD) }
+              : {}),
+            ...(process.env.AI_PUBLIC_MAX_COST_PER_REQUEST_USD
+              ? {
+                  maxCostPerRequestUsd: Number(process.env.AI_PUBLIC_MAX_COST_PER_REQUEST_USD),
+                }
+              : {}),
+          },
+        }
       : {}),
   });
   await app.listen({ port, host });

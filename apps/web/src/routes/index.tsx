@@ -46,16 +46,21 @@ function HomePage() {
     <section className="dashboard" aria-labelledby="home-title">
       <header className="dashboard__header">
         <div>
-          <p className="eyebrow">Local-first workspace</p>
-          <h1 id="home-title">Project readiness</h1>
+          <p className="eyebrow">Public visitor view</p>
+          <h1 id="home-title">Explore GuideForge in action</h1>
           <p>
-            Keep source-grounded guides, evidence, training, and assets ready for the next real
-            procedure.
+            Explore a source-grounded guide flow in the public demo. Owner tools below are protected
+            by sign-in.
           </p>
         </div>
-        <Link to="/library" className="button">
-          Open guide library
-        </Link>
+        <div className="dashboard__actions">
+          <Link to="/demo" className="button">
+            Try the public demo
+          </Link>
+          <Link to="/library" className="button button--ghost">
+            Protected owner workspace
+          </Link>
+        </div>
       </header>
 
       {error && (
@@ -64,86 +69,102 @@ function HomePage() {
         </p>
       )}
 
-      <div className="dashboard-grid" aria-label="Readiness summary">
-        <article className="dashboard-card">
-          <p className="dashboard-card__label">Projects</p>
-          <strong className="dashboard-card__value">{loading ? '…' : guides.length}</strong>
-          <p>{guides.filter((guide) => guide.lifecycleState === 'published').length} published</p>
-          <Link to="/library" className="button button--ghost">
-            Manage projects
-          </Link>
-        </article>
-        <article className="dashboard-card">
-          <p className="dashboard-card__label">Device path</p>
-          <strong className="dashboard-card__value">
-            {capabilities.pointer.coarse ? 'Touch ready' : 'Pointer ready'}
-          </strong>
-          <p>
-            {capabilities.graphics.webgl2 ? 'WebGL2 available' : '2D/spatial tree fallback'} ·{' '}
-            {capabilities.platform.standalonePwa ? 'PWA' : 'browser'}
-          </p>
-          <Link to="/settings" className="button button--ghost">
-            Review device settings
-          </Link>
-        </article>
-        <article className="dashboard-card">
-          <p className="dashboard-card__label">Local storage</p>
-          <strong className="dashboard-card__value">
-            {storage?.quotaWarning === 'near-limit'
-              ? 'Near quota'
-              : storage?.quotaWarning === 'unknown'
-                ? 'Estimate unavailable'
-                : 'Healthy'}
-          </strong>
-          <p>
-            {storage?.persistentGranted ? 'Persistent storage granted' : 'Persistence not granted'}
-          </p>
-          <Link to="/settings" className="button button--ghost">
-            Storage and backup
-          </Link>
-        </article>
-        <article className="dashboard-card">
-          <p className="dashboard-card__label">Backup</p>
-          <strong className="dashboard-card__value">
-            {lastBackupAtIso ? new Date(lastBackupAtIso).toLocaleDateString() : 'Not recorded'}
-          </strong>
-          <p>Full backups stay on the device until you download them.</p>
-          <Link to="/jobs" className="button button--ghost">
-            Open job center
-          </Link>
-        </article>
-      </div>
-
-      <section className="dashboard-section" aria-labelledby="recent-guides-title">
+      <section className="dashboard-section" aria-labelledby="owner-workspace-title">
         <div className="dashboard-section__header">
-          <h2 id="recent-guides-title">Recent projects</h2>
-          <Link to="/library">View all</Link>
+          <div>
+            <p className="eyebrow">Owner workspace · protected</p>
+            <h2 id="owner-workspace-title">Build and manage guides</h2>
+          </div>
+          <Link to="/library" className="button button--ghost button--small">
+            Open owner workspace
+          </Link>
         </div>
-        {loading ? (
-          <p role="status">Loading projects…</p>
-        ) : guides.length === 0 ? (
-          <p className="empty-hint">No projects yet. Create one to begin authoring.</p>
-        ) : (
-          <ul className="dashboard-list">
-            {guides.slice(0, 5).map((guide) => (
-              <li key={guide.guideId}>
-                <span>
-                  <strong>{guide.title}</strong>
-                  <small>
-                    {guide.stepCount} steps · {guide.lifecycleState}
-                  </small>
-                </span>
-                <Link
-                  to="/run/$guideId"
-                  params={{ guideId: guide.guideId }}
-                  className="button button--small"
-                >
-                  Run
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
+
+        <div className="dashboard-grid" aria-label="Owner readiness summary">
+          <article className="dashboard-card">
+            <p className="dashboard-card__label">Projects</p>
+            <strong className="dashboard-card__value">{loading ? '…' : guides.length}</strong>
+            <p>{guides.filter((guide) => guide.lifecycleState === 'published').length} published</p>
+            <Link to="/library" className="button button--ghost">
+              Manage projects
+            </Link>
+          </article>
+          <article className="dashboard-card">
+            <p className="dashboard-card__label">Device path</p>
+            <strong className="dashboard-card__value">
+              {capabilities.pointer.coarse ? 'Touch ready' : 'Pointer ready'}
+            </strong>
+            <p>
+              {capabilities.graphics.webgl2 ? 'WebGL2 available' : '2D/spatial tree fallback'} ·{' '}
+              {capabilities.platform.standalonePwa ? 'PWA' : 'browser'}
+            </p>
+            <Link to="/settings" className="button button--ghost">
+              Review device settings
+            </Link>
+          </article>
+          <article className="dashboard-card">
+            <p className="dashboard-card__label">Local storage</p>
+            <strong className="dashboard-card__value">
+              {storage?.quotaWarning === 'near-limit'
+                ? 'Near quota'
+                : storage?.quotaWarning === 'unknown'
+                  ? 'Estimate unavailable'
+                  : 'Healthy'}
+            </strong>
+            <p>
+              {storage?.persistentGranted
+                ? 'Persistent storage granted'
+                : 'Persistence not granted'}
+            </p>
+            <Link to="/settings" className="button button--ghost">
+              Storage and backup
+            </Link>
+          </article>
+          <article className="dashboard-card">
+            <p className="dashboard-card__label">Backup</p>
+            <strong className="dashboard-card__value">
+              {lastBackupAtIso ? new Date(lastBackupAtIso).toLocaleDateString() : 'Not recorded'}
+            </strong>
+            <p>Full backups stay on the device until you download them.</p>
+            <Link to="/jobs" className="button button--ghost">
+              Open job center
+            </Link>
+          </article>
+        </div>
+
+        <section className="dashboard-section" aria-labelledby="recent-guides-title">
+          <div className="dashboard-section__header">
+            <h2 id="recent-guides-title">Recent projects</h2>
+            <Link to="/library" className="button button--ghost button--small">
+              View all
+            </Link>
+          </div>
+          {loading ? (
+            <p role="status">Loading projects…</p>
+          ) : guides.length === 0 ? (
+            <p className="empty-hint">No projects yet. Create one to begin authoring.</p>
+          ) : (
+            <ul className="dashboard-list">
+              {guides.slice(0, 5).map((guide) => (
+                <li key={guide.guideId}>
+                  <span>
+                    <strong>{guide.title}</strong>
+                    <small>
+                      {guide.stepCount} steps · {guide.lifecycleState}
+                    </small>
+                  </span>
+                  <Link
+                    to="/run/$guideId"
+                    params={{ guideId: guide.guideId }}
+                    className="button button--small"
+                  >
+                    Run
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </section>
     </section>
   );

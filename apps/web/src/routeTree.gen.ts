@@ -10,7 +10,9 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AssetManagerRouteImport } from './routes/asset-manager'
 import { Route as AssetsRouteImport } from './routes/assets'
+import { Route as DemoRouteImport } from './routes/demo'
 import { Route as JobsRouteImport } from './routes/jobs'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as PhotoTo3dRouteImport } from './routes/photo-to-3d'
@@ -27,9 +29,19 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AssetManagerRoute = AssetManagerRouteImport.update({
+  id: '/asset-manager',
+  path: '/asset-manager',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AssetsRoute = AssetsRouteImport.update({
   id: '/assets',
   path: '/assets',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DemoRoute = DemoRouteImport.update({
+  id: '/demo',
+  path: '/demo',
   getParentRoute: () => rootRouteImport,
 } as any)
 const JobsRoute = JobsRouteImport.update({
@@ -85,7 +97,9 @@ const TrainingPlayerGuideIdRoute = TrainingPlayerGuideIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/asset-manager': typeof AssetManagerRoute
   '/assets': typeof AssetsRoute
+  '/demo': typeof DemoRoute
   '/jobs': typeof JobsRoute
   '/library': typeof LibraryRoute
   '/photo-to-3d': typeof PhotoTo3dRoute
@@ -99,7 +113,9 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/asset-manager': typeof AssetManagerRoute
   '/assets': typeof AssetsRoute
+  '/demo': typeof DemoRoute
   '/jobs': typeof JobsRoute
   '/library': typeof LibraryRoute
   '/photo-to-3d': typeof PhotoTo3dRoute
@@ -114,7 +130,9 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/asset-manager': typeof AssetManagerRoute
   '/assets': typeof AssetsRoute
+  '/demo': typeof DemoRoute
   '/jobs': typeof JobsRoute
   '/library': typeof LibraryRoute
   '/photo-to-3d': typeof PhotoTo3dRoute
@@ -130,7 +148,9 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/asset-manager'
     | '/assets'
+    | '/demo'
     | '/jobs'
     | '/library'
     | '/photo-to-3d'
@@ -144,7 +164,9 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/asset-manager'
     | '/assets'
+    | '/demo'
     | '/jobs'
     | '/library'
     | '/photo-to-3d'
@@ -158,7 +180,9 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/asset-manager'
     | '/assets'
+    | '/demo'
     | '/jobs'
     | '/library'
     | '/photo-to-3d'
@@ -173,7 +197,9 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AssetManagerRoute: typeof AssetManagerRoute
   AssetsRoute: typeof AssetsRoute
+  DemoRoute: typeof DemoRoute
   JobsRoute: typeof JobsRoute
   LibraryRoute: typeof LibraryRoute
   PhotoTo3dRoute: typeof PhotoTo3dRoute
@@ -195,11 +221,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/asset-manager': {
+      id: '/asset-manager'
+      path: '/asset-manager'
+      fullPath: '/asset-manager'
+      preLoaderRoute: typeof AssetManagerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/assets': {
       id: '/assets'
       path: '/assets'
       fullPath: '/assets'
       preLoaderRoute: typeof AssetsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/demo': {
+      id: '/demo'
+      path: '/demo'
+      fullPath: '/demo'
+      preLoaderRoute: typeof DemoRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/jobs': {
@@ -277,7 +317,9 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AssetManagerRoute: AssetManagerRoute,
   AssetsRoute: AssetsRoute,
+  DemoRoute: DemoRoute,
   JobsRoute: JobsRoute,
   LibraryRoute: LibraryRoute,
   PhotoTo3dRoute: PhotoTo3dRoute,

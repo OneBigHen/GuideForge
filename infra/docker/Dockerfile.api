@@ -2,6 +2,7 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc ./
+COPY tsconfig.base.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY packages packages
 RUN corepack enable && pnpm install --frozen-lockfile --filter @guideforge/api... 2>/dev/null || pnpm install
@@ -12,4 +13,4 @@ COPY --from=build /app/node_modules node_modules
 COPY apps/api apps/api
 COPY packages packages
 EXPOSE 8080
-CMD ["npx", "tsx", "apps/api/src/server.ts"]
+CMD ["./apps/api/node_modules/.bin/tsx", "apps/api/src/server.ts"]

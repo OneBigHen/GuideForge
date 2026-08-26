@@ -112,6 +112,16 @@ export interface AddVerificationPayload {
   text: string;
 }
 
+export interface AddStepMediaPayload {
+  stepId: EntityId;
+  referenceId: EntityId;
+  /** SHA-256 of the referenced asset in the content-addressed store. */
+  assetHash: string;
+  mimeType: string;
+  kind: 'image' | 'video' | 'model' | 'audio';
+  caption?: string;
+}
+
 export interface RemoveVerificationPayload {
   stepId: EntityId;
   verificationId: EntityId;
@@ -130,6 +140,7 @@ export type GuideCommandPayloads =
   | RemoveConditionPayload
   | AddVerificationPayload
   | RemoveVerificationPayload
+  | AddStepMediaPayload
   | AddObjectivePayload
   | AddAssessmentItemPayload
   | ReplaceTrainingPayload
@@ -160,6 +171,7 @@ export const GUIDE_COMMAND_TYPES = {
   removeCondition: 'guide/remove-condition',
   addVerification: 'guide/add-verification',
   removeVerification: 'guide/remove-verification',
+  addStepMedia: 'guide/add-step-media',
   addObjective: 'training/add-objective',
   addAssessmentItem: 'training/add-assessment-item',
   replaceTraining: 'training/replace-program',

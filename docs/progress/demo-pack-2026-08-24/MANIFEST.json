@@ -1,0 +1,83 @@
+{
+  "name": "GuideForge Ready To Share Demo Pack",
+  "created_local_date": "2026-08-24",
+  "repo": "OneBigHen/GuideForge",
+  "audited_main_commit": "73fb55e6b5aa42508421d4f9de6072c3d6551618",
+  "files": [
+    {
+      "path": "00_README_FIRST.md",
+      "bytes": 4579,
+      "sha256": "7d2ce2f21ae3a7ba3b2a0bce0997a8ccd59598962deb6417a315f848e7216583"
+    },
+    {
+      "path": "01_CURRENT_STATE_AND_FINDINGS.md",
+      "bytes": 7831,
+      "sha256": "c7a4cc146d2db9dd1197bce27ba4aca7b16fe7bdb87080729542eaa448c52239"
+    },
+    {
+      "path": "02_TARGET_ARCHITECTURE_AND_THREAT_MODEL.md",
+      "bytes": 6609,
+      "sha256": "7714cf111159398caf86cf97e7aebd92140ebcd1b4df07072a4aa2d20fc84d93"
+    },
+    {
+      "path": "03_PHASE_1_ASSET_LIBRARY_SECURE_CONTEXT.md",
+      "bytes": 3703,
+      "sha256": "4c076f755f038c6cea3e84aca91745c832bbbca249647e7fe5e404de445c5bda"
+    },
+    {
+      "path": "04_PHASE_2_DEMO_GUIDE_AND_FIRST_RUN.md",
+      "bytes": 4011,
+      "sha256": "c04464fcff79d4b9caa6288cdc3b86017471053a45c1eed72fe268c3072ea150"
+    },
+    {
+      "path": "05_PHASE_3_REAL_AI_LLM.md",
+      "bytes": 4430,
+      "sha256": "78dd66d0b27908c29c2278677815585331cf0d470573af5c1be3f74297a93886"
+    },
+    {
+      "path": "06_PHASE_4_PUBLIC_DEMO_ISOLATION.md",
+      "bytes": 3269,
+      "sha256": "083ddd194af515dad26b3b36082702df94dbeaff1a852c5f4a9a6502dfd8041c"
+    },
+    {
+      "path": "07_PHASE_5_PUBLIC_DEPLOYMENT_AND_CLOUDFLARE.md",
+      "bytes": 3484,
+      "sha256": "270486b97eab26b15b8c4ed1d0871c3878336c49d16ed3c480d90f84a7b6ee45"
+    },
+    {
+      "path": "08_PHASE_6_ABUSE_COST_OBSERVABILITY.md",
+      "bytes": 3780,
+      "sha256": "29acd2ab0ec1bcff359d5bb2b9389abd8020eaa8f5aa23c486039c84c05597f3"
+    },
+    {
+      "path": "09_PHASE_7_RELEASE_VERIFICATION.md",
+      "bytes": 2901,
+      "sha256": "a9ab7cd48a28c1109490c4f291e46248bc6e42340488f3de0452c4f661650774"
+    },
+    {
+      "path": "10_ADVERSARIAL_REVIEW.md",
+      "bytes": 3797,
+      "sha256": "b06ed7a8e32a4050b5d6c7b90936d9b3b70cafa8697dada7e05f0e54c952d395"
+    },
+    {
+      "path": "11_AGENT_EXECUTION_PROMPT.md",
+      "bytes": 4043,
+      "sha256": "c8c3a590fcc3424eee20c5c81e4ccf9f564029787030e4d26ce94e6eb65f1071"
+    },
+    {
+      "path": "12_ACCEPTANCE_MATRIX.md",
+      "bytes": 3058,
+      "sha256": "d4c320e87411a4414d6dd7a08275ba4c6aae6d6b3075656c693699947de08e8a"
+    },
+    {
+      "path": "13_MASTER_IMPLEMENTATION_PLAN.md",
+      "bytes": 7010,
+      "sha256": "2a547544c7eb2e220f4dd3e22dc9863e1f28193bab2377512702f1602234e77d"
+    },
+    {
+      "path": "production.env.example",
+      "bytes": 1354,
+      "sha256": "c84331f021c9b41ae0555033897fa1641416e74d9631a2d042352bc4057461fa"
+    }
+  ]
+}

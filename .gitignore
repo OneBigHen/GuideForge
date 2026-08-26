@@ -22,6 +22,7 @@ apps/desktop/src-tauri/gen/
 coverage/
 playwright-report/
 test-results/
+.playwright-mcp/
 
 # Supply-chain reports (generated in CI)
 sbom.xml

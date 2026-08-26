@@ -25,6 +25,7 @@ function RunPage() {
   const { guideId } = Route.useParams();
   const [session, setSession] = useState<OpenGuideSession | null>(null);
   const [runtime, setRuntime] = useState<RuntimeSession | null>(null);
+  const [supersededSession, setSupersededSession] = useState<RuntimeSession | null>(null);
   const [evidence, setEvidence] = useState<EvidenceRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState('');
@@ -48,7 +49,9 @@ function RunPage() {
         }
         sessionRef = nextSession;
         setSession(nextSession);
-        setRuntime(await loadRuntimeSession(nextSession));
+        const loaded = await loadRuntimeSession(nextSession);
+        setRuntime(loaded.runtime);
+        setSupersededSession(loaded.supersededSession);
         setEvidence(await listEvidence(guideId));
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -201,6 +204,23 @@ function RunPage() {
       {error && (
         <p role="alert" className="error-text">
           {error}
+        </p>
+      )}
+
+      {supersededSession && (
+        <p role="status" className="health-banner">
+          This guide changed since your last run, so a new run session started. Your previous run
+          (started {new Date(supersededSession.createdAtIso).toLocaleString()},{' '}
+          {supersededSession.completions.length} of {supersededSession.stepIds.length} steps
+          completed) is still saved under session {supersededSession.sessionId.slice(0, 8)} — it is
+          no longer shown here.{' '}
+          <button
+            type="button"
+            className="button button--ghost button--small"
+            onClick={() => setSupersededSession(null)}
+          >
+            Dismiss
+          </button>
         </p>
       )}
 

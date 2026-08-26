@@ -29,11 +29,20 @@ import {
 import { eq } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { Pool } from 'pg';
 import { PermissionDeniedError, requirePermission, type Role } from './auth/rbac.js';
 import { RoomTicketService } from './auth/room-ticket.js';
 import * as schema from './db/schema.js';
+import {
+  defaultPublicDemoAiLimits,
+  PostgresQuotaStore,
+  runPublicDemoAi,
+  type DemoAiQuotaStore,
+  type PublicDemoAiLimits,
+  type PublicDemoProviderResult,
+} from './demo-ai.js';
+import { verifyTurnstile } from './turnstile.js';
 
 export interface ApiConfig {
   databaseUrl: string;
@@ -45,6 +54,18 @@ export interface ApiConfig {
   /** The single owner identity (network mode). When set, only this user can
    * establish a session; roles are never accepted from the request body. */
   ownerId?: string;
+  /**
+   * The owner's actual credential for network mode. REQUIRED whenever
+   * `ownerId` is set: knowing the owner's UUID alone must never be enough to
+   * mint an owner session at a public boundary. Compared timing-safely.
+   */
+  ownerPassword?: string;
+  /**
+   * Session cookie Secure flag. Defaults to true when every configured CORS
+   * origin is HTTPS (i.e. any production deployment); dev HTTP origins keep
+   * it off so loopback testing still works.
+   */
+  sessionCookieSecure?: boolean;
   /** Server-side DeepSeek API key (never exposed to the browser). */
   deepSeekApiKey?: string;
   deepSeekModel?: string;
@@ -55,14 +76,49 @@ export interface ApiConfig {
   openRouterModel?: string;
   openRouterReferer?: string;
   openRouterAppName?: string;
+  /** Cloudflare AI Gateway routing for OpenRouter (server-side only). */
+  cloudflareAiGatewayAccountId?: string;
+  cloudflareAiGatewayId?: string;
+  /** Bounded anonymous demo AI surface. Absent = route disabled entirely. */
+  publicDemoAi?: {
+    enabled: boolean;
+    /** Public widget key (safe to expose); the secret stays server-side. */
+    turnstileSiteKey?: string;
+    turnstileSecretKey: string;
+    expectedHostname?: string;
+    dailyBudgetUsd?: number;
+    maxCostPerRequestUsd?: number;
+    windowCalls?: number;
+  };
 }
 
 export interface ServerDeps {
   db?: NodePgDatabase<typeof schema>;
   roomTickets?: RoomTicketService;
+  /** Test/dev override for the durable demo-AI quota store. */
+  demoAiQuotaStore?: DemoAiQuotaStore;
+}
+
+export function createDefaultDemoAiQuotaStore(
+  pool: Pool,
+  dailyBudgetUsd: number,
+): DemoAiQuotaStore {
+  return new PostgresQuotaStore(pool, dailyBudgetUsd);
 }
 
 type SemanticProvider = 'deepseek' | 'openrouter';
+
+/** Length-normalized timing-safe secret comparison. */
+function timingSafeEqualSha256(a: string, b: string): boolean {
+  const digestA = createHash('sha256').update(a).digest();
+  const digestB = createHash('sha256').update(b).digest();
+  return timingSafeEqual(digestA, digestB);
+}
+
+/** Production deployments are HTTPS-only; cookies follow the origins. */
+function corsOriginsAreHttpsOnly(origins: readonly string[]): boolean {
+  return origins.length > 0 && origins.every((origin) => origin.startsWith('https://'));
+}
 
 function configuredSemanticProvider(config: ApiConfig): SemanticProvider {
   return config.modelProvider ?? (config.openRouterApiKey ? 'openrouter' : 'deepseek');
@@ -77,14 +133,33 @@ function configuredSemanticProfile(config: ApiConfig): DeepSeekModelProfile {
   return getDeepSeekModelProfile(config.deepSeekModel);
 }
 
+/** Resolved provider transport endpoint (deployment config only). */
+export function configuredProviderEndpoint(config: ApiConfig): string | null {
+  if (configuredSemanticProvider(config) !== 'openrouter') return null;
+  if (!config.openRouterApiKey) return null;
+  if (config.cloudflareAiGatewayAccountId && config.cloudflareAiGatewayId) {
+    return `https://gateway.ai.cloudflare.com/v1/${config.cloudflareAiGatewayAccountId}/${config.cloudflareAiGatewayId}/openrouter`;
+  }
+  return 'https://openrouter.ai/api/v1';
+}
+
 function configuredModelAdapter(config: ApiConfig): ModelAdapter | undefined {
   if (configuredSemanticProvider(config) === 'openrouter') {
     if (!config.openRouterApiKey) return undefined;
+    // Route through the Cloudflare AI Gateway when configured. The gateway
+    // base URL is deployment configuration, never client-provided.
+    const viaGateway = Boolean(config.cloudflareAiGatewayAccountId && config.cloudflareAiGatewayId);
     return new OpenRouterAdapter({
       apiKey: config.openRouterApiKey,
       model: config.openRouterModel ?? DEFAULT_OPENROUTER_DEEPSEEK_MODEL,
       ...(config.openRouterReferer ? { referer: config.openRouterReferer } : {}),
       ...(config.openRouterAppName ? { appName: config.openRouterAppName } : {}),
+      ...(viaGateway
+        ? {
+            baseUrl: configuredProviderEndpoint(config)!,
+            extraAllowedHosts: ['gateway.ai.cloudflare.com'],
+          }
+        : {}),
     });
   }
   if (!config.deepSeekApiKey) return undefined;
@@ -98,10 +173,25 @@ export async function buildServer(
   config: ApiConfig,
   deps: ServerDeps = {},
 ): Promise<FastifyInstance> {
-  const app = Fastify({ logger: { level: config.logLevel ?? 'info' } });
+  // Public-boundary invariant: a configured owner identity MUST come with a
+  // real credential. Otherwise anyone who learns (or guesses) the owner UUID
+  // — it is an identifier, not a secret — could mint themselves the
+  // organization-owner role.
+  if (config.ownerId && !config.ownerPassword) {
+    throw new Error(
+      'refusing to start: GUIDEFORGE_OWNER_ID requires GUIDEFORGE_OWNER_PASSWORD. ' +
+        'An owner id is an identifier, not a credential; network mode needs both.',
+    );
+  }
+
+  const app = Fastify({ logger: { level: config.logLevel ?? 'info' }, trustProxy: true });
 
   const pool = new Pool({ connectionString: config.databaseUrl });
   const db = deps.db ?? drizzle(pool, { schema });
+  const defaultDemoAiQuotaStore = createDefaultDemoAiQuotaStore(
+    pool,
+    config.publicDemoAi?.dailyBudgetUsd ?? defaultPublicDemoAiLimits().dailyBudgetUsd,
+  );
   const tickets =
     deps.roomTickets ?? new RoomTicketService(config.roomTicketSecret, config.roomTicketTtlSeconds);
 
@@ -172,10 +262,30 @@ export async function buildServer(
 
   app.get('/health', () => ({ status: 'ok', time: new Date().toISOString() }));
 
+  // Explicit AI capability state. The browser learns only whether the server
+  // runs a real provider or offline mode — never a key, model id, or URL.
+  app.get('/api/ai/capability', () => {
+    const adapterConfigured = configuredModelAdapter(config) !== undefined;
+    return {
+      mode: adapterConfigured ? 'real' : 'offline',
+      provider: adapterConfigured ? configuredSemanticProvider(config) : null,
+      // The concrete model stays a server decision; clients cannot pick one.
+      model: 'server-selected',
+      available: adapterConfigured,
+      publicDemo: {
+        enabled: Boolean(config.publicDemoAi?.enabled),
+        // Public widget key only (safe to expose by design).
+        siteKey: config.publicDemoAi?.turnstileSiteKey ?? null,
+      },
+    };
+  });
+
   app.get('/openapi.json', () => app.swagger());
 
   // Identity: single-owner BFF session. Roles are NEVER accepted from the
   // request body; the server derives the owner role from configuration.
+  // In network mode the caller must also prove the owner credential — the
+  // user id alone is an identifier, not a secret.
   app.post('/api/session', async (req, reply) => {
     // Rate-limit identity attempts (login brute-force protection).
     const ip = req.ip ?? 'unknown';
@@ -186,14 +296,22 @@ export async function buildServer(
       userId: string;
       displayName: string;
       email: string;
+      password?: unknown;
     };
     if (!body?.userId) {
       return reply.code(401).send({ error: 'missing identity' });
     }
-    // Network mode: only the configured owner may establish a session.
-    // Loopback/dev mode (no ownerId) treats the caller as the single owner.
-    if (config.ownerId && body.userId !== config.ownerId) {
-      return reply.code(403).send({ error: 'not the owner' });
+    // Network mode: only the configured owner may establish a session, and
+    // only with the configured credential (timing-safe comparison).
+    if (config.ownerId) {
+      const password = typeof body.password === 'string' ? body.password : '';
+      const validPassword =
+        config.ownerPassword !== undefined && timingSafeEqualSha256(password, config.ownerPassword);
+      const userIdMatches = body.userId === config.ownerId;
+      // Check both before answering so probing cannot learn which half failed.
+      if (!userIdMatches || !validPassword) {
+        return reply.code(403).send({ error: 'not the owner' });
+      }
     }
     const token = app.jwt.sign({
       sub: body.userId,
@@ -202,7 +320,7 @@ export async function buildServer(
     });
     reply.setCookie('gf_session', token, {
       httpOnly: true,
-      secure: false,
+      secure: config.sessionCookieSecure ?? corsOriginsAreHttpsOnly(allowedOrigins),
       sameSite: 'lax',
       path: '/',
       maxAge: 60 * 60 * 8,
@@ -473,6 +591,120 @@ export async function buildServer(
         createdAtIso: response.receipt.createdAtIso,
       },
     };
+  });
+
+  // Bounded anonymous demo AI. A separate, stateless endpoint — the full
+  // owner surface is never exposed anonymously, and this route performs no
+  // canonical writes at all.
+  app.post('/api/demo/ai-proposals', async (req, reply) => {
+    const publicDemo = config.publicDemoAi;
+    if (!publicDemo) {
+      return reply.code(404).send({ error: 'demo AI is not available' });
+    }
+    const adapter = configuredModelAdapter(config);
+    if (!adapter) {
+      // No real provider configured — never substitute a fake adapter here.
+      return reply.code(503).send({ error: 'demo AI requires a configured provider' });
+    }
+    const limits: PublicDemoAiLimits = defaultPublicDemoAiLimits({
+      enabled: publicDemo.enabled,
+      ...(publicDemo.dailyBudgetUsd !== undefined
+        ? { dailyBudgetUsd: publicDemo.dailyBudgetUsd }
+        : {}),
+      ...(publicDemo.maxCostPerRequestUsd !== undefined
+        ? { maxCostPerRequestUsd: publicDemo.maxCostPerRequestUsd }
+        : {}),
+      ...(publicDemo.windowCalls !== undefined ? { windowCalls: publicDemo.windowCalls } : {}),
+      model: adapter.model,
+    });
+
+    const outcome = await runPublicDemoAi(
+      req.body,
+      {
+        limits,
+        verifyTurnstile: (token, ip) =>
+          verifyTurnstile(token, ip, {
+            secretKey: publicDemo.turnstileSecretKey,
+            ...(publicDemo.expectedHostname
+              ? { expectedHostname: publicDemo.expectedHostname }
+              : {}),
+          }),
+        quotaStore: deps.demoAiQuotaStore ?? defaultDemoAiQuotaStore,
+        runModel: async (request, modelLimits) => {
+          // Same deterministic chunking as the owner route; the fixed,
+          // server-allowlisted model comes from configuration only.
+          const sourceHash = sha256HexText(JSON.stringify(request.steps));
+          const regions = new Map<string, SourceRegion>();
+          const chunks = structuralChunking(
+            sourceHash,
+            0,
+            request.steps.map((s, i) => ({
+              kind: 'paragraph' as const,
+              text: s.instructionText || 'Untitled step',
+              structuralPath: `step:${s.stepId}/i:${i}`,
+            })),
+          );
+          for (const c of chunks) regions.set(c.region.regionId, c.region);
+          const gateway = new ModelGateway([adapter]);
+          const response = await gateway.run({
+            sourceHash,
+            chunks: chunks.map((c) => ({
+              regionId: c.region.regionId,
+              text: c.region.excerpt,
+              pageIndex: 0,
+            })),
+            regions,
+            promptVersion: 'demo-v1',
+            policy: 'default',
+            maxOutputTokens: modelLimits.maxOutputTokens,
+          });
+          if (!response.ok || !response.output) {
+            throw new Error(response.error ?? 'model failed');
+          }
+          const proposals: PublicDemoProviderResult['proposals'] = [];
+          for (const task of response.output.tasks) {
+            for (const step of task.steps) {
+              for (const warning of step.warnings) {
+                proposals.push({ kind: 'warning', stepId: step.stepId, message: warning });
+              }
+              for (const tool of step.tools) {
+                proposals.push({ kind: 'tool', stepId: step.stepId, name: tool });
+              }
+              for (const verification of step.verificationSteps) {
+                proposals.push({
+                  kind: 'verification',
+                  stepId: step.stepId,
+                  message: verification,
+                });
+              }
+            }
+          }
+          return {
+            proposals,
+            citations: (response.citations ?? []).map((c) => ({
+              regionId: c.regionId,
+              pageIndex: c.pageIndex,
+              excerptHash: c.excerptHash,
+              claimRef: c.claimRef,
+            })),
+            receipt: {
+              provider: response.receipt.provider,
+              model: response.receipt.model,
+              inputTokens: response.receipt.inputTokens,
+              outputTokens: response.receipt.outputTokens,
+              providerCostUsd: response.receipt.providerCostUsd,
+              requestId: response.receipt.requestId,
+            },
+          };
+        },
+      },
+      req.ip,
+    );
+
+    if (outcome.status === 'rejected') {
+      return reply.code(outcome.httpStatus).send({ error: outcome.reason });
+    }
+    return outcome.response;
   });
 
   /**

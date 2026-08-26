@@ -1,0 +1,118 @@
+name: guideforge-prod
+
+# Production profile for guides.henning.rodeo (demo pack Phase 6).
+#
+# Hardening contract:
+#   - ONLY `web` is reachable from the host (bound to loopback for the
+#     cloudflared tunnel origin); api/collab/postgres have NO host publishing.
+#   - Secrets are REQUIRED: `${VAR:?}` refuses to start with placeholder
+#     values. Copy docs/progress/demo-pack-2026-08-24/production.env.example
+#     into an ignored infra/docker/.env.production and fill from secret store.
+#   - Network mode auth: owner id AND owner password are mandatory; cookies
+#     are Secure because CORS_ORIGIN is HTTPS-only.
+#
+# Start:   docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+# Tunnel:  cloudflared routes guides.henning.rodeo -> http://localhost:8787
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: guideforge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      POSTGRES_DB: guideforge
+    volumes:
+      - guideforge-pg-prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U guideforge']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://guideforge:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@postgres:5432/guideforge
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET required}
+      ROOM_TICKET_SECRET: ${ROOM_TICKET_SECRET:?ROOM_TICKET_SECRET required}
+      # Exact production origin; HTTPS-only origins force Secure cookies and
+      # drive the CSRF Origin allow-list.
+      CORS_ORIGIN: ${GUIDEFORGE_PUBLIC_ORIGIN:?GUIDEFORGE_PUBLIC_ORIGIN required}
+      PORT: 8080
+      # Inside the compose network the API must listen on its interface for
+      # nginx; it stays unreachable from the host/Internet (no ports entry).
+      GUIDEFORGE_HOST: 0.0.0.0
+      # Identifier + credential are BOTH mandatory in network mode; the API
+      # refuses to boot without them.
+      GUIDEFORGE_OWNER_ID: ${GUIDEFORGE_OWNER_ID:?GUIDEFORGE_OWNER_ID required}
+      GUIDEFORGE_OWNER_PASSWORD: ${GUIDEFORGE_OWNER_PASSWORD:?GUIDEFORGE_OWNER_PASSWORD required}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
+      # Real AI provider (server-side only; never exposed to the browser).
+      GUIDEFORGE_MODEL_PROVIDER: ${GUIDEFORGE_MODEL_PROVIDER:-openrouter}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?OPENROUTER_API_KEY required}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-deepseek/deepseek-v4-flash-0731}
+      OPENROUTER_REFERER: ${GUIDEFORGE_PUBLIC_ORIGIN}
+      OPENROUTER_APP_NAME: GuideForge
+      # Route OpenRouter through Cloudflare AI Gateway when provided.
+      CLOUDFLARE_AI_GATEWAY_ACCOUNT_ID: ${CLOUDFLARE_AI_GATEWAY_ACCOUNT_ID:-}
+      CLOUDFLARE_AI_GATEWAY_ID: ${CLOUDFLARE_AI_GATEWAY_ID:-guideforge}
+      # Bounded anonymous demo AI (kill switch + Turnstile + budgets).
+      AI_PUBLIC_DEMO_ENABLED: ${AI_PUBLIC_DEMO_ENABLED:-false}
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      TURNSTILE_EXPECTED_HOSTNAME: ${TURNSTILE_EXPECTED_HOSTNAME:-guides.henning.rodeo}
+      AI_PUBLIC_DAILY_BUDGET_USD: ${AI_PUBLIC_DAILY_BUDGET_USD:-2.00}
+      AI_PUBLIC_MAX_COST_PER_REQUEST_USD: ${AI_PUBLIC_MAX_COST_PER_REQUEST_USD:-0.02}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:8080/health || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  collab:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.collab
+    restart: unless-stopped
+    environment:
+      ROOM_TICKET_SECRET: ${ROOM_TICKET_SECRET:?ROOM_TICKET_SECRET required}
+      PORT: 1234
+    depends_on:
+      - api
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.web
+    restart: unless-stopped
+    volumes:
+      - ./nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - /var/log/guideforge:/var/log/nginx
+    depends_on:
+      api:
+        condition: service_healthy
+      collab:
+        condition: service_started
+    # Loopback only: the Cloudflare Tunnel is the sole public path.
+    ports:
+      - '127.0.0.1:8787:80'
+    networks:
+      default: {}
+      atlas:
+        aliases:
+          - guideforge-web
+
+volumes:
+  guideforge-pg-prod:
+
+networks:
+  atlas:
+    external: true
+    name: marketplace_internal

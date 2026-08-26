@@ -15,6 +15,7 @@ import {
   openDb,
   OpfsAssetStore,
   persistWorkingDoc,
+  SecureContextRequiredError,
   storeSourceBytes,
   validateEvidenceRecordSchema,
   validateRuntimeSessionSchema,
@@ -255,6 +256,36 @@ describe('storage-web OPFS asset store (IndexedDB fallback path)', () => {
       await expect(store.requestPersistence()).resolves.toBe(true);
     } finally {
       Object.defineProperty(navigator, 'storage', { configurable: true, value: original });
+    }
+  });
+
+  it('rejects asset writes with a named secure-context error when Web Crypto is absent', async () => {
+    const cryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+    const insecureCrypto = {
+      getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto),
+    };
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: insecureCrypto,
+    });
+    try {
+      let caught: unknown = null;
+      try {
+        await store.put(new Uint8Array([1]), 'application/octet-stream', 'bin');
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(SecureContextRequiredError);
+      const err = caught as SecureContextRequiredError;
+      expect(err.code).toBe('SECURE_CONTEXT_REQUIRED');
+      expect(err.message).toContain('HTTPS');
+      expect(err.message).toContain(String(globalThis.location?.origin ?? ''));
+      // The error must be actionable, not the opaque V8 TypeError.
+      expect(err.message).not.toContain('Cannot read properties of undefined');
+    } finally {
+      if (cryptoDescriptor) {
+        Object.defineProperty(globalThis, 'crypto', cryptoDescriptor);
+      }
     }
   });
 });

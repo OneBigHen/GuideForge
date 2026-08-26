@@ -307,3 +307,84 @@ describe('training commands (Phase 02 canonical training)', () => {
     );
   });
 });
+
+describe('step media command (Phase 2 demo asset attachment)', () => {
+  const TASK_ID = '223e4567-e89b-42d3-a456-426614174000' as EntityId;
+  const STEP_ID = '323e4567-e89b-42d3-a456-426614174000' as EntityId;
+  const REF_ID = '423e4567-e89b-42d3-a456-426614174000' as EntityId;
+  const HASH = 'a'.repeat(64);
+
+  function stepState() {
+    let state = freshGuideState(GUIDE_ID, 'g');
+    state = applyGuideCommand(
+      state,
+      cmd(GUIDE_COMMAND_TYPES.addTask, { taskId: TASK_ID, title: 't' }),
+    );
+    return applyGuideCommand(
+      state,
+      cmd(GUIDE_COMMAND_TYPES.addStep, { taskId: TASK_ID, stepId: STEP_ID, title: 's' }),
+    );
+  }
+
+  it('attaches a media reference with provenance fields intact', () => {
+    const next = applyGuideCommand(
+      stepState(),
+      cmd(GUIDE_COMMAND_TYPES.addStepMedia, {
+        stepId: STEP_ID,
+        referenceId: REF_ID,
+        assetHash: HASH,
+        mimeType: 'model/gltf-binary',
+        kind: 'model',
+        caption: 'workbench',
+      }),
+    );
+    expect(next.steps.find((s) => s.stepId === STEP_ID)!.media).toEqual([
+      {
+        referenceId: REF_ID,
+        assetHash: HASH,
+        mimeType: 'model/gltf-binary',
+        kind: 'model',
+        caption: 'workbench',
+      },
+    ]);
+    // Previous state is never aliased.
+    expect(stepState().steps.find((s) => s.stepId === STEP_ID)!.media).toEqual([]);
+  });
+
+  it('rejects a non-content-hash asset reference', () => {
+    const next = applyGuideCommand(
+      stepState(),
+      cmd(GUIDE_COMMAND_TYPES.addStepMedia, {
+        stepId: STEP_ID,
+        referenceId: REF_ID,
+        assetHash: '../../etc/passwd',
+        mimeType: 'model/gltf-binary',
+        kind: 'model',
+      }),
+    );
+    expect(next.steps.find((s) => s.stepId === STEP_ID)!.media).toEqual([]);
+  });
+
+  it('is idempotent for the same referenceId and ignores unknown steps', () => {
+    const media = {
+      stepId: STEP_ID,
+      referenceId: REF_ID,
+      assetHash: HASH,
+      mimeType: 'model/gltf-binary',
+      kind: 'model' as const,
+    };
+    const once = applyGuideCommand(stepState(), cmd(GUIDE_COMMAND_TYPES.addStepMedia, media));
+    const twice = applyGuideCommand(once, cmd(GUIDE_COMMAND_TYPES.addStepMedia, media));
+    expect(twice.steps.find((s) => s.stepId === STEP_ID)!.media).toHaveLength(1);
+    const base = stepState();
+    expect(
+      applyGuideCommand(
+        base,
+        cmd(GUIDE_COMMAND_TYPES.addStepMedia, {
+          ...media,
+          stepId: '523e4567-e89b-42d3-a456-426614174000' as EntityId,
+        }),
+      ),
+    ).toBe(base);
+  });
+});

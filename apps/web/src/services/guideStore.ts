@@ -29,6 +29,7 @@ import {
   createRuntimeCompletionRule,
   createRuntimeSession,
   isGuideSnapshot,
+  isRuntimeSession,
   migrateRuntimeSession,
   migrateToCurrent,
   recordRuntimeEvidence,
@@ -56,6 +57,7 @@ import {
   type PackageBinary,
 } from '@guideforge/package-gforge';
 import {
+  clearPersistedDoc,
   loadSourceBytes,
   migrateDexieSourcesToCanonical,
   openDb,
@@ -72,6 +74,7 @@ import {
   type YjsPersistenceHandle,
 } from '@guideforge/storage-web';
 import { strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
+import type { AiProposalResult, GenerateOptions } from './aiProposals';
 import { companionRequest } from './companionClient';
 
 export interface OpenGuideSession {
@@ -144,8 +147,49 @@ export async function listGuides(): Promise<LibraryEntry[]> {
   }));
 }
 
-export async function createGuide(title: string): Promise<OpenGuideSession> {
-  const guideId = uuidv4();
+/** Metadata row for one guide, or undefined when absent locally. */
+export async function getGuideMeta(guideId: string) {
+  return db().guides.get(guideId);
+}
+
+/**
+ * Delete every local record belonging to one guide (metadata, Yjs doc,
+ * sources, evidence, runtime/training sessions, proposals, reports).
+ * Content-addressed assets are kept — they may be shared by other guides.
+ * Used only by explicit local resets such as the demo fixture reset.
+ */
+export async function deleteGuideLocalData(guideId: string): Promise<void> {
+  const database = db();
+  await database.transaction(
+    'rw',
+    [
+      database.guides,
+      database.evidence,
+      database.proposals,
+      database.sources,
+      database.reports,
+      database.runtimeBlobs,
+      database.runtimeSessions,
+      database.trainingSessions,
+    ],
+    async () => {
+      await database.guides.delete(guideId);
+      await database.evidence.where('guideId').equals(guideId).delete();
+      await database.proposals.where('guideId').equals(guideId).delete();
+      await database.sources.where('guideId').equals(guideId).delete();
+      await database.reports.where('guideId').equals(guideId).delete();
+      await database.runtimeBlobs.where('guideId').equals(guideId).delete();
+      await database.runtimeSessions.where('guideId').equals(guideId).delete();
+      await database.trainingSessions.where('guideId').equals(guideId).delete();
+    },
+  );
+  await clearPersistedDoc(guideId);
+}
+
+export async function createGuideWithId(
+  guideId: EntityId,
+  title: string,
+): Promise<OpenGuideSession> {
   const working = createWorkingGuide(guideId, title);
   const persistence = persistWorkingDoc(working.doc, guideId);
   await persistence.synced;
@@ -162,6 +206,10 @@ export async function createGuide(title: string): Promise<OpenGuideSession> {
     docName: guideId,
   });
   return { guideId, working, persistence, db: db(), assets, title };
+}
+
+export async function createGuide(title: string): Promise<OpenGuideSession> {
+  return createGuideWithId(uuidv4(), title);
 }
 
 export async function openGuide(guideId: string): Promise<OpenGuideSession> {
@@ -805,11 +853,24 @@ async function persistRuntimeSession(
   );
 }
 
+export interface RuntimeSessionLoadResult {
+  runtime: RuntimeSession;
+  /**
+   * Set only when a previous in-progress session for this guide/learner had
+   * real recorded progress (attempts or completions) but could not be
+   * resumed because the guide's steps changed since it was created. The old
+   * session is never deleted — it stays in `runtimeSessions` under its own
+   * `sessionId` — this field exists purely so the caller can surface the
+   * fact that a fresh session replaced it instead of silently discarding it.
+   */
+  supersededSession: RuntimeSession | null;
+}
+
 /** Load the current local learner session or create it once for this guide. */
 export async function loadRuntimeSession(
   session: OpenGuideSession,
   learnerId = 'local-user',
-): Promise<RuntimeSession> {
+): Promise<RuntimeSessionLoadResult> {
   const snapshot = materializeSnapshot(session.working);
   const stepIds = flattenStepIds(snapshot);
   const existing = await session.db.runtimeSessions
@@ -819,11 +880,18 @@ export async function loadRuntimeSession(
     .sortBy('updatedAtIso');
   const current = existing[existing.length - 1];
   if (current && JSON.stringify(current.stepIds) === JSON.stringify(stepIds)) {
-    if (!validateRuntimeSessionSchema(current)) {
+    // Shape (Ajv) and semantic (cross-field: completions/currentStepIndex/
+    // status agree with each other) checks are both required — a
+    // schema-valid-but-inconsistent record must not be trusted, since the UI
+    // renders `status === 'completed'` directly (see run.$guideId.tsx).
+    if (!validateRuntimeSessionSchema(current) || !isRuntimeSession(current)) {
       throw new Error('stored runtime session does not match the checked-in schema');
     }
-    return current;
+    return { runtime: current, supersededSession: null };
   }
+  const hasUnresolvedProgress =
+    current?.status === 'in-progress' &&
+    (current.attempts.length > 0 || current.completions.length > 0);
   const runtime = createRuntimeSession({
     sessionId: uuidv4(),
     guideId: session.guideId,
@@ -832,7 +900,7 @@ export async function loadRuntimeSession(
     nowIso: new Date().toISOString(),
   });
   await persistRuntimeSession(session, runtime);
-  return runtime;
+  return { runtime, supersededSession: hasUnresolvedProgress ? current : null };
 }
 
 async function addRuntimeEvidence(
@@ -1233,6 +1301,9 @@ export interface NewProposal {
     schemaVersion: string;
     requestId: string;
     createdAtIso: string;
+    /** Optional provider-reported usage/cost metadata. */
+    cacheTokens?: number;
+    providerCostUsd?: number;
   };
 }
 
@@ -1288,12 +1359,18 @@ export async function rejectProposal(proposalId: string): Promise<void> {
   await db().proposals.update(proposalId, { status: 'rejected' });
 }
 
-/** Generate AI proposals for a guide (reviewable, never auto-applied). */
-export async function generateFakeProposals(session: OpenGuideSession): Promise<number> {
+/**
+ * Generate AI proposals for a guide (reviewable, never auto-applied).
+ * The mode is explicit; `real` failures are surfaced, never silently
+ * substituted with the offline adapter.
+ */
+export async function generateProposals(
+  session: OpenGuideSession,
+  options: GenerateOptions,
+): Promise<AiProposalResult> {
   const snap = materializeSnapshot(session.working);
   const { generateGatewayProposals } = await import('./aiProposals');
-  const result = await generateGatewayProposals(snap);
-  return result.created;
+  return generateGatewayProposals(snap, options);
 }
 
 export async function closeGuide(session: OpenGuideSession): Promise<void> {
