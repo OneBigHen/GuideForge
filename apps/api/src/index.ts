@@ -36,7 +36,7 @@ import { RoomTicketService } from './auth/room-ticket.js';
 import * as schema from './db/schema.js';
 import {
   defaultPublicDemoAiLimits,
-  InMemoryQuotaStore,
+  PostgresQuotaStore,
   runPublicDemoAi,
   type DemoAiQuotaStore,
   type PublicDemoAiLimits,
@@ -97,6 +97,13 @@ export interface ServerDeps {
   roomTickets?: RoomTicketService;
   /** Test/dev override for the durable demo-AI quota store. */
   demoAiQuotaStore?: DemoAiQuotaStore;
+}
+
+export function createDefaultDemoAiQuotaStore(
+  pool: Pool,
+  dailyBudgetUsd: number,
+): DemoAiQuotaStore {
+  return new PostgresQuotaStore(pool, dailyBudgetUsd);
 }
 
 type SemanticProvider = 'deepseek' | 'openrouter';
@@ -177,10 +184,14 @@ export async function buildServer(
     );
   }
 
-  const app = Fastify({ logger: { level: config.logLevel ?? 'info' } });
+  const app = Fastify({ logger: { level: config.logLevel ?? 'info' }, trustProxy: true });
 
   const pool = new Pool({ connectionString: config.databaseUrl });
   const db = deps.db ?? drizzle(pool, { schema });
+  const defaultDemoAiQuotaStore = createDefaultDemoAiQuotaStore(
+    pool,
+    config.publicDemoAi?.dailyBudgetUsd ?? defaultPublicDemoAiLimits().dailyBudgetUsd,
+  );
   const tickets =
     deps.roomTickets ?? new RoomTicketService(config.roomTicketSecret, config.roomTicketTtlSeconds);
 
@@ -618,7 +629,7 @@ export async function buildServer(
               ? { expectedHostname: publicDemo.expectedHostname }
               : {}),
           }),
-        quotaStore: deps.demoAiQuotaStore ?? new InMemoryQuotaStore(limits.dailyBudgetUsd),
+        quotaStore: deps.demoAiQuotaStore ?? defaultDemoAiQuotaStore,
         runModel: async (request, modelLimits) => {
           // Same deterministic chunking as the owner route; the fixed,
           // server-allowlisted model comes from configuration only.

@@ -1,7 +1,7 @@
 import { ASSET_PROVIDERS, type AssetProviderId } from '@guideforge/assets';
 import { openDb, OpfsAssetStore } from '@guideforge/storage-web';
-import { createFileRoute, Link } from '@tanstack/react-router';
-import { useState } from 'react';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
+import { useEffect, useState } from 'react';
 import {
   AssetLibrary,
   ensureSeedCatalog,
@@ -15,12 +15,22 @@ import {
 } from '../services/browserCapabilities';
 
 export const Route = createFileRoute('/assets')({
-  component: AssetsPage,
+  component: LegacyAssetsRedirect,
 });
 
 const SEED_COUNT = SEED_CATALOG.length;
 
-function AssetsPage() {
+function LegacyAssetsRedirect() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    void navigate({ to: '/asset-manager', replace: true });
+  }, [navigate]);
+
+  return <p role="status">Redirecting to the protected asset manager…</p>;
+}
+
+export function AssetsPage() {
   const [library] = useState(() => {
     const db = openDb();
     return new AssetLibrary(db, new OpfsAssetStore(db));

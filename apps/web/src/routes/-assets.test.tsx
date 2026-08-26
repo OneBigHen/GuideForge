@@ -8,7 +8,7 @@ import {
 } from '@tanstack/react-router';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Route as AssetsRoute } from './assets';
+import { Route as AssetsRoute } from './asset-manager';
 
 function renderAssetsAt(opts: { secureContext: boolean; hasSubtle: boolean }): void {
   Object.defineProperty(window, 'isSecureContext', {
@@ -27,13 +27,13 @@ function renderAssetsAt(opts: { secureContext: boolean; hasSubtle: boolean }): v
   const rootRoute = createRootRoute({ component: Outlet });
   const attached = AssetsRoute.update({
     // Mirror the generated route tree wiring (routeTree.gen.ts).
-    id: '/assets',
-    path: '/assets',
+    id: '/asset-manager',
+    path: '/asset-manager',
     getParentRoute: () => rootRoute,
   } as never);
   const router = createRouter({
     routeTree: rootRoute.addChildren([attached]),
-    history: createMemoryHistory({ initialEntries: ['/assets'] }),
+    history: createMemoryHistory({ initialEntries: ['/asset-manager'] }),
   });
   void router.load();
   render(

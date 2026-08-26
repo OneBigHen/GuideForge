@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AssetManagerRouteImport } from './routes/asset-manager'
 import { Route as AssetsRouteImport } from './routes/assets'
 import { Route as DemoRouteImport } from './routes/demo'
 import { Route as JobsRouteImport } from './routes/jobs'
@@ -26,6 +27,11 @@ import { Route as TrainingPlayerGuideIdRouteImport } from './routes/training.pla
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AssetManagerRoute = AssetManagerRouteImport.update({
+  id: '/asset-manager',
+  path: '/asset-manager',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AssetsRoute = AssetsRouteImport.update({
@@ -91,6 +97,7 @@ const TrainingPlayerGuideIdRoute = TrainingPlayerGuideIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/asset-manager': typeof AssetManagerRoute
   '/assets': typeof AssetsRoute
   '/demo': typeof DemoRoute
   '/jobs': typeof JobsRoute
@@ -106,6 +113,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/asset-manager': typeof AssetManagerRoute
   '/assets': typeof AssetsRoute
   '/demo': typeof DemoRoute
   '/jobs': typeof JobsRoute
@@ -122,6 +130,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/asset-manager': typeof AssetManagerRoute
   '/assets': typeof AssetsRoute
   '/demo': typeof DemoRoute
   '/jobs': typeof JobsRoute
@@ -139,6 +148,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/asset-manager'
     | '/assets'
     | '/demo'
     | '/jobs'
@@ -154,6 +164,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/asset-manager'
     | '/assets'
     | '/demo'
     | '/jobs'
@@ -169,6 +180,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/asset-manager'
     | '/assets'
     | '/demo'
     | '/jobs'
@@ -185,6 +197,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AssetManagerRoute: typeof AssetManagerRoute
   AssetsRoute: typeof AssetsRoute
   DemoRoute: typeof DemoRoute
   JobsRoute: typeof JobsRoute
@@ -206,6 +219,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/asset-manager': {
+      id: '/asset-manager'
+      path: '/asset-manager'
+      fullPath: '/asset-manager'
+      preLoaderRoute: typeof AssetManagerRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/assets': {
@@ -297,6 +317,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AssetManagerRoute: AssetManagerRoute,
   AssetsRoute: AssetsRoute,
   DemoRoute: DemoRoute,
   JobsRoute: JobsRoute,

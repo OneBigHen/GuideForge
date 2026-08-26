@@ -115,6 +115,16 @@ body {
   border-bottom: 1px solid var(--color-border);
 }
 
+.mobile-menu a {
+  display: flex;
+  align-items: center;
+  min-height: var(--touch-target);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text);
+  border-radius: var(--radius);
+  text-decoration: none;
+}
+
 .app-main {
   flex: 1;
   padding: var(--space-6) max(var(--space-4), env(safe-area-inset-right, 0px)) var(--space-6)
@@ -818,6 +828,80 @@ textarea {
   min-height: var(--touch-target);
 }
 
+.demo-landing {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.demo-landing > header,
+.demo-landing > section {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.demo-landing > header h1,
+.demo-landing > header p,
+.demo-landing > section > h2,
+.demo-landing > section > p {
+  margin: 0;
+}
+
+.demo-landing > header h1 {
+  max-width: 58ch;
+}
+
+.demo-landing > header p:not(.empty-hint),
+.demo-landing__reset,
+.demo-landing > section[aria-labelledby='demo-ai-title'] {
+  max-width: 78ch;
+}
+
+.demo-landing > header p:not(.empty-hint) {
+  color: var(--color-text-muted);
+}
+
+.demo-landing > .button {
+  justify-self: start;
+}
+
+.demo-proof-points {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.demo-proof-points li {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.demo-proof-points h2,
+.demo-proof-points p {
+  margin: 0;
+}
+
+.demo-proof-points p {
+  color: var(--color-text-muted);
+}
+
+.demo-ai-panel {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.demo-ai-panel p {
+  margin: 0;
+}
+
 /* ---- Home dashboard and job center ---- */
 
 .dashboard,
@@ -843,6 +927,16 @@ textarea {
 .jobs-page__header p:last-child {
   max-width: 65ch;
   color: var(--color-text-muted);
+}
+
+.dashboard__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.dashboard__actions .button {
+  min-width: 10rem;
 }
 
 .eyebrow {
@@ -913,6 +1007,15 @@ textarea {
 
 .dashboard-section__header {
   justify-content: space-between;
+}
+
+.dashboard-section__header > div {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.dashboard-section__header .eyebrow {
+  margin: 0;
 }
 
 .dashboard-section__header h2,
@@ -1036,8 +1139,13 @@ textarea {
   }
 
   .dashboard__header > .button,
+  .dashboard__actions,
   .jobs-page__actions {
     width: 100%;
+  }
+
+  .dashboard__actions .button {
+    flex: 1 1 12rem;
   }
 
   .jobs-page__actions .button {
@@ -1051,6 +1159,10 @@ textarea {
 
   .dashboard-list li .button {
     width: 100%;
+  }
+
+  .demo-proof-points {
+    grid-template-columns: 1fr;
   }
 }
 

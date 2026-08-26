@@ -1,6 +1,6 @@
 import { materializeSnapshot } from '@guideforge/collaboration';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DEMO_GUIDE_ID, ensureDemoGuide, resetDemoGuide } from '../demo/get-to-know-andrew';
 import { getAiCapability } from '../services/aiProposals';
 import { requestDemoAi, storeDemoProposalsLocally } from '../services/demoAi';
@@ -12,32 +12,39 @@ export const Route = createFileRoute('/demo')({
 
 interface TurnstileApi {
   render: (
-    container: string,
+    container: HTMLElement,
     options: { sitekey: string; callback: (token: string) => void },
-  ) => unknown;
+  ) => string;
+  remove?: (widgetId: string) => void;
   reset: () => void;
 }
 
+let turnstileLoad: Promise<TurnstileApi | null> | undefined;
+
 function loadTurnstile(): Promise<TurnstileApi | null> {
-  return new Promise((resolve) => {
-    const existing = (globalThis as { turnstile?: TurnstileApi }).turnstile;
-    if (existing) {
-      resolve(existing);
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
-    script.async = true;
-    script.onload = () => resolve((globalThis as { turnstile?: TurnstileApi }).turnstile ?? null);
-    script.onerror = () => resolve(null);
-    document.head.appendChild(script);
-  });
+  if (!turnstileLoad) {
+    turnstileLoad = new Promise((resolve) => {
+      const existing = (globalThis as { turnstile?: TurnstileApi }).turnstile;
+      if (existing) {
+        resolve(existing);
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+      script.async = true;
+      script.onload = () => resolve((globalThis as { turnstile?: TurnstileApi }).turnstile ?? null);
+      script.onerror = () => resolve(null);
+      document.head.appendChild(script);
+    });
+  }
+  return turnstileLoad;
 }
 
-/** Anonymous, bounded real-AI proof. Visible only when the server enables it. */
 function DemoAiPanel() {
   const navigate = useNavigate();
+  const turnstileContainer = useRef<HTMLDivElement | null>(null);
   const [state, setState] = useState<'loading' | 'disabled' | 'ready' | 'unreachable'>('loading');
+  const [siteKey, setSiteKey] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
@@ -59,23 +66,46 @@ function DemoAiPanel() {
         setState('disabled');
         return;
       }
-      void capability.publicDemo.siteKey;
-      const api = await loadTurnstile();
-      if (cancelled) return;
-      if (!api) {
-        setState('unreachable');
-        return;
-      }
-      api.render('#demo-turnstile', {
-        sitekey: capability.publicDemo.siteKey,
-        callback: (nextToken) => setToken(nextToken),
-      });
+      setSiteKey(capability.publicDemo.siteKey);
       setState('ready');
     })();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (state !== 'ready' || !siteKey) return;
+
+    let cancelled = false;
+    let api: TurnstileApi | null = null;
+    let widgetId: string | undefined;
+    const container = turnstileContainer.current;
+    if (!container) {
+      setState('unreachable');
+      return;
+    }
+
+    void loadTurnstile().then((loadedApi) => {
+      if (cancelled || !loadedApi || !container.isConnected) return;
+      api = loadedApi;
+      try {
+        widgetId = loadedApi.render(container, {
+          sitekey: siteKey,
+          callback: (nextToken) => {
+            if (!cancelled) setToken(nextToken);
+          },
+        });
+      } catch {
+        if (!cancelled) setState('unreachable');
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      if (widgetId && api?.remove) api.remove(widgetId);
+    };
+  }, [siteKey, state]);
 
   async function run(): Promise<void> {
     if (!token || busy) return;
@@ -130,7 +160,7 @@ function DemoAiPanel() {
         One bounded, REAL provider call — rate-limited, budget-capped, and verified with a Turnstile
         challenge. Suggestions land as reviewable proposals on your local copy.
       </p>
-      <div id="demo-turnstile" aria-label="Bot verification" />
+      <div ref={turnstileContainer} id="demo-turnstile" aria-label="Bot verification" />
       <button type="button" className="button" disabled={!token || busy} onClick={() => void run()}>
         {busy ? 'Asking the model…' : 'Request AI suggestions'}
       </button>
@@ -194,7 +224,7 @@ function DemoPage() {
       <header>
         <p className="empty-hint">Public demo · everything below runs locally in your browser</p>
         <h1 id="demo-title">
-          GuideForge turns source documents into verifiable, runnable procedures.
+          GuideForge turns source documents into guides people can actually follow.
         </h1>
         <p>
           Author once from cited sources, then run the guide anywhere — with interactive assets,
